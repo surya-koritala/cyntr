@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -84,4 +85,64 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		"content":    chatResp.Content,
 		"tools_used": chatResp.ToolsUsed,
 	})
+}
+
+func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	agentName := r.PathValue("name")
+	message := r.URL.Query().Get("message")
+
+	if message == "" {
+		RespondError(w, 400, "INVALID_REQUEST", "message query parameter required")
+		return
+	}
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		RespondError(w, 500, "STREAMING_NOT_SUPPORTED", "server does not support streaming")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	// For now, use the non-streaming chat via IPC and send result as a single SSE event.
+	// Full streaming integration (bypassing IPC for direct provider access) can be added later.
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.chat",
+		Payload: agent.ChatRequest{
+			Agent:   agentName,
+			Tenant:  tid,
+			Message: message,
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+		flusher.Flush()
+		return
+	}
+
+	chatResp, ok := resp.Payload.(agent.ChatResponse)
+	if !ok {
+		fmt.Fprintf(w, "event: error\ndata: unexpected response type\n\n")
+		flusher.Flush()
+		return
+	}
+
+	// Send the response as SSE events
+	data, _ := json.Marshal(map[string]any{
+		"type":    "text",
+		"content": chatResp.Content,
+	})
+	fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
+	flusher.Flush()
+
+	// Send done event
+	fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+	flusher.Flush()
 }

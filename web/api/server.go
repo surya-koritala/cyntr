@@ -40,6 +40,7 @@ func (s *Server) registerRoutes() {
 	// Agents
 	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/agents", s.handleAgentCreate)
 	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/agents/{name}/chat", s.handleAgentChat)
+	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/stream", s.handleAgentChatStream)
 
 	// Policies
 	s.mux.HandleFunc("POST /api/v1/policies/test", s.handlePolicyTest)
