@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
@@ -46,6 +47,10 @@ func (g *Gateway) Start(ctx context.Context) error {
 	// Create HTTP handler — no default upstream; registered agents serve their own traffic
 	handler := NewHandler(g.bus, "")
 
+	// Rate limiting: 100 requests per minute per tenant
+	rateLimiter := NewRateLimiter(100, 1*time.Minute)
+	wrappedHandler := rateLimiter.Middleware(handler)
+
 	// Start HTTP server
 	ln, err := net.Listen("tcp", g.listenAddr)
 	if err != nil {
@@ -53,7 +58,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 	}
 	g.listener = ln
 
-	g.server = &http.Server{Handler: handler}
+	g.server = &http.Server{Handler: wrappedHandler}
 
 	go g.server.Serve(ln) //nolint:errcheck
 
