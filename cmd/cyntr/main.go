@@ -14,7 +14,9 @@ import (
 	agenttools "github.com/cyntr-dev/cyntr/modules/agent/tools"
 	"github.com/cyntr-dev/cyntr/modules/audit"
 	"github.com/cyntr-dev/cyntr/modules/channel"
+	emailpkg "github.com/cyntr-dev/cyntr/modules/channel/email"
 	slackpkg "github.com/cyntr-dev/cyntr/modules/channel/slack"
+	teamspkg "github.com/cyntr-dev/cyntr/modules/channel/teams"
 	"github.com/cyntr-dev/cyntr/modules/federation"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
@@ -153,6 +155,55 @@ func runStart() {
 		slackAdapter := slackpkg.New(slackAddr, slackToken, slackTenant, slackAgent)
 		channelMgr.AddAdapter(slackAdapter)
 		fmt.Printf("registered Slack adapter (tenant: %s, agent: %s, listen: %s)\n", slackTenant, slackAgent, slackAddr)
+	}
+
+	// Register Teams adapter if configured
+	teamsAppID := os.Getenv("TEAMS_APP_ID")
+	if teamsAppID != "" {
+		teamsSecret := os.Getenv("TEAMS_APP_SECRET")
+		teamsTenant := os.Getenv("TEAMS_TENANT")
+		if teamsTenant == "" {
+			teamsTenant = "default"
+		}
+		teamsAgent := os.Getenv("TEAMS_AGENT")
+		if teamsAgent == "" {
+			teamsAgent = "assistant"
+		}
+		teamsAddr := os.Getenv("TEAMS_LISTEN_ADDR")
+		if teamsAddr == "" {
+			teamsAddr = "127.0.0.1:3001"
+		}
+		teamsAdapter := teamspkg.New(teamsAddr, teamsAppID, teamsSecret, teamsTenant, teamsAgent)
+		channelMgr.AddAdapter(teamsAdapter)
+		fmt.Printf("registered Teams adapter (tenant: %s, listen: %s)\n", teamsTenant, teamsAddr)
+	}
+
+	// Register Email adapter if configured
+	emailSMTP := os.Getenv("EMAIL_SMTP_HOST")
+	if emailSMTP != "" {
+		emailPort := os.Getenv("EMAIL_SMTP_PORT")
+		if emailPort == "" {
+			emailPort = "587"
+		}
+		emailFrom := os.Getenv("EMAIL_FROM")
+		if emailFrom == "" {
+			emailFrom = "cyntr@localhost"
+		}
+		emailTenant := os.Getenv("EMAIL_TENANT")
+		if emailTenant == "" {
+			emailTenant = "default"
+		}
+		emailAgent := os.Getenv("EMAIL_AGENT")
+		if emailAgent == "" {
+			emailAgent = "assistant"
+		}
+		emailAddr := os.Getenv("EMAIL_LISTEN_ADDR")
+		if emailAddr == "" {
+			emailAddr = "127.0.0.1:3002"
+		}
+		emailAdapter := emailpkg.New(emailAddr, emailSMTP, emailPort, emailFrom, emailTenant, emailAgent)
+		channelMgr.AddAdapter(emailAdapter)
+		fmt.Printf("registered Email adapter (tenant: %s, listen: %s)\n", emailTenant, emailAddr)
 	}
 
 	proxyGateway := proxy.NewGateway(cfg.Listen.Address)
