@@ -6,8 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/cyntr-dev/cyntr/modules/proxy"
 )
 
 // AnthropicParser extracts intent from Anthropic API requests.
@@ -19,8 +17,8 @@ func (p *AnthropicParser) Matches(r *http.Request) bool {
 		r.Header.Get("X-API-Key") != ""
 }
 
-func (p *AnthropicParser) Parse(r *http.Request) (proxy.Intent, error) {
-	intent := proxy.Intent{
+func (p *AnthropicParser) Parse(r *http.Request) (Intent, error) {
+	intent := Intent{
 		Action:   "model_call",
 		Provider: "anthropic",
 	}

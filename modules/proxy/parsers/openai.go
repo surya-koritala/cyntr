@@ -6,8 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/cyntr-dev/cyntr/modules/proxy"
 )
 
 // OpenAIParser extracts intent from OpenAI-compatible API requests.
@@ -18,8 +16,8 @@ func (p *OpenAIParser) Matches(r *http.Request) bool {
 		strings.HasPrefix(r.URL.Path, "/v1/chat/completions")
 }
 
-func (p *OpenAIParser) Parse(r *http.Request) (proxy.Intent, error) {
-	intent := proxy.Intent{
+func (p *OpenAIParser) Parse(r *http.Request) (Intent, error) {
+	intent := Intent{
 		Action:   "model_call",
 		Provider: "openai",
 	}
