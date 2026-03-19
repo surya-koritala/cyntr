@@ -11,6 +11,7 @@ import (
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 	agentproviders "github.com/cyntr-dev/cyntr/modules/agent/providers"
+	agenttools "github.com/cyntr-dev/cyntr/modules/agent/tools"
 	"github.com/cyntr-dev/cyntr/modules/audit"
 	"github.com/cyntr-dev/cyntr/modules/channel"
 	"github.com/cyntr-dev/cyntr/modules/federation"
@@ -82,6 +83,12 @@ func runStart() {
 	agentRuntime.SetSessionStore(sessionStore)
 
 	agentRuntime.RegisterProvider(agentproviders.NewMock("Default mock response"))
+
+	// Register tools
+	toolReg := agent.NewToolRegistry()
+	toolReg.Register(&agenttools.ShellTool{})
+	toolReg.Register(agenttools.NewHTTPTool())
+	agentRuntime.SetToolRegistry(toolReg)
 
 	// Register Claude provider if API key is set
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
