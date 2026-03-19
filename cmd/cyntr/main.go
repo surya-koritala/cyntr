@@ -14,6 +14,7 @@ import (
 	agenttools "github.com/cyntr-dev/cyntr/modules/agent/tools"
 	"github.com/cyntr-dev/cyntr/modules/audit"
 	"github.com/cyntr-dev/cyntr/modules/channel"
+	slackpkg "github.com/cyntr-dev/cyntr/modules/channel/slack"
 	"github.com/cyntr-dev/cyntr/modules/federation"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
@@ -102,6 +103,27 @@ func runStart() {
 	}
 
 	channelMgr := channel.NewManager()
+
+	// Register Slack adapter if token is set
+	slackToken := os.Getenv("SLACK_BOT_TOKEN")
+	if slackToken != "" {
+		slackTenant := os.Getenv("SLACK_TENANT")
+		if slackTenant == "" {
+			slackTenant = "default"
+		}
+		slackAgent := os.Getenv("SLACK_AGENT")
+		if slackAgent == "" {
+			slackAgent = "assistant"
+		}
+		slackAddr := os.Getenv("SLACK_LISTEN_ADDR")
+		if slackAddr == "" {
+			slackAddr = "127.0.0.1:3000"
+		}
+		slackAdapter := slackpkg.New(slackAddr, slackToken, slackTenant, slackAgent)
+		channelMgr.AddAdapter(slackAdapter)
+		fmt.Printf("registered Slack adapter (tenant: %s, agent: %s, listen: %s)\n", slackTenant, slackAgent, slackAddr)
+	}
+
 	proxyGateway := proxy.NewGateway(cfg.Listen.Address)
 	skillRuntime := skill.NewRuntime()
 	federationMod := federation.NewModule("cyntr-local")
