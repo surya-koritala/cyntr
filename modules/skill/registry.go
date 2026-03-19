@@ -66,6 +66,17 @@ func (r *Registry) Uninstall(name string) error {
 	return nil
 }
 
+// InstallDirect adds a pre-loaded skill to the registry.
+func (r *Registry) InstallDirect(s *InstalledSkill) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.skills[s.Manifest.Name]; exists {
+		return fmt.Errorf("skill %q already installed", s.Manifest.Name)
+	}
+	r.skills[s.Manifest.Name] = s
+	return nil
+}
+
 // GetInstructions returns the instructions (skill.md content) for the given skill names.
 // Returns a map of name -> instructions. Missing skills are skipped.
 func (r *Registry) GetInstructions(names []string) map[string]string {

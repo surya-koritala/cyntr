@@ -19,6 +19,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
 	"github.com/cyntr-dev/cyntr/modules/skill"
+	"github.com/cyntr-dev/cyntr/modules/skill/compat"
 	"github.com/cyntr-dev/cyntr/web"
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
@@ -134,6 +135,7 @@ func runStart() {
 
 	proxyGateway := proxy.NewGateway(cfg.Listen.Address)
 	skillRuntime := skill.NewRuntime()
+	skillRuntime.SetOpenClawLoader(compat.LoadOpenClawSkillFromFile)
 	federationMod := federation.NewModule("cyntr-local")
 
 	k.Register(policyEngine)
