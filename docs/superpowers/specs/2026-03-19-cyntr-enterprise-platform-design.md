@@ -33,9 +33,51 @@ The kernel is a thin, secure core that boots modules, manages their lifecycle, a
 - **Signal Handler** — graceful shutdown, hot config reload (SIGHUP)
 - **Federation Protocol** — peer discovery, policy sync, audit replication across Cyntr instances
 
+### IPC Bus Specification
+
+The IPC bus is the backbone of all inter-module communication. Modules never talk to each other directly.
+
+**Message envelope:**
+```go
+type Message struct {
+    ID        string          // unique request ID (ULID)
+    Source    string          // source module name
+    Target    string          // target module name (or "*" for broadcast)
+    Type      MessageType     // Request, Response, Event
+    Payload   any             // typed payload per message kind
+    Deadline  time.Time       // from context.Context
+    TraceID   string          // for distributed tracing
+}
+```
+
+**Communication patterns:**
+- **Synchronous request/reply** — for policy checks, identity resolution, and any call that must complete before proceeding. Caller blocks until response or deadline.
+- **Async pub/sub** — for events (audit entries, config changes, health updates). Subscribers receive events on buffered channels. Slow subscribers get backpressure warnings then dropped events (logged to audit).
+
+**Transport layer (pluggable):**
+- **Namespace isolation mode** — in-process typed Go channels. Zero serialization overhead.
+- **Process isolation mode** — Unix domain sockets with protobuf serialization. Same `Message` interface, different transport. Modules are unaware of which transport is active.
+
+**Backpressure:** Channel buffers default to 1024 messages. When a buffer is 80% full, the kernel logs a warning. At 100%, new messages to that module are rejected with `ErrModuleOverloaded` and the caller receives an error (not silently dropped).
+
+**Timeouts & cancellation:** All request/reply calls inherit `context.Context` from the caller. Default timeout: 5 seconds for policy checks, 30 seconds for model calls. Configurable per message type.
+
+### Failure Modes & Recovery
+
+The system is **fail-closed by default** — if a security-critical component is unavailable, operations are denied rather than allowed.
+
+| Failure | Behavior |
+|---------|----------|
+| Policy Engine unavailable | Proxy Gateway denies all requests. Audit logs the outage. Alert raised. |
+| IPC message dropped / module crash | Kernel detects via health checks (1s interval). Restarts crashed module. In-flight requests receive `ErrModuleUnavailable`. Callers retry or fail to user. |
+| Federation peer unreachable | Local operations continue unaffected. Policy sync pauses for that peer (retry with exponential backoff). Federated audit queries return partial results with a warning indicating which peers were unreachable. |
+| Audit hash chain corruption | Detected by periodic integrity checks (`cyntr audit verify` runs automatically every hour). Alerts admin. Affected segment is quarantined. New entries continue on a new chain segment with a pointer to the break. |
+| External agent endpoint unresponsive | Circuit breaker trips after 3 consecutive failures (configurable). Returns error to caller. Automatically retries after backoff period. Admin notified. |
+| Config store fails to load | Kernel refuses to start. Modules retain last known good config if already running and config reload fails. |
+
 ### Key Design Principle
 
-Modules never talk to each other directly. All communication goes through the IPC bus, which means the kernel can log, rate-limit, and policy-check inter-module calls.
+All IPC communication flows through the kernel bus, which means the kernel can log, rate-limit, and policy-check inter-module calls.
 
 ---
 
@@ -63,7 +105,12 @@ All traffic — internal agent calls, external agent orchestration, model API re
 - **External agent proxy** — OpenClaw, LangChain, CrewAI instances route all traffic through this gateway. Framework-agnostic enforcement at the HTTP/WebSocket level.
 - **Rate limiting, circuit breaking** — per-tenant, per-agent
 - **Protocol support** — HTTP/HTTPS, WebSocket, gRPC
-- **Intent extraction** — understands what's happening semantically (model call, tool invocation, file op, shell command) so policies can be semantic rather than URL-based
+- **Intent extraction** — protocol-specific parsers extract semantic meaning from requests:
+  - **OpenAI-compatible APIs** — parse request body to extract model name, messages, tool_use blocks, token counts
+  - **Anthropic API** — parse for model, tools, system prompts, token usage
+  - **WebSocket frames** — parse OpenClaw Gateway protocol messages for tool calls and commands
+  - **Unknown protocols** — fall back to URL path + HTTP method + header matching. Policies at this level are structural (allow/deny endpoint patterns), not semantic.
+  - New protocol parsers are added as Go functions in `modules/proxy/parsers/` — one file per protocol.
 
 **External agent orchestration flow:**
 1. Admin registers an external agent with Cyntr, specifying its type and endpoint
@@ -100,8 +147,8 @@ Secure skill execution with the new Cyntr skill format.
 my-skill/
 ├── skill.yaml          # manifest — capabilities, dependencies, signature
 ├── skill.md            # instructions for the agent
-├── handlers/           # executable logic (Go plugins, WASM, or scripts)
-│   └── main.go
+├── handlers/           # executable logic (WASM via wazero — primary runtime)
+│   └── main.wasm
 ├── tests/              # required — skills without tests are rejected
 │   ├── unit_test.go
 │   └── live_test.go
@@ -124,7 +171,8 @@ capabilities:
     - http_request
     - json_parse
 
-dependencies: []
+system_requirements:
+  wazero: ">=1.0"
 
 requires:
   env:
@@ -141,7 +189,8 @@ signing:
 - **Capability declaration** — skills declare exactly what they need. Undeclared access is denied.
 - **Mandatory signing** — registry signs public skills after review. Enterprises sign private skills with their own CA.
 - **Mandatory tests** — registry rejects skills without unit and live tests.
-- **No transitive dependencies** — skills cannot depend on other skills. Eliminates supply chain depth attacks.
+- **No transitive dependencies** — skills cannot depend on other skills. Eliminates supply chain depth attacks. Enforced at two levels: (a) `skill.yaml` schema has no field for skill-to-skill dependencies, and (b) the Skill Runtime blocks any IPC call from one skill to another at the bus level.
+- **Primary execution runtime: WASM via wazero** — compiles to a single binary (no CGO), provides a true sandbox with controlled syscall access. Skills declare capabilities in `skill.yaml`; the wazero runtime only exposes the WASI interfaces matching those declarations (e.g., network access only to declared endpoints, filesystem access only to declared paths). Future: additional runtimes (container-based for heavy workloads) can be added behind the same interface.
 
 **Curated registry pipeline:** Submission -> Static Analysis -> Capability Audit -> Test Execution -> Human Review -> Sign & Publish
 
@@ -202,6 +251,25 @@ Tamper-evident, comprehensive logging for compliance.
 
 **Compliance:** SOC 2 (comprehensive access logging + tamper evidence), GDPR (data access tracking + tenant data residency), HIPAA (access logging + process isolation for healthcare tenants), custom compliance annotations.
 
+---
+
+## Data Storage
+
+All persistent data mapped to storage mechanisms:
+
+| Data Category | Storage | Durability |
+|---------------|---------|------------|
+| Configuration (tenants, policies, roles, agent config) | YAML files on disk (`/etc/cyntr/` or `~/.cyntr/config/`) | Filesystem. Backed by git for version history. |
+| Audit logs | SQLite (append-only, dedicated database per day) | Write-ahead log enabled. fsync on every commit. |
+| Agent session history & memory | SQLite (one database per tenant, `~/.cyntr/data/<tenant>/sessions.db`) | WAL mode. Survives restarts. |
+| Skill metadata & registry cache | SQLite (`~/.cyntr/data/skills.db`) | Rebuilt from registry on corruption. |
+| Federation peer records | YAML config file (`~/.cyntr/federation/peers.yaml`) + SQLite for sync state | Filesystem + SQLite. |
+| RBAC mappings (IdP group -> role) | YAML config (part of tenant config) | Filesystem. |
+| Runtime state (in-flight requests, IPC queues) | In-memory only | Lost on restart. Designed to be reconstructable. |
+| PKI certificates & keys | Files on disk (`~/.cyntr/cert.pem`, `identity.key`, `identity.pub`) | Filesystem. Never leave the node. |
+
+**Why SQLite everywhere:** Single binary philosophy — no external database to install, configure, or manage. SQLite handles concurrent reads well, and Cyntr controls all writes through the kernel. Each database file is scoped (per-tenant, per-day) to limit blast radius and simplify backup/retention.
+
 ### 2.7 Federation
 
 Multi-site awareness for distributed enterprise deployments.
@@ -226,8 +294,8 @@ Multi-site awareness for distributed enterprise deployments.
 **Policy sync:**
 - Global policies propagate to all peers within seconds
 - Local policies can extend (add restrictions) but never weaken global rules
-- Conflict resolution: most-restrictive-wins
-- Policy versioning — peers reject out-of-order updates
+- Conflict resolution: most-restrictive-wins. Restriction is a partial order — each policy dimension (allow/deny/require_approval) is compared independently. If two rules restrict different dimensions, both restrictions apply. Simultaneous conflicting global policy updates are resolved by deterministic tiebreaker (lowest lexicographic peer ID wins). A `policy_conflict` audit event is emitted so admins can see and resolve conflicts.
+- Policy versioning — monotonic version numbers per policy. Peers reject out-of-order updates.
 
 **Federated audit queries:**
 - On-demand, not pre-replicated (saves bandwidth, respects data locality)
@@ -270,13 +338,17 @@ Two modes, configurable per tenant:
 ### Namespace Isolation (Default)
 - Agents run as goroutines in the main Cyntr process
 - Isolated via Go interfaces — each tenant gets own config, policy scope, audit stream, resource quotas
-- Resource Manager enforces goroutine counts, memory limits, API call budgets
+- Resource Manager enforcement capabilities in namespace mode:
+  - **Goroutine counts** — tracked via wrapper around `go` calls. Hard limit per tenant.
+  - **Memory per tenant** — approximate tracking via allocation sampling at tenant boundary. For hard memory limits, use process isolation.
+  - **File descriptors** — tracked via wrapper around `os.Open`. Hard limit per tenant.
+  - **API call budgets** — exact tracking via Proxy Gateway (all calls pass through it).
 - Lightweight, efficient, good for most teams
-- Risk: panic in one agent could affect others (mitigated by recovery handlers)
+- Risk: panic in one agent could affect others (mitigated by `recover()` handlers on every agent goroutine)
 
 ### Process Isolation (High-Security)
 - Agents run as separate OS processes spawned by kernel
-- Communication via Unix domain sockets (still through IPC bus)
+- Communication via Unix domain sockets with protobuf serialization (same IPC bus interface, pluggable transport — see IPC Bus Specification in Section 1)
 - Optional cgroup/namespace enforcement on Linux for CPU, memory, filesystem isolation
 - Full crash isolation
 - Higher overhead but complete tenant separation
@@ -326,7 +398,7 @@ roles:
     - export_audit
 ```
 
-Roles assigned per tenant. Users can hold different roles in different tenants. Roles map from IdP groups (e.g., AD group `Finance-Admins` -> `admin` role in `finance` tenant).
+Roles assigned per tenant. Users can hold different roles in different tenants. Roles map from IdP groups (e.g., AD group `Finance-Admins` -> `admin` role in `finance` tenant). Custom roles can be defined in tenant config with arbitrary permission sets — the four listed roles are built-in defaults.
 
 ### Agent Identity
 Agents are principals too — each has an identity, API credentials, policy scope, and audit trail. Audit answers both "what did user X do?" and "what did agent Y do on behalf of user X?"
@@ -371,6 +443,8 @@ cyntr test unit / integration / live
 
 Served by the kernel (default `:7700`). Static assets compiled into the binary. Authenticates via enterprise IdP (SAML/OIDC).
 
+**Frontend technology:** Plain HTML/JS with htmx for dynamic interactions. No heavy SPA framework — keeps the build simple (no Node.js toolchain), assets compile directly into the Go binary, and aligns with the minimal-dependency philosophy.
+
 **Pages:** Dashboard (health, approvals, recent audit), Agents (list, config, logs, chat), Tenants (manage, isolation, resources), Policy (visual editor, test, enforcement stats), Skills (registry, install, capabilities), Audit (search, filter, export, chain verification), Federation (peer status, sync health, cross-site queries), Proxy (external agent traffic, request log, policy hits).
 
 ---
@@ -410,3 +484,69 @@ cyntr/
 - All inter-module calls go through IPC bus, never direct imports between `modules/*` packages
 - `tenant/` and `auth/` are shared packages used by kernel and modules
 - Unit tests alongside code (`*_test.go`), cross-module tests in `tests/`
+
+---
+
+## 7. API Specification
+
+Both CLI and Web UI consume the same REST API served by the kernel on the configured port.
+
+### Resource Groups & Operations
+
+| Resource | Endpoints | Operations |
+|----------|-----------|------------|
+| **Tenants** | `/api/v1/tenants` | CRUD, list, update isolation mode, resource usage |
+| **Agents** | `/api/v1/tenants/{tid}/agents` | CRUD, list, start/stop, logs, interactive chat (WebSocket) |
+| **Policies** | `/api/v1/tenants/{tid}/policies` | CRUD, list, test (dry-run evaluation), apply |
+| **Skills** | `/api/v1/skills` | List registry, install, uninstall, verify, per-tenant listing |
+| **Audit** | `/api/v1/audit` | Query (with filters), export, verify chain integrity |
+| **Federation** | `/api/v1/federation/peers` | List, join, remove, sync status |
+| **Proxy** | `/api/v1/proxy/agents` | Register external agent, list, traffic stats |
+| **Identity** | `/api/v1/auth` | OIDC/SAML callback, session info, API key management |
+| **System** | `/api/v1/system` | Health, module status, config reload, version |
+
+### Authentication
+
+All API requests require authentication:
+- **Web UI / interactive** — JWT from OIDC/SAML flow, passed as `Authorization: Bearer <token>`
+- **Service accounts / automation** — scoped API keys, passed as `Authorization: Bearer <api-key>`
+- **Federation peers** — mTLS (no token needed, identity from client certificate)
+
+### Response Format
+
+All responses follow a consistent envelope:
+```json
+{
+  "data": { ... },
+  "meta": { "request_id": "...", "timestamp": "..." },
+  "error": null
+}
+```
+
+Errors use standard HTTP status codes with structured error bodies:
+```json
+{
+  "data": null,
+  "meta": { "request_id": "...", "timestamp": "..." },
+  "error": { "code": "POLICY_DENIED", "message": "...", "details": { ... } }
+}
+```
+
+---
+
+## 8. Versioning Strategy
+
+### API Versioning
+- URL-prefixed: `/api/v1/`, `/api/v2/`, etc.
+- Breaking changes require a new major version. Non-breaking additions (new fields, new endpoints) are added to the current version.
+- Previous API versions supported for at least 2 major Cyntr releases after deprecation.
+
+### Config Schema Versioning
+- Config files include a `version` field: `version: "1"`.
+- The kernel validates config version on load. If the version is outdated, `cyntr doctor` provides migration instructions.
+- Config migrations are built into the binary — `cyntr config migrate` upgrades config files in place.
+
+### Federation Protocol Versioning
+- Peers exchange protocol version during mTLS handshake.
+- Peers must agree on a compatible protocol version to federate. Version negotiation selects the highest mutually supported version.
+- Protocol changes are backwards-compatible within a major version.
