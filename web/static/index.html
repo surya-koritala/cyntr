@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyntr Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; }
+        .header { background: #111; padding: 16px 24px; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 12px; }
+        .header h1 { font-size: 18px; font-weight: 600; }
+        .header .version { color: #666; font-size: 13px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .card { background: #111; border: 1px solid #222; border-radius: 8px; padding: 20px; }
+        .card h2 { font-size: 14px; color: #888; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .card .value { font-size: 28px; font-weight: 700; }
+        .status-ok { color: #4ade80; }
+        .status-err { color: #f87171; }
+        #health-data, #modules-data { font-family: monospace; font-size: 13px; white-space: pre-wrap; color: #aaa; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Cyntr</h1>
+        <span class="version">v0.1.0</span>
+    </div>
+    <div class="container">
+        <div class="grid">
+            <div class="card">
+                <h2>System Health</h2>
+                <div id="health-status" class="value status-ok">Loading...</div>
+                <div id="health-data"></div>
+            </div>
+            <div class="card">
+                <h2>Version</h2>
+                <div id="version" class="value">-</div>
+            </div>
+            <div class="card">
+                <h2>Tenants</h2>
+                <div id="tenant-count" class="value">-</div>
+            </div>
+        </div>
+    </div>
+    <script>
+        async function fetchData() {
+            try {
+                const [health, version, tenants] = await Promise.all([
+                    fetch('/api/v1/system/health').then(r => r.json()),
+                    fetch('/api/v1/system/version').then(r => r.json()),
+                    fetch('/api/v1/tenants').then(r => r.json()),
+                ]);
+                document.getElementById('health-status').textContent = 'Healthy';
+                document.getElementById('health-status').className = 'value status-ok';
+                document.getElementById('health-data').textContent = JSON.stringify(health.data, null, 2);
+                document.getElementById('version').textContent = version.data?.version || '-';
+                const tenantList = Array.isArray(tenants.data) ? tenants.data : [];
+                document.getElementById('tenant-count').textContent = tenantList.length;
+            } catch(e) {
+                document.getElementById('health-status').textContent = 'Error';
+                document.getElementById('health-status').className = 'value status-err';
+            }
+        }
+        fetchData();
+        setInterval(fetchData, 10000);
+    </script>
+</body>
+</html>
