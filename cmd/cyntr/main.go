@@ -74,6 +74,18 @@ func runStart() {
 	auditLogger := audit.NewLogger("audit.db", "cyntr-local", "audit-secret")
 	agentRuntime := agent.NewRuntime()
 	agentRuntime.RegisterProvider(agentproviders.NewMock("Default mock response"))
+
+	// Register Claude provider if API key is set
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	if anthropicKey != "" {
+		claudeModel := os.Getenv("ANTHROPIC_MODEL")
+		if claudeModel == "" {
+			claudeModel = "claude-sonnet-4-20250514"
+		}
+		agentRuntime.RegisterProvider(agentproviders.NewAnthropic(anthropicKey, claudeModel, ""))
+		fmt.Printf("registered Claude provider (model: %s)\n", claudeModel)
+	}
+
 	channelMgr := channel.NewManager()
 	proxyGateway := proxy.NewGateway(cfg.Listen.Address)
 	skillRuntime := skill.NewRuntime()
