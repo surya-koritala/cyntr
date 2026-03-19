@@ -3,9 +3,13 @@ package kernel
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cyntr-dev/cyntr/kernel/ipc"
 )
 
 type testModule struct {
@@ -374,5 +378,88 @@ func TestKernelHealthReport(t *testing.T) {
 	}
 	if report["unhealthy"].Healthy {
 		t.Fatal("expected 'unhealthy' module to be unhealthy")
+	}
+}
+
+type ipcTestModule struct {
+	name     string
+	deps     []string
+	healthy  bool
+	bus      *ipc.Bus
+	received chan string
+}
+
+func (m *ipcTestModule) Name() string           { return m.name }
+func (m *ipcTestModule) Dependencies() []string { return m.deps }
+
+func (m *ipcTestModule) Init(ctx context.Context, svc *Services) error {
+	m.bus = svc.Bus
+	return nil
+}
+
+func (m *ipcTestModule) Start(ctx context.Context) error {
+	m.bus.Handle(m.name, "echo", func(msg ipc.Message) (ipc.Message, error) {
+		if m.received != nil {
+			m.received <- msg.Payload.(string)
+		}
+		return ipc.Message{
+			Type:    ipc.MessageTypeResponse,
+			Payload: "echo:" + msg.Payload.(string),
+		}, nil
+	})
+	return nil
+}
+
+func (m *ipcTestModule) Stop(ctx context.Context) error { return nil }
+func (m *ipcTestModule) Health(ctx context.Context) HealthStatus {
+	return HealthStatus{Healthy: m.healthy}
+}
+
+func TestKernelIntegrationModulesIPCBus(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cyntr.yaml")
+	os.WriteFile(cfgPath, []byte("version: \"1\"\nlisten:\n  address: \"127.0.0.1:8080\"\n"), 0644)
+
+	k := New()
+	k.LoadConfig(cfgPath)
+
+	received := make(chan string, 1)
+	responder := &ipcTestModule{name: "responder", healthy: true, received: received}
+	caller := &ipcTestModule{name: "caller", healthy: true}
+
+	k.Register(responder)
+	k.Register(caller)
+
+	ctx := context.Background()
+	if err := k.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer k.Stop(ctx)
+
+	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	resp, err := caller.bus.Request(reqCtx, ipc.Message{
+		Source:  "caller",
+		Target:  "responder",
+		Type:    ipc.MessageTypeRequest,
+		Topic:   "echo",
+		Payload: "hello",
+	})
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+
+	if resp.Payload != "echo:hello" {
+		t.Fatalf("expected 'echo:hello', got %v", resp.Payload)
+	}
+
+	select {
+	case val := <-received:
+		if val != "hello" {
+			t.Fatalf("responder received %q, expected 'hello'", val)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for responder")
 	}
 }
