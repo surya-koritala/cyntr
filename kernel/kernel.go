@@ -220,6 +220,14 @@ func (k *Kernel) Bus() *ipc.Bus {
 	return k.services.Bus
 }
 
+func (k *Kernel) Config() *config.Store {
+	return k.services.Config
+}
+
+func (k *Kernel) ResourceManager() *resource.Manager {
+	return k.services.Resources
+}
+
 // ReloadConfig re-reads the config file and notifies listeners.
 func (k *Kernel) ReloadConfig() error {
 	if k.services.Config == nil {
