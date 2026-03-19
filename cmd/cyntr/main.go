@@ -37,20 +37,28 @@ func main() {
 	case "start":
 		runStart()
 	case "status":
-		fmt.Println("cyntr status: use the API at /api/v1/system/health")
+		apiGet("/api/v1/system/health")
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
-		printUsage()
-		os.Exit(1)
+		runCLI(os.Args[1:])
 	}
 }
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: cyntr <command>")
 	fmt.Fprintln(os.Stderr, "commands:")
-	fmt.Fprintln(os.Stderr, "  start [config]  Start the Cyntr server")
-	fmt.Fprintln(os.Stderr, "  status          Show server status")
-	fmt.Fprintln(os.Stderr, "  version         Show version")
+	fmt.Fprintln(os.Stderr, "  start [config]                              Start the Cyntr server")
+	fmt.Fprintln(os.Stderr, "  status                                      Show server health")
+	fmt.Fprintln(os.Stderr, "  version                                     Show version")
+	fmt.Fprintln(os.Stderr, "  tenant list                                 List all tenants")
+	fmt.Fprintln(os.Stderr, "  agent create <tenant> <name> [--model m]    Create an agent")
+	fmt.Fprintln(os.Stderr, "  agent list <tenant>                         List agents for a tenant")
+	fmt.Fprintln(os.Stderr, "  agent chat <tenant> <agent> <message>       Chat with an agent")
+	fmt.Fprintln(os.Stderr, "  audit query [--tenant t]                    Query audit log")
+	fmt.Fprintln(os.Stderr, "  policy test --tenant t --action a --tool t  Test a policy")
+	fmt.Fprintln(os.Stderr, "  federation peers                            List federation peers")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "environment:")
+	fmt.Fprintln(os.Stderr, "  CYNTR_API_URL   API base URL (default: http://localhost:7700)")
 }
 
 func runStart() {
