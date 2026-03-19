@@ -20,6 +20,12 @@ type Runtime struct {
 	providers map[string]ModelProvider
 	toolReg   *ToolRegistry
 	agents    map[string]*agentInstance // "tenant/name" -> instance
+	store     *SessionStore
+}
+
+// SetSessionStore attaches a SessionStore to the runtime for persistent conversations.
+func (r *Runtime) SetSessionStore(store *SessionStore) {
+	r.store = store
 }
 
 type agentInstance struct {
@@ -83,10 +89,16 @@ func (r *Runtime) handleCreate(msg ipc.Message) (ipc.Message, error) {
 	key := cfg.Tenant + "/" + cfg.Name
 	sessID := "sess_" + generateShortID()
 
+	session := NewSession(sessID, cfg)
+	if r.store != nil {
+		r.store.SaveSession(sessID, cfg)
+		session.SetStore(r.store)
+	}
+
 	r.mu.Lock()
 	r.agents[key] = &agentInstance{
 		config:  cfg,
-		session: NewSession(sessID, cfg),
+		session: session,
 	}
 	r.mu.Unlock()
 

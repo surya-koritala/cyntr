@@ -8,6 +8,12 @@ type Session struct {
 	id      string
 	config  AgentConfig
 	history []Message
+	store   *SessionStore
+}
+
+// SetStore attaches a SessionStore to the session for persistence.
+func (s *Session) SetStore(store *SessionStore) {
+	s.store = store
 }
 
 // NewSession creates a new conversation session.
@@ -35,6 +41,9 @@ func (s *Session) AddMessage(msg Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.history = append(s.history, msg)
+	if s.store != nil {
+		s.store.AppendMessage(s.id, msg)
+	}
 }
 
 // History returns a copy of the conversation history.
