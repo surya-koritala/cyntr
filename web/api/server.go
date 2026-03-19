@@ -48,6 +48,7 @@ func (s *Server) registerRoutes() {
 	// Skills
 	s.mux.HandleFunc("GET /api/v1/skills", s.handleSkillList)
 	s.mux.HandleFunc("POST /api/v1/skills", s.handleSkillInstall)
+	s.mux.HandleFunc("POST /api/v1/skills/import/openclaw", s.handleSkillImportOpenClaw)
 
 	// Audit
 	s.mux.HandleFunc("GET /api/v1/audit", s.handleAuditQuery)

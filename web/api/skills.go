@@ -47,3 +47,24 @@ func (s *Server) handleSkillInstall(w http.ResponseWriter, r *http.Request) {
 
 	Respond(w, 201, map[string]string{"status": "installed"})
 }
+
+func (s *Server) handleSkillImportOpenClaw(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "skill_runtime", Topic: "skill.import_openclaw",
+		Payload: body.Path,
+	})
+	if err != nil {
+		RespondError(w, 500, "IMPORT_FAILED", err.Error())
+		return
+	}
+	Respond(w, 201, map[string]string{"status": "imported", "name": resp.Payload.(string)})
+}

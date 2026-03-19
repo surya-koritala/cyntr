@@ -174,6 +174,25 @@ func runCLI(args []string) {
 			os.Exit(1)
 		}
 
+	case "skill":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: cyntr skill <list|import-openclaw>")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "list":
+			apiGet("/api/v1/skills")
+		case "import-openclaw":
+			if len(args) < 3 {
+				fmt.Fprintln(os.Stderr, "usage: cyntr skill import-openclaw <path>")
+				os.Exit(1)
+			}
+			apiPost("/api/v1/skills/import/openclaw", map[string]string{"path": args[2]})
+		default:
+			fmt.Fprintf(os.Stderr, "unknown skill command: %s\n", args[1])
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		printUsage()
