@@ -111,6 +111,28 @@ func runStart() {
 		fmt.Printf("registered Claude provider (model: %s)\n", claudeModel)
 	}
 
+	// Register OpenAI provider if API key is set
+	openaiKey := os.Getenv("OPENAI_API_KEY")
+	if openaiKey != "" {
+		openaiModel := os.Getenv("OPENAI_MODEL")
+		if openaiModel == "" {
+			openaiModel = "gpt-4"
+		}
+		agentRuntime.RegisterProvider(agentproviders.NewOpenAI(openaiKey, openaiModel, ""))
+		fmt.Printf("registered GPT provider (model: %s)\n", openaiModel)
+	}
+
+	// Register Ollama provider if URL is set
+	ollamaURL := os.Getenv("OLLAMA_URL")
+	if ollamaURL != "" {
+		ollamaModel := os.Getenv("OLLAMA_MODEL")
+		if ollamaModel == "" {
+			ollamaModel = "llama3"
+		}
+		agentRuntime.RegisterProvider(agentproviders.NewOllama(ollamaModel, ollamaURL))
+		fmt.Printf("registered Ollama provider (model: %s)\n", ollamaModel)
+	}
+
 	channelMgr := channel.NewManager()
 
 	// Register Slack adapter if token is set
