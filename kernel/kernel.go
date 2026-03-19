@@ -215,6 +215,11 @@ func (k *Kernel) HealthReport(ctx context.Context) map[string]HealthStatus {
 	return report
 }
 
+// Bus returns the IPC bus for integration testing and CLI use.
+func (k *Kernel) Bus() *ipc.Bus {
+	return k.services.Bus
+}
+
 // ReloadConfig re-reads the config file and notifies listeners.
 func (k *Kernel) ReloadConfig() error {
 	if k.services.Config == nil {
