@@ -215,6 +215,14 @@ func (k *Kernel) HealthReport(ctx context.Context) map[string]HealthStatus {
 	return report
 }
 
+// ReloadConfig re-reads the config file and notifies listeners.
+func (k *Kernel) ReloadConfig() error {
+	if k.services.Config == nil {
+		return fmt.Errorf("no config loaded")
+	}
+	return k.services.Config.Reload()
+}
+
 func (k *Kernel) topoSort() ([]int, error) {
 	n := len(k.modules)
 	inDegree := make([]int, n)
