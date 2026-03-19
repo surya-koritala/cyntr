@@ -73,6 +73,14 @@ func runStart() {
 	policyEngine := policy.NewEngine(policyPath)
 	auditLogger := audit.NewLogger("audit.db", "cyntr-local", "audit-secret")
 	agentRuntime := agent.NewRuntime()
+
+	sessionStore, err := agent.NewSessionStore("sessions.db")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "session store error: %v\n", err)
+		os.Exit(1)
+	}
+	agentRuntime.SetSessionStore(sessionStore)
+
 	agentRuntime.RegisterProvider(agentproviders.NewMock("Default mock response"))
 
 	// Register Claude provider if API key is set
