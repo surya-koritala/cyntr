@@ -97,6 +97,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	// Fix Host header so upstream (e.g., api.anthropic.com) accepts the request
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = upstream.Host
+	}
 	proxy.ServeHTTP(w, r)
 }
 

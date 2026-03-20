@@ -15,12 +15,13 @@ import (
 
 // Gateway is the Proxy Gateway kernel module.
 type Gateway struct {
-	listenAddr string
-	bus        *ipc.Bus
-	server     *http.Server
-	listener   net.Listener
-	mu         sync.RWMutex
-	agents     map[string]ExternalAgent
+	listenAddr  string
+	upstreamURL string
+	bus         *ipc.Bus
+	server      *http.Server
+	listener    net.Listener
+	mu          sync.RWMutex
+	agents      map[string]ExternalAgent
 }
 
 // NewGateway creates a new Proxy Gateway module.
@@ -29,6 +30,11 @@ func NewGateway(listenAddr string) *Gateway {
 		listenAddr: listenAddr,
 		agents:     make(map[string]ExternalAgent),
 	}
+}
+
+// SetUpstreamURL sets the default upstream URL for proxied requests.
+func (g *Gateway) SetUpstreamURL(url string) {
+	g.upstreamURL = url
 }
 
 func (g *Gateway) Name() string           { return "proxy" }
@@ -44,8 +50,8 @@ func (g *Gateway) Start(ctx context.Context) error {
 	g.bus.Handle("proxy", "proxy.register", g.handleRegister)
 	g.bus.Handle("proxy", "proxy.list", g.handleList)
 
-	// Create HTTP handler — no default upstream; registered agents serve their own traffic
-	handler := NewHandler(g.bus, "")
+	// Create HTTP handler with upstream URL for proxying
+	handler := NewHandler(g.bus, g.upstreamURL)
 
 	// Rate limiting: 100 requests per minute per tenant
 	rateLimiter := NewRateLimiter(100, 1*time.Minute)

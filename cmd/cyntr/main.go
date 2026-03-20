@@ -290,6 +290,11 @@ func runStart() {
 	}
 
 	proxyGateway := proxy.NewGateway(cfg.Listen.Address)
+	proxyUpstream := os.Getenv("PROXY_UPSTREAM_URL")
+	if proxyUpstream == "" {
+		proxyUpstream = "https://api.anthropic.com"
+	}
+	proxyGateway.SetUpstreamURL(proxyUpstream)
 	skillRuntime := skill.NewRuntime()
 	skillRuntime.SetOpenClawLoader(compat.LoadOpenClawSkillFromFile)
 	federationMod := federation.NewModule("cyntr-local")
