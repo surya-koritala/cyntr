@@ -1,6 +1,8 @@
 package tenant
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -128,6 +130,65 @@ func TestProcessStateString(t *testing.T) {
 	for _, tt := range tests {
 		if got := tt.s.String(); got != tt.want {
 			t.Errorf("got %q, want %q", got, tt.want)
+		}
+	}
+}
+
+func TestProcessSupervisorConcurrentSpawn(t *testing.T) {
+	ps := NewProcessSupervisor()
+	defer ps.StopAll()
+
+	var wg sync.WaitGroup
+	errors := make([]error, 20)
+
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, err := ps.Spawn(fmt.Sprintf("proc-%d", idx), "finance", "sleep", "10")
+			errors[idx] = err
+		}(i)
+	}
+
+	wg.Wait()
+
+	// All should succeed (unique IDs)
+	for i, err := range errors {
+		if err != nil {
+			t.Fatalf("spawn %d: %v", i, err)
+		}
+	}
+
+	all := ps.ListAll()
+	if len(all) != 20 {
+		t.Fatalf("expected 20, got %d", len(all))
+	}
+}
+
+func TestProcessSupervisorCommandNotFound(t *testing.T) {
+	ps := NewProcessSupervisor()
+	_, err := ps.Spawn("bad", "t", "/nonexistent/command/xyz")
+	if err == nil {
+		t.Fatal("expected error for nonexistent command")
+	}
+}
+
+func TestProcessSupervisorStopAllConcurrent(t *testing.T) {
+	ps := NewProcessSupervisor()
+	for i := 0; i < 5; i++ {
+		ps.Spawn(fmt.Sprintf("p-%d", i), "t", "sleep", "60")
+	}
+
+	// StopAll should not panic
+	ps.StopAll()
+
+	time.Sleep(200 * time.Millisecond)
+
+	// All should be stopped
+	for i := 0; i < 5; i++ {
+		proc, ok := ps.Get(fmt.Sprintf("p-%d", i))
+		if ok && proc.State == ProcessRunning {
+			t.Fatalf("process p-%d still running", i)
 		}
 	}
 }
