@@ -323,13 +323,12 @@ func runStart() {
 	}
 
 	go func() {
-		fmt.Printf("cyntr dashboard: http://localhost%s\n", webAddr)
 		if err := http.ListenAndServe(webAddr, mux); err != nil {
 			fmt.Fprintf(os.Stderr, "web server error: %v\n", err)
 		}
 	}()
 
-	fmt.Println("cyntr started")
+	showPostStartBanner("http://localhost"+webAddr, "http://"+cfg.Listen.Address+"/api/v1/")
 
 	// Signal handling
 	sigCh := make(chan os.Signal, 1)
