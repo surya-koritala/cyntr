@@ -11,6 +11,7 @@ import (
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 	"github.com/cyntr-dev/cyntr/modules/agent/providers"
+	"github.com/cyntr-dev/cyntr/modules/policy"
 )
 
 // alwaysToolCallProvider is a model provider that always returns a tool call,
@@ -253,6 +254,74 @@ func TestRuntimeChatConcurrent(t *testing.T) {
 			t.Errorf("goroutine %d: unexpected error: %v", i, e)
 		}
 	}
+}
+
+func TestRuntimeToolPolicyDeny(t *testing.T) {
+	// Set up bus with policy that denies shell_exec
+	bus := ipc.NewBus()
+	defer bus.Close()
+
+	bus.Handle("policy", "policy.check", func(msg ipc.Message) (ipc.Message, error) {
+		req := msg.Payload.(policy.CheckRequest)
+		if req.Tool == "shell_exec" {
+			return ipc.Message{Type: ipc.MessageTypeResponse, Payload: policy.CheckResponse{Decision: policy.Deny, Rule: "deny-shell"}}, nil
+		}
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: policy.CheckResponse{Decision: policy.Allow}}, nil
+	})
+
+	// Create agent with shell tool, use mock that requests shell_exec
+	mockProvider := providers.NewMockWithToolCall("shell_exec", map[string]string{"command": "rm -rf /"})
+	toolReg := agent.NewToolRegistry()
+	// Register a dummy tool so toolDefs are populated
+	toolReg.Register(&dummyTool{name: "shell_exec"})
+
+	rt := agent.NewRuntime()
+	rt.RegisterProvider(mockProvider)
+	rt.SetToolRegistry(toolReg)
+
+	ctx := context.Background()
+	rt.Init(ctx, &kernel.Services{Bus: bus})
+	rt.Start(ctx)
+	defer rt.Stop(ctx)
+
+	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	bus.Request(reqCtx, ipc.Message{
+		Source: "test", Target: "agent_runtime", Topic: "agent.create",
+		Payload: agent.AgentConfig{Name: "shell-bot", Tenant: "finance", Model: "mock", Tools: []string{"shell_exec"}, MaxTurns: 3},
+	})
+
+	// Chat — agent should try to use shell_exec but get denied
+	resp, err := bus.Request(reqCtx, ipc.Message{
+		Source: "test", Target: "agent_runtime", Topic: "agent.chat",
+		Payload: agent.ChatRequest{Agent: "shell-bot", Tenant: "finance", User: "attacker", Message: "Run rm -rf /"},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+
+	chatResp := resp.Payload.(agent.ChatResponse)
+	// Should have used shell_exec(denied) — policy blocked it
+	hasDenied := false
+	for _, tu := range chatResp.ToolsUsed {
+		if tu == "shell_exec(denied)" {
+			hasDenied = true
+		}
+	}
+	if !hasDenied {
+		t.Fatalf("expected shell_exec(denied) in tools_used, got %v", chatResp.ToolsUsed)
+	}
+}
+
+type dummyTool struct{ name string }
+
+func (d *dummyTool) Name() string        { return d.name }
+func (d *dummyTool) Description() string { return "dummy" }
+func (d *dummyTool) Parameters() map[string]agent.ToolParam {
+	return map[string]agent.ToolParam{"command": {Type: "string"}}
+}
+func (d *dummyTool) Execute(ctx context.Context, input map[string]string) (string, error) {
+	return "executed", nil
 }
 
 // TestRuntimeListEmptyTenant verifies that listing agents for a tenant that has

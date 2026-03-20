@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/modules/policy"
 )
 
 // Runtime is the Agent Runtime kernel module.
@@ -140,6 +142,41 @@ func (r *Runtime) LoadSavedAgents() error {
 	return nil
 }
 
+// checkToolPolicy checks if a tool execution is allowed.
+// Returns "allow", "deny", or "require_approval".
+// When no policy module is registered, defaults to "allow" (permissive).
+func (r *Runtime) checkToolPolicy(tenant, user, agentName, toolName string) string {
+	if r.bus == nil {
+		return "allow"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	resp, err := r.bus.Request(ctx, ipc.Message{
+		Source: "agent_runtime", Target: "policy", Topic: "policy.check",
+		Payload: policy.CheckRequest{
+			Tenant: tenant, Action: "tool_call", Tool: toolName,
+			Agent: agentName, User: user,
+		},
+	})
+	if err != nil {
+		// If no policy module is registered, allow by default.
+		// Only fail-closed if the policy module is present but errored.
+		if err == ipc.ErrNoHandler {
+			return "allow"
+		}
+		return "deny" // policy module present but errored: fail-closed
+	}
+
+	checkResp, ok := resp.Payload.(policy.CheckResponse)
+	if !ok {
+		return "deny"
+	}
+
+	return checkResp.Decision.String()
+}
+
 func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	req, ok := msg.Payload.(ChatRequest)
 	if !ok {
@@ -204,6 +241,26 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 
 		// Execute tool calls
 		for _, tc := range response.ToolCalls {
+			// Check policy before execution
+			decision := r.checkToolPolicy(req.Tenant, req.User, req.Agent, tc.Name)
+			if decision == "deny" {
+				inst.session.AddMessage(Message{
+					Role: RoleTool,
+					ToolResults: []ToolResult{{CallID: tc.ID, Content: "DENIED: Policy does not allow " + tc.Name, IsError: true}},
+				})
+				toolsUsed = append(toolsUsed, tc.Name+"(denied)")
+				continue
+			}
+			if decision == "require_approval" {
+				inst.session.AddMessage(Message{
+					Role: RoleTool,
+					ToolResults: []ToolResult{{CallID: tc.ID, Content: "PENDING APPROVAL: " + tc.Name + " requires human approval before execution. The request has been submitted.", IsError: true}},
+				})
+				toolsUsed = append(toolsUsed, tc.Name+"(pending)")
+				continue
+			}
+
+			// Execute the tool
 			toolsUsed = append(toolsUsed, tc.Name)
 
 			var result string
