@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="0.2.0"
+VERSION="0.3.0"
 REPO="surya-koritala/cyntr"
 
 echo ""
