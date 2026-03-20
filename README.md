@@ -13,50 +13,52 @@
 
 Cyntr is a self-hosted platform for running, securing, and managing AI agents across your organization. Single Go binary. Zero external dependencies. 22,000 lines of code. 505 tests.
 
-## Why Cyntr
+## Install
 
-AI agents are powerful but dangerous in enterprise settings. [OpenClaw](https://openclaw.ai) has 250K+ GitHub stars but no security team — 1,200+ malicious skills found, API keys leaked across 135,000 exposed instances, and no multi-tenant isolation.
+```bash
+curl -fsSL https://cyntr.dev/install.sh | sh
+```
 
-Cyntr is the enterprise security layer:
-
-- **Deny-by-default policy engine** — every agent action is checked before execution
-- **Tamper-evident audit logging** — SHA-256 hash chains with Ed25519 signing
-- **Multi-tenant isolation** — namespace, process, or Docker container isolation per team
-- **Workflow automation** — chain agent actions with conditions, retries, and webhooks
-- **7 messaging channels** — Slack, Teams, WhatsApp, Telegram, Discord, Email, Webhook
-- **5 LLM providers** — Claude, GPT, Gemini, Ollama, and any OpenAI-compatible API
-- **OpenClaw compatible** — import SKILL.md files with automatic sandboxing
+Or build from source:
+```bash
+git clone https://github.com/surya-koritala/cyntr.git
+cd cyntr && go build -o cyntr ./cmd/cyntr
+```
 
 ## Quick Start
 
 ```bash
-# Clone and build
-git clone https://github.com/surya-koritala/cyntr.git
-cd cyntr
-go build -o cyntr ./cmd/cyntr
-
 # Interactive setup wizard
-./cyntr init
+cyntr init
 
 # Start the server
-ANTHROPIC_API_KEY=sk-ant-... ./cyntr start
+ANTHROPIC_API_KEY=sk-ant-... cyntr start
 ```
 
 Dashboard opens at **http://localhost:7700**
 
-Or use the one-line installer:
-```bash
-curl -fsSL https://raw.githubusercontent.com/surya-koritala/cyntr/main/install.sh | sh
-```
+## What Cyntr Does
 
-## What You Can Do
+Cyntr lets you deploy AI agents that can talk on Slack, browse the web, manage GitHub issues, write files, and automate workflows — all behind a deny-by-default policy engine with full audit logging.
 
-### Chat with AI agents via API
+- **Run agents** across Claude, GPT, Gemini, Ollama, or any OpenAI-compatible API
+- **Connect channels** — Slack, Teams, WhatsApp, Telegram, Discord, Email
+- **Use tools** — shell, HTTP, file ops, web browser, GitHub, Jira
+- **Automate workflows** — chain agent actions with conditions, retries, and webhooks
+- **Enforce security** — policy engine checks every action before execution
+- **Log everything** — tamper-evident audit trails with hash chains
+- **Isolate tenants** — separate agents, policies, and data per team
+- **Scale across sites** — federation with policy sync and cross-site audit queries
+
+## Usage
+
+### Chat with an agent via API
 ```bash
-# Create an agent
+# Create an agent with tools
 curl -X POST http://localhost:7700/api/v1/tenants/my-org/agents \
   -H "Content-Type: application/json" \
-  -d '{"name":"assistant","model":"claude","system_prompt":"You are helpful.","tools":["browse_web","file_read","github"]}'
+  -d '{"name":"assistant","model":"claude","system_prompt":"You are helpful.",
+       "tools":["browse_web","file_read","github"]}'
 
 # Chat
 curl -X POST http://localhost:7700/api/v1/tenants/my-org/agents/assistant/chat \
@@ -65,27 +67,25 @@ curl -X POST http://localhost:7700/api/v1/tenants/my-org/agents/assistant/chat \
 ```
 
 ### Chat via Slack
-Set `SLACK_BOT_TOKEN` and your Cyntr agent responds directly in Slack channels — with full tool access (web browsing, file ops, GitHub, Jira).
+Set `SLACK_BOT_TOKEN` and your agent responds directly in Slack channels with full tool access.
 
 ### Automate with workflows
 ```bash
-# Register a workflow: fetch repo info -> write report
 curl -X POST http://localhost:7700/api/v1/workflows \
-  -d '{"name":"repo-report","tenant":"my-org","start_step":"fetch",
+  -d '{"name":"daily-report","tenant":"my-org","start_step":"fetch",
        "steps":[
-         {"id":"fetch","type":"agent_chat","config":{"agent":"assistant","message":"Browse github.com/my-org/repo and summarize it"},"on_success":"write"},
-         {"id":"write","type":"agent_chat","config":{"agent":"assistant","message":"Write this summary to /tmp/report.txt: {{fetch.output}}"}}
+         {"id":"fetch","type":"agent_chat",
+          "config":{"agent":"assistant","message":"Browse our status page and summarize"},"on_success":"write"},
+         {"id":"write","type":"agent_chat",
+          "config":{"agent":"assistant","message":"Write summary to /tmp/report.txt: {{fetch.output}}"}}
        ]}'
-
-# Run it
-curl -X POST http://localhost:7700/api/v1/workflows/wf_1/run
 ```
 
 ### Use the CLI
 ```bash
 cyntr init                    # Setup wizard
 cyntr start                   # Start server
-cyntr doctor                  # Validate configuration
+cyntr doctor                  # Validate config
 cyntr agent create my-org bot --model claude
 cyntr agent chat my-org bot "What's on my calendar?"
 cyntr tenant list
@@ -118,31 +118,27 @@ cyntr federation peers
 | Discord | Interactions API |
 | Email | SMTP outbound + webhook inbound |
 | Webhook | Generic HTTP POST |
-| Cross-channel identity | Same user recognized across all platforms |
 
 ### Security & Compliance
 | Feature | Details |
 |---------|---------|
 | Policy engine | YAML rules — allow/deny/require_approval per tenant, agent, tool |
 | RBAC | 4 built-in roles + custom roles with 11 permissions |
-| Authentication | OIDC (Okta/Auth0/Azure AD), JWT sessions, API keys |
-| API auth middleware | Bearer token validation on all endpoints |
-| Audit logging | Tamper-evident SHA-256 hash chains, daily rotation, Ed25519 signing |
-| Exec approvals | Human-in-the-loop queue with approve/deny API |
-| Spending controls | Per-tenant and per-agent API cost budgets |
-| Rate limiting | Per-tenant token bucket on the proxy gateway |
-| Notifications | Slack webhook + log alerts for approvals, denials, errors |
+| Authentication | OIDC, JWT sessions, API keys |
+| Audit logging | SHA-256 hash chains, Ed25519 signing, daily rotation |
+| Exec approvals | Human-in-the-loop with approve/deny API |
+| Spending controls | Per-tenant and per-agent budget limits |
+| Rate limiting | Per-tenant token bucket |
+| Notifications | Slack webhook + log alerts |
 
 ### Enterprise
 | Feature | Details |
 |---------|---------|
-| Multi-tenancy | Isolated agents, policies, audit trails, resource quotas |
-| 3 isolation modes | Namespace (goroutines), Process (OS), Docker (containers) |
-| Federation | Peer-to-peer multi-site with policy sync and federated audit queries |
+| Multi-tenancy | Isolated agents, policies, audit, resource quotas |
+| 3 isolation modes | Namespace, Process, Docker container |
+| Federation | Peer-to-peer with policy sync and federated audit queries |
 | Data residency | Per-tenant node enforcement |
-| Proxy gateway | Reverse proxy with Anthropic/OpenAI intent extraction |
-| OpenClaw compat | Import SKILL.md with automatic restricted sandbox |
-| Skill hot-reload | File watcher auto-detects changes |
+| Proxy gateway | Reverse proxy with protocol-aware intent extraction |
 | Config migration | Versioned schema upgrades |
 | Structured logging | JSON logs with levels and module context |
 
@@ -164,7 +160,7 @@ cyntr federation peers
  Engine   Logger  Runtime  Manager  Gateway  Runtime  Module  Module  Engine
 ```
 
-Every component is a **kernel module** communicating via an in-process IPC bus with backpressure. Modules are booted in dependency order via topological sort.
+Every component is a **kernel module** communicating via an in-process IPC bus with backpressure. Modules are booted in dependency order and shut down in reverse.
 
 ## Configuration
 
@@ -177,10 +173,8 @@ listen:
 tenants:
   engineering:
     isolation: namespace
-    policy: default
   finance:
     isolation: process
-    policy: strict
 ```
 
 ### policy.yaml
@@ -194,14 +188,6 @@ rules:
     decision: allow
     priority: 10
 
-  - name: deny-shell-finance
-    tenant: finance
-    action: tool_call
-    tool: shell_exec
-    agent: "*"
-    decision: deny
-    priority: 30
-
   - name: require-approval-shell
     tenant: "*"
     action: tool_call
@@ -213,15 +199,15 @@ rules:
 
 ### Environment Variables
 
-**LLM Providers** (at least one required):
+**LLM Providers** (at least one):
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...     # Claude
-OPENAI_API_KEY=sk-...            # GPT
-GEMINI_API_KEY=...               # Gemini
-OLLAMA_URL=http://localhost:11434 # Local models
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=...
+OLLAMA_URL=http://localhost:11434
 ```
 
-**Channels** (all optional):
+**Channels** (optional):
 ```bash
 SLACK_BOT_TOKEN=xoxb-...
 TEAMS_APP_ID=...
@@ -231,171 +217,59 @@ WHATSAPP_ACCESS_TOKEN=...
 EMAIL_SMTP_HOST=smtp.example.com
 ```
 
-**Proxy** (for OpenClaw integration):
-```bash
-PROXY_UPSTREAM_URL=https://api.anthropic.com  # default
-```
-
 ## API Reference
 
 All endpoints return a consistent JSON envelope:
 ```json
-{
-  "data": { ... },
-  "meta": { "request_id": "abc123", "timestamp": "2026-03-20T..." },
-  "error": null
-}
+{"data": {...}, "meta": {"request_id": "...", "timestamp": "..."}, "error": null}
 ```
 
 ### System
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/v1/system/health` | Module health status |
-| GET | `/api/v1/system/version` | Server version |
+| GET | `/api/v1/system/health` | Module health |
+| GET | `/api/v1/system/version` | Version |
 
 ### Agents
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/tenants` | List tenants |
 | POST | `/api/v1/tenants/{tid}/agents` | Create agent |
-| POST | `/api/v1/tenants/{tid}/agents/{name}/chat` | Chat with agent |
-| GET | `/api/v1/tenants/{tid}/agents/{name}/stream` | SSE streaming chat |
+| POST | `/api/v1/tenants/{tid}/agents/{name}/chat` | Chat |
+| GET | `/api/v1/tenants/{tid}/agents/{name}/stream` | SSE streaming |
 
 ### Security
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/v1/policies/test` | Dry-run policy check |
-| GET | `/api/v1/approvals` | List pending approvals |
-| POST | `/api/v1/approvals/{id}/approve` | Approve action |
-| POST | `/api/v1/approvals/{id}/deny` | Deny action |
-| GET | `/api/v1/auth/oidc/login` | OIDC login |
-| GET | `/api/v1/auth/oidc/callback` | OIDC callback |
+| GET | `/api/v1/approvals` | Pending approvals |
+| POST | `/api/v1/approvals/{id}/approve` | Approve |
+| POST | `/api/v1/approvals/{id}/deny` | Deny |
 
-### Skills
+### Skills & Audit
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/v1/skills` | List installed skills |
-| POST | `/api/v1/skills` | Install skill |
-| POST | `/api/v1/skills/import/openclaw` | Import OpenClaw SKILL.md |
-
-### Audit & Federation
-| Method | Endpoint | Description |
-|--------|----------|-------------|
+| GET | `/api/v1/skills` | List skills |
+| POST | `/api/v1/skills/import/openclaw` | Import skill |
 | GET | `/api/v1/audit` | Query audit logs |
-| GET | `/api/v1/federation/peers` | List peers |
-| POST | `/api/v1/federation/peers` | Join peer |
 
-### Workflows
+### Workflows & Federation
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/v1/workflows` | Register workflow |
-| GET | `/api/v1/workflows` | List workflows |
 | POST | `/api/v1/workflows/{id}/run` | Run workflow |
-| GET | `/api/v1/workflows/runs/{id}` | Get run status |
-
-## Project Structure
-
-```
-cyntr/
-├── cmd/cyntr/           # CLI (init, start, doctor, subcommands)
-├── kernel/              # Microkernel (IPC bus, config, resources, logging)
-├── modules/
-│   ├── agent/           # AI runtime (providers, tools, sessions, memory)
-│   │   ├── providers/   # Claude, GPT, Gemini, Ollama, Mock
-│   │   └── tools/       # shell, http, file, browser, github, jira
-│   ├── audit/           # Tamper-evident logging (hash chains, signing, rotation)
-│   ├── channel/         # Messaging (Slack, Teams, WhatsApp, Telegram, Discord, Email)
-│   ├── federation/      # Multi-site (peers, policy sync, federated queries)
-│   ├── notify/          # Notification system (Slack webhook, log)
-│   ├── policy/          # Security (rules, approvals, spending)
-│   ├── proxy/           # Reverse proxy (intent extraction, rate limiting)
-│   ├── scheduler/       # Cron jobs
-│   ├── skill/           # Skill management (loader, registry, OpenClaw compat)
-│   └── workflow/        # Workflow engine (steps, conditions, webhooks)
-├── auth/                # RBAC, OIDC, JWT, API keys, identity binding
-├── tenant/              # Multi-tenancy (process supervisor, Docker sandbox)
-├── web/                 # REST API + embedded dashboard
-│   └── api/             # 22 endpoints with auth middleware
-├── tests/integration/   # End-to-end tests
-├── LICENSE              # Apache 2.0
-├── CONTRIBUTING.md      # Development guidelines
-└── install.sh           # One-line installer
-```
+| GET | `/api/v1/workflows/runs/{id}` | Run status |
+| GET | `/api/v1/federation/peers` | List peers |
+| POST | `/api/v1/federation/peers` | Join peer |
 
 ## Development
 
 ```bash
-# Run all tests (505 tests across 32 packages)
-go test ./... -race
-
-# Build
+go test ./... -race    # 505 tests, 32 packages
 go build -o cyntr ./cmd/cyntr
-
-# Lint
 go vet ./...
-
-# Verify setup
 ./cyntr doctor
 ```
-
-### Testing Philosophy
-- **No mocks** — all tests use real SQLite, real IPC, real HTTP (httptest)
-- **TDD** — tests written before implementation
-- **Live integration tests** — real Claude API, real GitHub API, real Slack
-- **Race detection** — all tests pass with `-race`
-
-## OpenClaw Integration
-
-Cyntr works as a security proxy in front of OpenClaw. No changes to OpenClaw needed — just redirect its API calls:
-
-```bash
-# In your OpenClaw config, set:
-ANTHROPIC_BASE_URL=http://cyntr-host:9080
-
-# Cyntr will:
-# 1. Extract intent from each API call (model, tools)
-# 2. Check policy (allow/deny/require_approval)
-# 3. Log to audit trail
-# 4. Forward allowed requests to the real API
-# 5. Rate limit per tenant
-```
-
-Import OpenClaw skills with automatic sandboxing:
-```bash
-cyntr skill import-openclaw ./path/to/SKILL.md
-# Skills get:
-# - "openclaw-" name prefix (no collisions)
-# - No shell access (regardless of what skill declares)
-# - Filesystem restricted to /tmp
-# - No network access
-# - Marked as unsigned/untrusted
-```
-
-## Comparison with OpenClaw
-
-| Feature | OpenClaw | Cyntr |
-|---------|----------|-------|
-| **Model** | Personal assistant | Enterprise platform |
-| **Security** | Optional exec-approvals | Deny-by-default policy engine |
-| **Audit** | None | Tamper-evident hash chains |
-| **Multi-tenant** | Single operator | Full tenant isolation |
-| **Authentication** | Password-based | OIDC/SAML + RBAC |
-| **Federation** | None | Multi-site with policy sync |
-| **Compliance** | None | SOC 2, GDPR, HIPAA ready |
-| **Skill security** | 20% malicious on ClawHub | Capability-declared + sandboxed |
-| **Deployment** | Node.js process | Single Go binary |
-| **Channels** | 20+ | 7 + extensible |
-| **Workflow** | None | Multi-step with conditions |
-
-## Roadmap
-
-- [ ] Production WASM sandbox (wazero) for skill execution
-- [ ] Full Playwright browser automation
-- [ ] Skill marketplace / remote registry
-- [ ] Voice message transcription
-- [ ] Mobile companion app
-- [ ] Google Chat adapter
-- [ ] Additional channel adapters (Signal, IRC, Matrix)
 
 ## License
 
@@ -403,10 +277,10 @@ cyntr skill import-openclaw ./path/to/SKILL.md
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ---
 
 <p align="center">
-  Built with security-first principles for enterprise AI.
+  <a href="https://cyntr.dev">cyntr.dev</a> · <a href="https://github.com/surya-koritala/cyntr/releases">Releases</a> · <a href="https://github.com/surya-koritala/cyntr/issues">Issues</a>
 </p>
