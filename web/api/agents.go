@@ -15,10 +15,11 @@ func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
 
 	var body struct {
-		Name         string `json:"name"`
-		Model        string `json:"model"`
-		SystemPrompt string `json:"system_prompt"`
-		MaxTurns     int    `json:"max_turns"`
+		Name         string   `json:"name"`
+		Model        string   `json:"model"`
+		SystemPrompt string   `json:"system_prompt"`
+		MaxTurns     int      `json:"max_turns"`
+		Tools        []string `json:"tools"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON body")
@@ -36,6 +37,7 @@ func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 			Model:        body.Model,
 			SystemPrompt: body.SystemPrompt,
 			MaxTurns:     body.MaxTurns,
+			Tools:        body.Tools,
 		},
 	})
 	if err != nil {
