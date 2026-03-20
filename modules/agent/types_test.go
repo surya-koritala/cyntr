@@ -30,3 +30,16 @@ func TestAgentConfigDefaults(t *testing.T) {
 		t.Fatalf("expected test-agent, got %q", cfg.Name)
 	}
 }
+
+func TestAgentConfigSecrets(t *testing.T) {
+	cfg := AgentConfig{
+		Name: "bot", Tenant: "t", Model: "mock",
+		Secrets: map[string]string{"GITHUB_TOKEN": "ghp_test", "JIRA_TOKEN": "jira_test"},
+	}
+	if len(cfg.Secrets) != 2 {
+		t.Fatalf("expected 2 secrets, got %d", len(cfg.Secrets))
+	}
+	if cfg.Secrets["GITHUB_TOKEN"] != "ghp_test" {
+		t.Fatal("wrong secret")
+	}
+}

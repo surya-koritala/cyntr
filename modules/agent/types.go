@@ -60,12 +60,13 @@ type ToolResult struct {
 
 // AgentConfig defines the configuration for a single agent instance.
 type AgentConfig struct {
-	Name         string   `yaml:"name"`
-	Tenant       string   `yaml:"tenant"`
-	Model        string   `yaml:"model"`         // provider name: "claude", "gpt", "mock"
-	SystemPrompt string   `yaml:"system_prompt"`
-	Tools        []string `yaml:"tools"`         // allowed tool names
-	MaxTurns     int      `yaml:"max_turns"`     // max tool-use turns per request (default 10)
+	Name         string            `yaml:"name" json:"name"`
+	Tenant       string            `yaml:"tenant" json:"tenant"`
+	Model        string            `yaml:"model" json:"model"`                 // provider name: "claude", "gpt", "mock"
+	SystemPrompt string            `yaml:"system_prompt" json:"system_prompt"`
+	Tools        []string          `yaml:"tools" json:"tools"`                 // allowed tool names
+	MaxTurns     int               `yaml:"max_turns" json:"max_turns"`         // max tool-use turns per request (default 10)
+	Secrets      map[string]string `yaml:"secrets" json:"secrets"`             // per-agent env vars / credentials
 }
 
 // ChatRequest is the IPC payload for agent.chat requests.
