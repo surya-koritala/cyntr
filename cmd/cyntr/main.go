@@ -110,6 +110,7 @@ func runStart() {
 	toolReg.Register(&agenttools.FileReadTool{})
 	toolReg.Register(&agenttools.FileWriteTool{})
 	toolReg.Register(&agenttools.FileSearchTool{})
+	toolReg.Register(agenttools.NewBrowserTool())
 	agentRuntime.SetToolRegistry(toolReg)
 
 	// Register Claude provider if API key is set
