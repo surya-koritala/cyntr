@@ -117,11 +117,12 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 		Challenge string `json:"challenge"`
 		EventID   string `json:"event_id"`
 		Event     struct {
-			Type      string `json:"type"`
-			User      string `json:"user"`
-			Text      string `json:"text"`
-			Channel   string `json:"channel"`
-			BotID     string `json:"bot_id"`
+			Type        string `json:"type"`
+			Subtype     string `json:"subtype"`
+			User        string `json:"user"`
+			Text        string `json:"text"`
+			Channel     string `json:"channel"`
+			BotID       string `json:"bot_id"`
 			ClientMsgID string `json:"client_msg_id"`
 		} `json:"event"`
 	}
@@ -138,26 +139,40 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Skip bot messages to avoid loops
+	// Only handle message events
+	if envelope.Type != "event_callback" || envelope.Event.Type != "message" {
+		w.WriteHeader(200)
+		return
+	}
+
+	// Skip bot messages to avoid loops (check both bot_id and subtype)
 	if envelope.Event.BotID != "" {
 		w.WriteHeader(200)
 		return
 	}
 
-	// Deduplicate: skip if we've already seen this event
+	// Skip messages with no user (system messages, bot messages without bot_id)
+	if envelope.Event.User == "" {
+		w.WriteHeader(200)
+		return
+	}
+
+	// Skip message subtypes (edits, deletes, bot_message, etc.)
+	if envelope.Event.Subtype != "" {
+		w.WriteHeader(200)
+		return
+	}
+
+	// Deduplicate using event_id OR client_msg_id OR user+text hash
 	dedupeKey := envelope.EventID
 	if dedupeKey == "" {
 		dedupeKey = envelope.Event.ClientMsgID
 	}
-	if dedupeKey != "" {
-		if _, loaded := a.seen.LoadOrStore(dedupeKey, true); loaded {
-			w.WriteHeader(200)
-			return
-		}
+	if dedupeKey == "" {
+		// Fallback: hash of user+channel+text
+		dedupeKey = envelope.Event.User + ":" + envelope.Event.Channel + ":" + envelope.Event.Text
 	}
-
-	// Only handle message events
-	if envelope.Type != "event_callback" || envelope.Event.Type != "message" {
+	if _, loaded := a.seen.LoadOrStore(dedupeKey, true); loaded {
 		w.WriteHeader(200)
 		return
 	}
