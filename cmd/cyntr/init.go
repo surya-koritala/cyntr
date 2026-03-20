@@ -11,43 +11,46 @@ func runInit() {
 	scanner := bufio.NewScanner(os.Stdin)
 
 	fmt.Println()
-	fmt.Println("  ╔═══════════════════════════════════════╗")
-	fmt.Println("  ║     Cyntr — Enterprise AI Platform     ║")
-	fmt.Println("  ║            Setup Wizard                 ║")
-	fmt.Println("  ╚═══════════════════════════════════════╝")
+	fmt.Println("  ┌───────────────────────────────────────┐")
+	fmt.Println("  │                                       │")
+	fmt.Println("  │   Cyntr Setup Wizard                  │")
+	fmt.Println("  │   Enterprise AI Agent Platform        │")
+	fmt.Println("  │                                       │")
+	fmt.Println("  └───────────────────────────────────────┘")
 	fmt.Println()
 
 	// Check if config already exists
 	if _, err := os.Stat("cyntr.yaml"); err == nil {
-		fmt.Print("  cyntr.yaml already exists. Overwrite? (y/N): ")
+		fmt.Print("  Config already exists. Overwrite? (y/N): ")
 		scanner.Scan()
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
 			fmt.Println("  Aborted.")
 			return
 		}
+		fmt.Println()
 	}
 
-	// Step 1: Basic config
-	fmt.Println("  ─── Step 1: Basic Configuration ───")
+	// Step 1
+	fmt.Println("  Step 1 of 3: Basic Configuration")
+	fmt.Println("  ─────────────────────────────────")
 	fmt.Println()
-
-	tenantName := prompt(scanner, "  Tenant name (your org/team)", "default")
-	listenAddr := prompt(scanner, "  API listen address", "127.0.0.1:8080")
+	tenantName := prompt(scanner, "  Organization/team name", "default")
+	listenAddr := prompt(scanner, "  API address", "127.0.0.1:8080")
 	dashboardPort := prompt(scanner, "  Dashboard port", "7700")
 
-	// Step 2: LLM Provider
+	// Step 2
 	fmt.Println()
-	fmt.Println("  ─── Step 2: AI Model Provider ───")
+	fmt.Println("  Step 2 of 3: AI Model Provider")
+	fmt.Println("  ──────────────────────────────")
 	fmt.Println()
-	fmt.Println("  Which LLM provider would you like to use?")
-	fmt.Println("  1) Anthropic (Claude) — recommended")
+	fmt.Println("  1) Anthropic (Claude)  — recommended")
 	fmt.Println("  2) OpenAI (GPT)")
 	fmt.Println("  3) Google (Gemini)")
-	fmt.Println("  4) Ollama (local)")
+	fmt.Println("  4) Ollama (local models)")
 	fmt.Println("  5) Skip for now")
 	fmt.Println()
 
-	providerChoice := prompt(scanner, "  Choose (1-5)", "1")
+	providerChoice := prompt(scanner, "  Choose", "1")
 
 	var envLines []string
 
@@ -86,13 +89,14 @@ func runInit() {
 		envLines = append(envLines, "OLLAMA_MODEL="+model)
 	}
 
-	// Step 3: Channels
+	// Step 3
 	fmt.Println()
-	fmt.Println("  ─── Step 3: Channel Integrations (optional) ───")
+	fmt.Println("  Step 3 of 3: Messaging Channels (optional)")
+	fmt.Println("  ───────────────────────────────────────────")
 	fmt.Println()
 
 	if promptYN(scanner, "  Enable Slack?") {
-		token := prompt(scanner, "    Slack bot token (xoxb-...)", "")
+		token := prompt(scanner, "    Bot token (xoxb-...)", "")
 		if token != "" {
 			envLines = append(envLines, "SLACK_BOT_TOKEN="+token)
 			envLines = append(envLines, "SLACK_TENANT="+tenantName)
@@ -100,30 +104,29 @@ func runInit() {
 		}
 	}
 
-	if promptYN(scanner, "  Enable Microsoft Teams?") {
-		appID := prompt(scanner, "    Teams App ID", "")
+	if promptYN(scanner, "  Enable Teams?") {
+		appID := prompt(scanner, "    App ID", "")
 		if appID != "" {
 			envLines = append(envLines, "TEAMS_APP_ID="+appID)
-			secret := prompt(scanner, "    Teams App Secret", "")
+			secret := prompt(scanner, "    App Secret", "")
 			envLines = append(envLines, "TEAMS_APP_SECRET="+secret)
 			envLines = append(envLines, "TEAMS_TENANT="+tenantName)
 		}
 	}
 
 	if promptYN(scanner, "  Enable WhatsApp?") {
-		token := prompt(scanner, "    WhatsApp access token", "")
+		token := prompt(scanner, "    Access token", "")
 		if token != "" {
 			envLines = append(envLines, "WHATSAPP_ACCESS_TOKEN="+token)
 			phoneID := prompt(scanner, "    Phone number ID", "")
 			envLines = append(envLines, "WHATSAPP_PHONE_NUMBER_ID="+phoneID)
-			verifyToken := prompt(scanner, "    Verify token", "cyntr-verify")
-			envLines = append(envLines, "WHATSAPP_VERIFY_TOKEN="+verifyToken)
+			envLines = append(envLines, "WHATSAPP_VERIFY_TOKEN=cyntr-verify")
 			envLines = append(envLines, "WHATSAPP_TENANT="+tenantName)
 		}
 	}
 
 	if promptYN(scanner, "  Enable Telegram?") {
-		token := prompt(scanner, "    Telegram bot token", "")
+		token := prompt(scanner, "    Bot token", "")
 		if token != "" {
 			envLines = append(envLines, "TELEGRAM_BOT_TOKEN="+token)
 			envLines = append(envLines, "TELEGRAM_TENANT="+tenantName)
@@ -131,16 +134,16 @@ func runInit() {
 	}
 
 	if promptYN(scanner, "  Enable Discord?") {
-		token := prompt(scanner, "    Discord bot token", "")
+		token := prompt(scanner, "    Bot token", "")
 		if token != "" {
 			envLines = append(envLines, "DISCORD_BOT_TOKEN="+token)
 			envLines = append(envLines, "DISCORD_TENANT="+tenantName)
 		}
 	}
 
-	// Step 4: Generate files
+	// Generate files
 	fmt.Println()
-	fmt.Println("  ─── Generating Configuration ───")
+	fmt.Println("  Generating configuration...")
 	fmt.Println()
 
 	// cyntr.yaml
@@ -154,11 +157,8 @@ tenants:
     policy: default
 `, listenAddr, dashboardPort, tenantName)
 
-	if err := os.WriteFile("cyntr.yaml", []byte(cyntrYAML), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "  Error writing cyntr.yaml: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("  ✓ Created cyntr.yaml")
+	os.WriteFile("cyntr.yaml", []byte(cyntrYAML), 0644)
+	fmt.Println("  ✓ cyntr.yaml")
 
 	// policy.yaml
 	policyYAML := `rules:
@@ -170,31 +170,15 @@ tenants:
     decision: allow
     priority: 10
 
-  - name: allow-http-tool
+  - name: allow-tools
     tenant: "*"
     action: tool_call
-    tool: http_request
+    tool: "*"
     agent: "*"
     decision: allow
-    priority: 10
+    priority: 5
 
-  - name: allow-file-tools
-    tenant: "*"
-    action: tool_call
-    tool: file_read
-    agent: "*"
-    decision: allow
-    priority: 10
-
-  - name: allow-browse
-    tenant: "*"
-    action: tool_call
-    tool: browse_web
-    agent: "*"
-    decision: allow
-    priority: 10
-
-  - name: deny-shell
+  - name: require-approval-shell
     tenant: "*"
     action: tool_call
     tool: shell_exec
@@ -210,57 +194,32 @@ tenants:
     decision: allow
     priority: 1
 `
+	os.WriteFile("policy.yaml", []byte(policyYAML), 0644)
+	fmt.Println("  ✓ policy.yaml")
 
-	if err := os.WriteFile("policy.yaml", []byte(policyYAML), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "  Error writing policy.yaml: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("  ✓ Created policy.yaml")
-
-	// .env file
+	// .env
 	if len(envLines) > 0 {
-		envContent := strings.Join(envLines, "\n") + "\n"
-		if err := os.WriteFile(".env", []byte(envContent), 0600); err != nil {
-			fmt.Fprintf(os.Stderr, "  Error writing .env: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println("  ✓ Created .env (permissions: 600)")
+		os.WriteFile(".env", []byte(strings.Join(envLines, "\n")+"\n"), 0600)
+		fmt.Println("  ✓ .env")
 	}
 
-	// Summary
+	// Done
 	fmt.Println()
-	fmt.Println("  ═══════════════════════════════════════")
-	fmt.Println("  Setup complete! To start Cyntr:")
-	fmt.Println()
+	fmt.Println("  ┌───────────────────────────────────────┐")
+	fmt.Println("  │                                       │")
+	fmt.Println("  │   Setup complete!                     │")
+	fmt.Println("  │                                       │")
+	fmt.Println("  │   To start Cyntr:                     │")
+	fmt.Println("  │                                       │")
 	if len(envLines) > 0 {
-		fmt.Println("    # Load environment variables")
-		fmt.Println("    source .env && export $(cat .env | xargs)")
-		fmt.Println()
+		fmt.Println("  │     source .env && export $(cat .env) │")
 	}
-	fmt.Println("    # Start the server")
-	fmt.Println("    cyntr start")
+	fmt.Println("  │     cyntr start                       │")
+	fmt.Println("  │                                       │")
+	fmt.Printf("  │   Dashboard: http://localhost:%-8s│\n", dashboardPort)
+	fmt.Println("  │                                       │")
+	fmt.Println("  └───────────────────────────────────────┘")
 	fmt.Println()
-	fmt.Printf("    Dashboard: http://localhost:%s\n", dashboardPort)
-	fmt.Printf("    API:       http://%s/api/v1/\n", listenAddr)
-	fmt.Println()
-	fmt.Println("  Create your first agent:")
-	fmt.Println()
-	fmt.Printf("    curl -X POST http://localhost:%s/api/v1/tenants/%s/agents \\\n", dashboardPort, tenantName)
-	fmt.Println(`      -H "Content-Type: application/json" \`)
-	fmt.Println(`      -d '{"name":"assistant","model":"claude","system_prompt":"You are a helpful assistant."}'`)
-	fmt.Println()
-	fmt.Println("  Chat with it:")
-	fmt.Println()
-	fmt.Printf("    curl -X POST http://localhost:%s/api/v1/tenants/%s/agents/assistant/chat \\\n", dashboardPort, tenantName)
-	fmt.Println(`      -H "Content-Type: application/json" \`)
-	fmt.Println(`      -d '{"message":"Hello!"}'`)
-	fmt.Println()
-	fmt.Println("  Or use the CLI:")
-	fmt.Println()
-	fmt.Printf("    cyntr agent create %s assistant --model claude\n", tenantName)
-	fmt.Printf("    cyntr agent chat %s assistant Hello!\n", tenantName)
-	fmt.Println()
-	fmt.Println("  ═══════════════════════════════════════")
 }
 
 func prompt(scanner *bufio.Scanner, label, defaultVal string) string {

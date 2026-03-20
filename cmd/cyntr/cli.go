@@ -194,8 +194,54 @@ func runCLI(args []string) {
 		}
 
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		printUsage()
+		suggested := suggestCommand(args[0])
+		if suggested != "" {
+			fmt.Fprintf(os.Stderr, "\n  Unknown command: %s\n\n  Did you mean: cyntr %s ?\n\n", args[0], suggested)
+		} else {
+			fmt.Fprintf(os.Stderr, "\n  Unknown command: %s\n\n  Run 'cyntr help' for available commands.\n\n", args[0])
+		}
 		os.Exit(1)
 	}
+}
+
+// suggestCommand finds the closest known command to the input.
+func suggestCommand(input string) string {
+	commands := []string{"init", "start", "stop", "status", "doctor", "version", "help",
+		"tenant", "agent", "audit", "policy", "skill", "federation"}
+
+	bestMatch := ""
+	bestScore := 0
+
+	for _, cmd := range commands {
+		score := similarity(input, cmd)
+		if score > bestScore && score >= 2 {
+			bestScore = score
+			bestMatch = cmd
+		}
+	}
+	return bestMatch
+}
+
+// similarity returns the number of matching characters in order (simple LCS-like).
+func similarity(a, b string) int {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	matches := 0
+	j := 0
+	for i := 0; i < len(a) && j < len(b); i++ {
+		if a[i] == b[j] {
+			matches++
+			j++
+		}
+	}
+	// Bonus for same first letter
+	if len(a) > 0 && len(b) > 0 && a[0] == b[0] {
+		matches++
+	}
+	// Bonus for similar length
+	diff := len(a) - len(b)
+	if diff < 0 { diff = -diff }
+	if diff <= 1 { matches++ }
+	return matches
 }

@@ -17,14 +17,17 @@ ARCH=$(uname -m)
 case "$ARCH" in
     x86_64) ARCH="amd64" ;;
     aarch64|arm64) ARCH="arm64" ;;
-    *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+    *) echo "  Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
 echo "  Detected: ${OS}/${ARCH}"
 
-# For now, build from source (binary releases will come later)
+# Check for Go
 if ! command -v go &> /dev/null; then
-    echo "  Go is required to build Cyntr. Install from https://go.dev/dl/"
+    echo ""
+    echo "  Go is required to build Cyntr."
+    echo "  Install from: https://go.dev/dl/"
+    echo ""
     exit 1
 fi
 
@@ -33,7 +36,7 @@ TMPDIR=$(mktemp -d)
 cd "$TMPDIR"
 git clone --depth 1 --branch v${VERSION} https://github.com/${REPO}.git cyntr 2>/dev/null
 cd cyntr
-go build -o cyntr ./cmd/cyntr
+go build -o cyntr ./cmd/cyntr 2>/dev/null
 
 # Install
 INSTALL_DIR="/usr/local/bin"
@@ -49,10 +52,10 @@ cd /
 rm -rf "$TMPDIR"
 
 echo ""
-echo "  ✓ Cyntr v${VERSION} installed to ${INSTALL_DIR}/cyntr"
+echo "  ✓ Cyntr v${VERSION} installed"
 echo ""
-echo "  Get started:"
-echo "    cyntr init      # Setup wizard"
-echo "    cyntr start     # Launch server"
-echo "    cyntr doctor    # Check configuration"
+
+# Auto-run setup wizard
+echo "  Starting setup wizard..."
 echo ""
+cyntr init
