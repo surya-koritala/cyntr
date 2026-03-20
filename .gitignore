@@ -1,0 +1,28 @@
+# Binary
+cyntr
+*.exe
+
+# Runtime data
+*.db
+sessions.db
+memory.db
+audit.db
+audit-*.db
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+*.test
+*.out
+coverage.txt
