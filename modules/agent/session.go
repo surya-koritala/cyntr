@@ -4,16 +4,24 @@ import "sync"
 
 // Session manages conversation history and context for a single agent interaction.
 type Session struct {
-	mu      sync.RWMutex
-	id      string
-	config  AgentConfig
-	history []Message
-	store   *SessionStore
+	mu       sync.RWMutex
+	id       string
+	config   AgentConfig
+	history  []Message
+	store    *SessionStore
+	memories string
 }
 
 // SetStore attaches a SessionStore to the session for persistence.
 func (s *Session) SetStore(store *SessionStore) {
 	s.store = store
+}
+
+// SetMemories injects long-term memory text to be included in the agent context.
+func (s *Session) SetMemories(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.memories = text
 }
 
 // NewSession creates a new conversation session.
@@ -56,17 +64,26 @@ func (s *Session) History() []Message {
 }
 
 // AssembleContext builds the full message list for a model call:
-// system prompt (if set) + conversation history.
+// system prompt (if set) + long-term memories (if any) + conversation history.
 func (s *Session) AssembleContext() []Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var ctx []Message
 
-	if s.config.SystemPrompt != "" {
+	systemContent := s.config.SystemPrompt
+	if s.memories != "" {
+		if systemContent != "" {
+			systemContent += "\n\n" + s.memories
+		} else {
+			systemContent = s.memories
+		}
+	}
+
+	if systemContent != "" {
 		ctx = append(ctx, Message{
 			Role:    RoleSystem,
-			Content: s.config.SystemPrompt,
+			Content: systemContent,
 		})
 	}
 

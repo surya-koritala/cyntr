@@ -15,17 +15,23 @@ import (
 // Runtime is the Agent Runtime kernel module.
 // It manages agent instances and orchestrates model calls + tool execution.
 type Runtime struct {
-	mu        sync.RWMutex
-	bus       *ipc.Bus
-	providers map[string]ModelProvider
-	toolReg   *ToolRegistry
-	agents    map[string]*agentInstance // "tenant/name" -> instance
-	store     *SessionStore
+	mu          sync.RWMutex
+	bus         *ipc.Bus
+	providers   map[string]ModelProvider
+	toolReg     *ToolRegistry
+	agents      map[string]*agentInstance // "tenant/name" -> instance
+	store       *SessionStore
+	memoryStore *MemoryStore
 }
 
 // SetSessionStore attaches a SessionStore to the runtime for persistent conversations.
 func (r *Runtime) SetSessionStore(store *SessionStore) {
 	r.store = store
+}
+
+// SetMemoryStore attaches a MemoryStore to the runtime for long-term memory persistence.
+func (r *Runtime) SetMemoryStore(store *MemoryStore) {
+	r.memoryStore = store
 }
 
 type agentInstance struct {
@@ -126,6 +132,13 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	r.mu.RUnlock()
 	if !ok {
 		return ipc.Message{}, fmt.Errorf("model provider %q not found", inst.config.Model)
+	}
+
+	// Inject long-term memories into session context before the agentic loop
+	if r.memoryStore != nil {
+		if memories, err := r.memoryStore.Recall(req.Agent, req.Tenant); err == nil {
+			inst.session.SetMemories(FormatForContext(memories))
+		}
 	}
 
 	// Add user message to session
