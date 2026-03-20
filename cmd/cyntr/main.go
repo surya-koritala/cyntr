@@ -41,6 +41,10 @@ func main() {
 	switch os.Args[1] {
 	case "version":
 		fmt.Printf("cyntr v%s\n", version)
+	case "init":
+		runInit()
+	case "doctor":
+		runDoctor()
 	case "start":
 		runStart()
 	case "status":
@@ -53,6 +57,8 @@ func main() {
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: cyntr <command>")
 	fmt.Fprintln(os.Stderr, "commands:")
+	fmt.Fprintln(os.Stderr, "  init                                        Interactive setup wizard")
+	fmt.Fprintln(os.Stderr, "  doctor                                      Check configuration health")
 	fmt.Fprintln(os.Stderr, "  start [config]                              Start the Cyntr server")
 	fmt.Fprintln(os.Stderr, "  status                                      Show server health")
 	fmt.Fprintln(os.Stderr, "  version                                     Show version")
