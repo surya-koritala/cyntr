@@ -71,4 +71,12 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/workflows", s.handleWorkflowList)
 	s.mux.HandleFunc("POST /api/v1/workflows/{id}/run", s.handleWorkflowRun)
 	s.mux.HandleFunc("GET /api/v1/workflows/runs/{id}", s.handleWorkflowRunStatus)
+
+	// Schedules
+	s.mux.HandleFunc("POST /api/v1/schedules", s.handleScheduleAdd)
+	s.mux.HandleFunc("GET /api/v1/schedules", s.handleScheduleList)
+	s.mux.HandleFunc("POST /api/v1/schedules/{id}/remove", s.handleScheduleRemove)
+
+	// Webhooks
+	s.mux.HandleFunc("POST /api/v1/webhooks/trigger/{workflow_id}", s.handleWebhookTrigger)
 }

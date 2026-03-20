@@ -193,6 +193,31 @@ func runCLI(args []string) {
 			os.Exit(1)
 		}
 
+	case "schedule":
+		if len(args) < 2 { fmt.Fprintln(os.Stderr, "usage: cyntr schedule <add|list|remove>"); os.Exit(1) }
+		switch args[1] {
+		case "add":
+			if len(args) < 6 {
+				fmt.Fprintln(os.Stderr, "usage: cyntr schedule add <tenant> <agent> <interval> <message>")
+				fmt.Fprintln(os.Stderr, "  interval: 1m, 5m, 1h, 24h, etc.")
+				fmt.Fprintln(os.Stderr, "  example: cyntr schedule add my-org assistant 1h \"Generate daily report\"")
+				os.Exit(1)
+			}
+			tenant, agent, interval := args[2], args[3], args[4]
+			message := strings.Join(args[5:], " ")
+			apiPost("/api/v1/schedules", map[string]string{
+				"tenant": tenant, "agent": agent, "interval": interval, "message": message,
+			})
+		case "list":
+			apiGet("/api/v1/schedules")
+		case "remove":
+			if len(args) < 3 { fmt.Fprintln(os.Stderr, "usage: cyntr schedule remove <id>"); os.Exit(1) }
+			apiPost("/api/v1/schedules/"+args[2]+"/remove", map[string]string{})
+		default:
+			fmt.Fprintf(os.Stderr, "unknown schedule command: %s\n", args[1])
+			os.Exit(1)
+		}
+
 	default:
 		suggested := suggestCommand(args[0])
 		if suggested != "" {
@@ -207,7 +232,7 @@ func runCLI(args []string) {
 // suggestCommand finds the closest known command to the input.
 func suggestCommand(input string) string {
 	commands := []string{"init", "start", "stop", "status", "doctor", "version", "help",
-		"tenant", "agent", "audit", "policy", "skill", "federation"}
+		"tenant", "agent", "audit", "policy", "skill", "federation", "schedule"}
 
 	bestMatch := ""
 	bestScore := 0
