@@ -57,6 +57,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/federation/peers", s.handleFederationPeers)
 	s.mux.HandleFunc("POST /api/v1/federation/peers", s.handleFederationJoin)
 
+	// Approvals
+	s.mux.HandleFunc("GET /api/v1/approvals", s.handleApprovalList)
+	s.mux.HandleFunc("POST /api/v1/approvals/{id}/approve", s.handleApprovalApprove)
+	s.mux.HandleFunc("POST /api/v1/approvals/{id}/deny", s.handleApprovalDeny)
+
 	// Auth
 	s.mux.HandleFunc("GET /api/v1/auth/oidc/login", s.handleOIDCLogin)
 	s.mux.HandleFunc("GET /api/v1/auth/oidc/callback", s.handleOIDCCallback)
