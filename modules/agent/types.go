@@ -27,12 +27,21 @@ func (r Role) String() string {
 	}
 }
 
+// Attachment represents a media attachment for multimodal messages.
+type Attachment struct {
+	Type     string // "image", "file", "audio"
+	URL      string // URL or base64 data
+	MimeType string // "image/png", etc.
+	Name     string // filename
+}
+
 // Message represents a single message in a conversation.
 type Message struct {
 	Role        Role
 	Content     string
 	ToolCalls   []ToolCall   // set when assistant requests tool use
 	ToolResults []ToolResult // set when providing tool results
+	Attachments []Attachment // optional media attachments (multimodal)
 }
 
 // ToolCall represents a request from the model to execute a tool.

@@ -154,7 +154,35 @@ func (a *Anthropic) buildRequest(messages []agent.Message, tools []agent.ToolDef
 		case agent.RoleSystem:
 			req.System = msg.Content
 		case agent.RoleUser:
-			req.Messages = append(req.Messages, anthropicMsg{Role: "user", Content: msg.Content})
+			if len(msg.Attachments) > 0 {
+				// Build multimodal content with image blocks
+				var content []map[string]any
+				for _, att := range msg.Attachments {
+					if att.Type == "image" {
+						imgBlock := map[string]any{"type": "image"}
+						if len(att.URL) > 5 && att.URL[:5] == "data:" {
+							// base64 encoded inline image
+							imgBlock["source"] = map[string]any{
+								"type":       "base64",
+								"media_type": att.MimeType,
+								"data":       att.URL,
+							}
+						} else {
+							imgBlock["source"] = map[string]any{
+								"type": "url",
+								"url":  att.URL,
+							}
+						}
+						content = append(content, imgBlock)
+					}
+				}
+				if msg.Content != "" {
+					content = append(content, map[string]any{"type": "text", "text": msg.Content})
+				}
+				req.Messages = append(req.Messages, anthropicMsg{Role: "user", Content: content})
+			} else {
+				req.Messages = append(req.Messages, anthropicMsg{Role: "user", Content: msg.Content})
+			}
 		case agent.RoleAssistant:
 			if len(msg.ToolCalls) > 0 {
 				// Assistant message with tool use
