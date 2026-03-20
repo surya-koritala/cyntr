@@ -581,6 +581,37 @@
               <textarea id="ag-sysprompt" placeholder="You are a helpful assistant…"></textarea>
             </div>
           </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label>Tools</label>
+              <div id="ag-tools-checkboxes" style="display:flex;flex-wrap:wrap;gap:10px 20px;padding:8px 0;">
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" value="file_read"> file_read
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" value="file_write"> file_write
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" value="file_search"> file_search
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" value="browse_web"> browse_web
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" value="http_request"> http_request
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" value="shell_exec"> shell_exec
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" value="github"> github
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" value="jira"> jira
+                </label>
+              </div>
+            </div>
+          </div>
           <div style="display:flex;align-items:center;gap:12px;">
             <button class="btn btn-primary" onclick="createAgent()">Create Agent</button>
             <span id="ag-create-msg" style="font-size:13px;color:var(--muted);"></span>
@@ -974,6 +1005,11 @@ async function createAgent() {
   const maxTurns = parseInt(document.getElementById('ag-maxturns').value, 10) || 10;
   const sysprompt = document.getElementById('ag-sysprompt').value.trim();
 
+  // Collect selected tools from checkboxes
+  const tools = Array.from(
+    document.querySelectorAll('#ag-tools-checkboxes input[type="checkbox"]:checked')
+  ).map(cb => cb.value);
+
   if (!tenant) { setMsg('ag-create-msg', 'Please select a tenant.', 'var(--warn)'); return; }
   if (!name)   { setMsg('ag-create-msg', 'Agent name is required.', 'var(--warn)'); return; }
 
@@ -983,13 +1019,14 @@ async function createAgent() {
     const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, model, system_prompt: sysprompt, max_turns: maxTurns }),
+      body: JSON.stringify({ name, model, system_prompt: sysprompt, max_turns: maxTurns, tools }),
     });
 
     if (res.ok) {
       setMsg('ag-create-msg', `Agent "${name}" created.`, 'var(--ok)');
       document.getElementById('ag-name').value = '';
       document.getElementById('ag-sysprompt').value = '';
+      document.querySelectorAll('#ag-tools-checkboxes input[type="checkbox"]').forEach(cb => cb.checked = false);
       loadAgentList();
     } else {
       const msg = res.raw?.error?.message || res.raw?.message || 'Create failed';
