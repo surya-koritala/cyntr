@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 
 	"github.com/cyntr-dev/cyntr/modules/channel"
 )
@@ -22,6 +23,7 @@ type Adapter struct {
 	server     *http.Server
 	client     *http.Client
 	slackAPI   string // base URL for Slack API (override for testing)
+	seen       sync.Map // event deduplication: event_id -> true
 }
 
 func New(listenAddr, botToken, tenant, agent string) *Adapter {
@@ -113,12 +115,14 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 	var envelope struct {
 		Type      string `json:"type"`
 		Challenge string `json:"challenge"`
+		EventID   string `json:"event_id"`
 		Event     struct {
-			Type    string `json:"type"`
-			User    string `json:"user"`
-			Text    string `json:"text"`
-			Channel string `json:"channel"`
-			BotID   string `json:"bot_id"`
+			Type      string `json:"type"`
+			User      string `json:"user"`
+			Text      string `json:"text"`
+			Channel   string `json:"channel"`
+			BotID     string `json:"bot_id"`
+			ClientMsgID string `json:"client_msg_id"`
 		} `json:"event"`
 	}
 
@@ -140,33 +144,51 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Deduplicate: skip if we've already seen this event
+	dedupeKey := envelope.EventID
+	if dedupeKey == "" {
+		dedupeKey = envelope.Event.ClientMsgID
+	}
+	if dedupeKey != "" {
+		if _, loaded := a.seen.LoadOrStore(dedupeKey, true); loaded {
+			w.WriteHeader(200)
+			return
+		}
+	}
+
 	// Only handle message events
 	if envelope.Type != "event_callback" || envelope.Event.Type != "message" {
 		w.WriteHeader(200)
 		return
 	}
 
-	// Route to handler
-	response, err := a.handler(channel.InboundMessage{
-		Channel:   "slack",
-		ChannelID: envelope.Event.Channel,
-		UserID:    envelope.Event.User,
-		Text:      envelope.Event.Text,
-		Tenant:    a.tenant,
-		Agent:     a.agent,
-	})
-
-	if err != nil {
-		w.WriteHeader(200) // ACK to Slack even on error
-		return
-	}
-
-	// Send reply via Slack API
-	a.Send(context.Background(), channel.OutboundMessage{
-		Channel:   "slack",
-		ChannelID: envelope.Event.Channel,
-		Text:      response,
-	})
-
+	// ACK immediately — Slack retries if we don't respond within 3 seconds.
+	// Process the message asynchronously to avoid duplicate responses.
 	w.WriteHeader(200)
+
+	// Deduplicate: use event_id if available, otherwise use a simple check
+	eventChannel := envelope.Event.Channel
+	eventUser := envelope.Event.User
+	eventText := envelope.Event.Text
+
+	go func() {
+		response, err := a.handler(channel.InboundMessage{
+			Channel:   "slack",
+			ChannelID: eventChannel,
+			UserID:    eventUser,
+			Text:      eventText,
+			Tenant:    a.tenant,
+			Agent:     a.agent,
+		})
+
+		if err != nil {
+			return
+		}
+
+		a.Send(context.Background(), channel.OutboundMessage{
+			Channel:   "slack",
+			ChannelID: eventChannel,
+			Text:      response,
+		})
+	}()
 }
