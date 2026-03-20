@@ -26,6 +26,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/scheduler"
 	"github.com/cyntr-dev/cyntr/modules/skill"
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
+	"github.com/cyntr-dev/cyntr/modules/workflow"
 	"github.com/cyntr-dev/cyntr/web"
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
@@ -107,6 +108,8 @@ func runStart() {
 	toolReg.Register(&agenttools.FileWriteTool{})
 	toolReg.Register(&agenttools.FileSearchTool{})
 	toolReg.Register(agenttools.NewBrowserTool())
+	toolReg.Register(agenttools.NewGitHubTool())
+	toolReg.Register(agenttools.NewJiraTool())
 	agentRuntime.SetToolRegistry(toolReg)
 
 	// Register Claude provider if API key is set
@@ -291,6 +294,7 @@ func runStart() {
 	skillRuntime.SetOpenClawLoader(compat.LoadOpenClawSkillFromFile)
 	federationMod := federation.NewModule("cyntr-local")
 	schedulerMod := scheduler.New()
+	workflowEngine := workflow.New()
 
 	k.Register(policyEngine)
 	k.Register(auditLogger)
@@ -300,6 +304,7 @@ func runStart() {
 	k.Register(skillRuntime)
 	k.Register(federationMod)
 	k.Register(schedulerMod)
+	k.Register(workflowEngine)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
