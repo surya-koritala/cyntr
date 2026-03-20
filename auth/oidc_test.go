@@ -147,3 +147,73 @@ func TestParseIDTokenInvalid(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestOIDCProviderDiscoverFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer server.Close()
+
+	sm := NewSessionManager("test-secret-key-minimum-32-bytes!")
+	p := NewOIDCProvider(OIDCConfig{Issuer: server.URL}, sm)
+	err := p.Discover(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestOIDCProviderDiscoverBadJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "not json")
+	}))
+	defer server.Close()
+
+	sm := NewSessionManager("test-secret-key-minimum-32-bytes!")
+	p := NewOIDCProvider(OIDCConfig{Issuer: server.URL}, sm)
+	err := p.Discover(context.Background())
+	if err == nil {
+		t.Fatal("expected error for bad JSON")
+	}
+}
+
+func TestOIDCProviderAuthURLDefaultScopes(t *testing.T) {
+	sm := NewSessionManager("test-secret-key-minimum-32-bytes!")
+	p := NewOIDCProvider(OIDCConfig{ClientID: "app"}, sm) // no scopes set
+	p.SetEndpoints("https://idp/auth", "", "")
+
+	url := p.AuthURL("state")
+	if !strings.Contains(url, "openid") {
+		t.Fatal("expected default openid scope")
+	}
+	if !strings.Contains(url, "email") {
+		t.Fatal("expected default email scope")
+	}
+}
+
+func TestOIDCProviderExchangeCodeMissingEmail(t *testing.T) {
+	// ID token with no email field
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"user1"}`)) // no email
+	sig := base64.RawURLEncoding.EncodeToString([]byte("sig"))
+	idToken := header + "." + payload + "." + sig
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"id_token": idToken})
+	}))
+	defer server.Close()
+
+	sm := NewSessionManager("test-secret-key-minimum-32-bytes!")
+	p := NewOIDCProvider(OIDCConfig{ClientID: "app", ClientSecret: "secret"}, sm)
+	p.SetEndpoints("", server.URL, "")
+
+	// Should succeed but with empty email
+	token, err := p.ExchangeCode(context.Background(), "code", "tenant", nil)
+	if err != nil {
+		t.Fatalf("exchange: %v", err)
+	}
+
+	principal, _ := sm.ValidateToken(token)
+	if principal.ID != "" {
+		t.Fatalf("expected empty ID for missing email, got %q", principal.ID)
+	}
+}
