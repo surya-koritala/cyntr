@@ -52,6 +52,18 @@ func NewSessionStore(dbPath string) (*SessionStore, error) {
 		return nil, fmt.Errorf("create messages table: %w", err)
 	}
 
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS agents (
+			tenant TEXT NOT NULL,
+			name TEXT NOT NULL,
+			config TEXT NOT NULL,
+			PRIMARY KEY (tenant, name)
+		)
+	`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create agents table: %w", err)
+	}
+
 	// Enable foreign keys for CASCADE delete
 	db.Exec("PRAGMA foreign_keys=ON")
 
@@ -179,6 +191,51 @@ func (s *SessionStore) DeleteSession(id string) error {
 	// Delete messages first (foreign key may not cascade in all SQLite builds)
 	s.db.Exec("DELETE FROM messages WHERE session_id = ?", id)
 	_, err := s.db.Exec("DELETE FROM sessions WHERE id = ?", id)
+	return err
+}
+
+// SaveAgent persists an agent configuration.
+func (s *SessionStore) SaveAgent(cfg AgentConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(
+		"INSERT OR REPLACE INTO agents (tenant, name, config) VALUES (?, ?, ?)",
+		cfg.Tenant, cfg.Name, string(cfgJSON))
+	return err
+}
+
+// LoadAgents returns all saved agent configs.
+func (s *SessionStore) LoadAgents() ([]AgentConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.Query("SELECT config FROM agents ORDER BY tenant, name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var agents []AgentConfig
+	for rows.Next() {
+		var cfgJSON string
+		rows.Scan(&cfgJSON)
+		var cfg AgentConfig
+		json.Unmarshal([]byte(cfgJSON), &cfg)
+		agents = append(agents, cfg)
+	}
+	if agents == nil {
+		agents = []AgentConfig{}
+	}
+	return agents, rows.Err()
+}
+
+// DeleteAgent removes a saved agent config.
+func (s *SessionStore) DeleteAgent(tenant, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec("DELETE FROM agents WHERE tenant=? AND name=?", tenant, name)
 	return err
 }
 

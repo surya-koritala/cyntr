@@ -96,6 +96,59 @@ func TestStoreLoadNonexistent(t *testing.T) {
 	}
 }
 
+func TestStoreSaveAndLoadAgents(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := NewSessionStore(filepath.Join(dir, "sessions.db"))
+	defer store.Close()
+
+	store.SaveAgent(AgentConfig{Name: "bot1", Tenant: "finance", Model: "claude", SystemPrompt: "Be helpful"})
+	store.SaveAgent(AgentConfig{Name: "bot2", Tenant: "marketing", Model: "gpt"})
+
+	agents, err := store.LoadAgents()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(agents) != 2 {
+		t.Fatalf("expected 2, got %d", len(agents))
+	}
+}
+
+func TestStoreDeleteAgent(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := NewSessionStore(filepath.Join(dir, "sessions.db"))
+	defer store.Close()
+
+	store.SaveAgent(AgentConfig{Name: "temp", Tenant: "t", Model: "mock"})
+	store.DeleteAgent("t", "temp")
+
+	agents, _ := store.LoadAgents()
+	if len(agents) != 0 {
+		t.Fatalf("expected 0, got %d", len(agents))
+	}
+}
+
+func TestStoreAgentPersistsAcrossReopen(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "sessions.db")
+
+	s1, _ := NewSessionStore(dbPath)
+	s1.SaveAgent(AgentConfig{Name: "bot", Tenant: "t", Model: "claude", Tools: []string{"file_read"}})
+	s1.Close()
+
+	s2, _ := NewSessionStore(dbPath)
+	defer s2.Close()
+	agents, _ := s2.LoadAgents()
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 after reopen, got %d", len(agents))
+	}
+	if agents[0].Name != "bot" {
+		t.Fatalf("got %q", agents[0].Name)
+	}
+	if len(agents[0].Tools) != 1 {
+		t.Fatalf("tools not persisted: %v", agents[0].Tools)
+	}
+}
+
 func TestStorePersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "sessions.db")

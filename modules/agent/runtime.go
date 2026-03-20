@@ -71,7 +71,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("agent_runtime", "agent.create", r.handleCreate)
 	r.bus.Handle("agent_runtime", "agent.chat", r.handleChat)
 	r.bus.Handle("agent_runtime", "agent.list", r.handleList)
-	return nil
+	return r.LoadSavedAgents()
 }
 
 func (r *Runtime) Stop(ctx context.Context) error { return nil }
@@ -99,6 +99,7 @@ func (r *Runtime) handleCreate(msg ipc.Message) (ipc.Message, error) {
 	if r.store != nil {
 		r.store.SaveSession(sessID, cfg)
 		session.SetStore(r.store)
+		r.store.SaveAgent(cfg)
 	}
 
 	r.mu.Lock()
@@ -109,6 +110,34 @@ func (r *Runtime) handleCreate(msg ipc.Message) (ipc.Message, error) {
 	r.mu.Unlock()
 
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "ok"}, nil
+}
+
+// LoadSavedAgents reads persisted agent configs from the store and recreates
+// agent instances so they are available after a restart.
+func (r *Runtime) LoadSavedAgents() error {
+	if r.store == nil {
+		return nil
+	}
+	agents, err := r.store.LoadAgents()
+	if err != nil {
+		return fmt.Errorf("load saved agents: %w", err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, cfg := range agents {
+		key := cfg.Tenant + "/" + cfg.Name
+		if _, exists := r.agents[key]; exists {
+			continue
+		}
+		sessID := "sess_" + generateShortID()
+		session := NewSession(sessID, cfg)
+		session.SetStore(r.store)
+		r.agents[key] = &agentInstance{
+			config:  cfg,
+			session: session,
+		}
+	}
+	return nil
 }
 
 func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
