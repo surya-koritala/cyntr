@@ -217,6 +217,7 @@ func runStart() {
 	skillRuntime := skill.NewRuntime()
 	skillRuntime.SetOpenClawLoader(compat.LoadOpenClawSkillFromFile)
 	federationMod := federation.NewModule("cyntr-local")
+	schedulerMod := scheduler.New()
 
 	k.Register(policyEngine)
 	k.Register(auditLogger)
@@ -225,6 +226,7 @@ func runStart() {
 	k.Register(proxyGateway)
 	k.Register(skillRuntime)
 	k.Register(federationMod)
+	k.Register(schedulerMod)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
