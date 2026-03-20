@@ -65,4 +65,10 @@ func (s *Server) registerRoutes() {
 	// Auth
 	s.mux.HandleFunc("GET /api/v1/auth/oidc/login", s.handleOIDCLogin)
 	s.mux.HandleFunc("GET /api/v1/auth/oidc/callback", s.handleOIDCCallback)
+
+	// Workflows
+	s.mux.HandleFunc("POST /api/v1/workflows", s.handleWorkflowRegister)
+	s.mux.HandleFunc("GET /api/v1/workflows", s.handleWorkflowList)
+	s.mux.HandleFunc("POST /api/v1/workflows/{id}/run", s.handleWorkflowRun)
+	s.mux.HandleFunc("GET /api/v1/workflows/runs/{id}", s.handleWorkflowRunStatus)
 }
