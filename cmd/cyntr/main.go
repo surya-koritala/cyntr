@@ -14,9 +14,12 @@ import (
 	agenttools "github.com/cyntr-dev/cyntr/modules/agent/tools"
 	"github.com/cyntr-dev/cyntr/modules/audit"
 	"github.com/cyntr-dev/cyntr/modules/channel"
+	discordpkg "github.com/cyntr-dev/cyntr/modules/channel/discord"
 	emailpkg "github.com/cyntr-dev/cyntr/modules/channel/email"
 	slackpkg "github.com/cyntr-dev/cyntr/modules/channel/slack"
 	teamspkg "github.com/cyntr-dev/cyntr/modules/channel/teams"
+	telegrampkg "github.com/cyntr-dev/cyntr/modules/channel/telegram"
+	whatsapppkg "github.com/cyntr-dev/cyntr/modules/channel/whatsapp"
 	"github.com/cyntr-dev/cyntr/modules/federation"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
@@ -131,6 +134,17 @@ func runStart() {
 		fmt.Printf("registered GPT provider (model: %s)\n", openaiModel)
 	}
 
+	// Register Gemini provider if API key is set
+	geminiKey := os.Getenv("GEMINI_API_KEY")
+	if geminiKey != "" {
+		geminiModel := os.Getenv("GEMINI_MODEL")
+		if geminiModel == "" {
+			geminiModel = "gemini-pro"
+		}
+		agentRuntime.RegisterProvider(agentproviders.NewGemini(geminiKey, geminiModel, ""))
+		fmt.Printf("registered Gemini provider (model: %s)\n", geminiModel)
+	}
+
 	// Register Ollama provider if URL is set
 	ollamaURL := os.Getenv("OLLAMA_URL")
 	if ollamaURL != "" {
@@ -211,6 +225,68 @@ func runStart() {
 		emailAdapter := emailpkg.New(emailAddr, emailSMTP, emailPort, emailFrom, emailTenant, emailAgent)
 		channelMgr.AddAdapter(emailAdapter)
 		fmt.Printf("registered Email adapter (tenant: %s, listen: %s)\n", emailTenant, emailAddr)
+	}
+
+	// Register WhatsApp adapter if configured
+	waToken := os.Getenv("WHATSAPP_ACCESS_TOKEN")
+	if waToken != "" {
+		waPhoneNumID := os.Getenv("WHATSAPP_PHONE_NUMBER_ID")
+		waVerifyToken := os.Getenv("WHATSAPP_VERIFY_TOKEN")
+		waTenant := os.Getenv("WHATSAPP_TENANT")
+		if waTenant == "" {
+			waTenant = "default"
+		}
+		waAgent := os.Getenv("WHATSAPP_AGENT")
+		if waAgent == "" {
+			waAgent = "assistant"
+		}
+		waAddr := os.Getenv("WHATSAPP_LISTEN_ADDR")
+		if waAddr == "" {
+			waAddr = "127.0.0.1:3003"
+		}
+		waAdapter := whatsapppkg.New(waAddr, waToken, waPhoneNumID, waVerifyToken, waTenant, waAgent)
+		channelMgr.AddAdapter(waAdapter)
+		fmt.Printf("registered WhatsApp adapter (tenant: %s, agent: %s, listen: %s)\n", waTenant, waAgent, waAddr)
+	}
+
+	// Register Telegram adapter if configured
+	tgToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if tgToken != "" {
+		tgTenant := os.Getenv("TELEGRAM_TENANT")
+		if tgTenant == "" {
+			tgTenant = "default"
+		}
+		tgAgent := os.Getenv("TELEGRAM_AGENT")
+		if tgAgent == "" {
+			tgAgent = "assistant"
+		}
+		tgAddr := os.Getenv("TELEGRAM_LISTEN_ADDR")
+		if tgAddr == "" {
+			tgAddr = "127.0.0.1:3004"
+		}
+		tgAdapter := telegrampkg.New(tgAddr, tgToken, tgTenant, tgAgent)
+		channelMgr.AddAdapter(tgAdapter)
+		fmt.Printf("registered Telegram adapter (tenant: %s, agent: %s, listen: %s)\n", tgTenant, tgAgent, tgAddr)
+	}
+
+	// Register Discord adapter if configured
+	discordToken := os.Getenv("DISCORD_BOT_TOKEN")
+	if discordToken != "" {
+		discordTenant := os.Getenv("DISCORD_TENANT")
+		if discordTenant == "" {
+			discordTenant = "default"
+		}
+		discordAgent := os.Getenv("DISCORD_AGENT")
+		if discordAgent == "" {
+			discordAgent = "assistant"
+		}
+		discordAddr := os.Getenv("DISCORD_LISTEN_ADDR")
+		if discordAddr == "" {
+			discordAddr = "127.0.0.1:3005"
+		}
+		discordAdapter := discordpkg.New(discordAddr, discordToken, discordTenant, discordAgent)
+		channelMgr.AddAdapter(discordAdapter)
+		fmt.Printf("registered Discord adapter (tenant: %s, agent: %s, listen: %s)\n", discordTenant, discordAgent, discordAddr)
 	}
 
 	proxyGateway := proxy.NewGateway(cfg.Listen.Address)
