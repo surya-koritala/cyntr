@@ -20,6 +20,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/federation"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
+	"github.com/cyntr-dev/cyntr/modules/scheduler"
 	"github.com/cyntr-dev/cyntr/modules/skill"
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
 	"github.com/cyntr-dev/cyntr/web"
@@ -94,12 +95,18 @@ func runStart() {
 	}
 	agentRuntime.SetSessionStore(sessionStore)
 
+	memoryStore, _ := agent.NewMemoryStore("memory.db")
+	agentRuntime.SetMemoryStore(memoryStore)
+
 	agentRuntime.RegisterProvider(agentproviders.NewMock("Default mock response"))
 
 	// Register tools
 	toolReg := agent.NewToolRegistry()
 	toolReg.Register(&agenttools.ShellTool{})
 	toolReg.Register(agenttools.NewHTTPTool())
+	toolReg.Register(&agenttools.FileReadTool{})
+	toolReg.Register(&agenttools.FileWriteTool{})
+	toolReg.Register(&agenttools.FileSearchTool{})
 	agentRuntime.SetToolRegistry(toolReg)
 
 	// Register Claude provider if API key is set
