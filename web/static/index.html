@@ -1,0 +1,1285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cyntr Dashboard</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg:       #0a0a0a;
+      --surface:  #111;
+      --surface2: #161616;
+      --border:   #222;
+      --border2:  #2a2a2a;
+      --text:     #e0e0e0;
+      --muted:    #888;
+      --faint:    #555;
+      --accent:   #6366f1;
+      --accent-h: #818cf8;
+      --ok:       #4ade80;
+      --err:      #f87171;
+      --warn:     #fbbf24;
+      --sidebar-w: 220px;
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Top bar ── */
+    .topbar {
+      height: 52px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 12px;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .topbar-logo {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: var(--accent-h);
+    }
+    .topbar-sub {
+      font-size: 12px;
+      color: var(--faint);
+    }
+    .topbar-spacer { flex: 1; }
+    .topbar-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+    .dot.ok  { background: var(--ok); }
+    .dot.err { background: var(--err); }
+
+    /* ── Layout ── */
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .sidebar-section {
+      padding: 16px 12px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--faint);
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 16px;
+      cursor: pointer;
+      border-radius: 6px;
+      margin: 1px 8px;
+      color: var(--muted);
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
+    }
+    .nav-item:hover { background: var(--surface2); color: var(--text); }
+    .nav-item.active {
+      background: rgba(99,102,241,0.18);
+      color: var(--accent-h);
+    }
+    .nav-icon {
+      width: 18px;
+      text-align: center;
+      font-style: normal;
+      flex-shrink: 0;
+    }
+
+    /* ── Main ── */
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 32px;
+    }
+
+    /* ── Page sections ── */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Page header ── */
+    .page-header {
+      margin-bottom: 24px;
+    }
+    .page-header h2 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .page-header p {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+
+    /* ── Cards ── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .card-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .card-value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+    .card-sub {
+      font-size: 12px;
+      color: var(--faint);
+      margin-top: 6px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .v-ok  { color: var(--ok); }
+    .v-err { color: var(--err); }
+    .v-acc { color: var(--accent-h); }
+
+    /* ── Sections ── */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .section-body { padding: 20px; }
+
+    /* ── Tables ── */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border2);
+      color: var(--text);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+    .mono { font-family: monospace; font-size: 12px; color: var(--muted); }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-ok   { background: rgba(74,222,128,0.12); color: var(--ok); }
+    .badge-err  { background: rgba(248,113,113,0.12); color: var(--err); }
+    .badge-warn { background: rgba(251,191,36,0.12); color: var(--warn); }
+    .badge-info { background: rgba(99,102,241,0.15); color: var(--accent-h); }
+    .badge-grey { background: rgba(136,136,136,0.12); color: var(--muted); }
+
+    /* ── Forms ── */
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .form-row.single { grid-template-columns: 1fr; }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+    }
+    input, select, textarea {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+    textarea { resize: vertical; min-height: 80px; }
+    select option { background: #1a1a1a; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border2);
+    }
+    .btn-secondary:hover:not(:disabled) { background: var(--border); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    /* ── Chat interface ── */
+    .chat-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .chat-toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 16px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+    }
+    .chat-toolbar label { white-space: nowrap; }
+    .chat-messages {
+      min-height: 240px;
+      max-height: 420px;
+      overflow-y: auto;
+      padding: 16px;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .chat-empty {
+      color: var(--faint);
+      font-size: 13px;
+      text-align: center;
+      margin: auto;
+    }
+    .msg {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-width: 80%;
+    }
+    .msg-user { align-self: flex-end; }
+    .msg-agent { align-self: flex-start; }
+    .msg-bubble {
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg-user .msg-bubble {
+      background: var(--accent);
+      color: #fff;
+      border-bottom-right-radius: 3px;
+    }
+    .msg-agent .msg-bubble {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 3px;
+    }
+    .msg-meta {
+      font-size: 11px;
+      color: var(--faint);
+      padding: 0 4px;
+    }
+    .msg-user .msg-meta { text-align: right; }
+    .chat-input-row {
+      display: flex;
+      gap: 10px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .chat-input-row input {
+      flex: 1;
+    }
+
+    /* ── Filter bar ── */
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .filter-bar .form-group { flex: 1; min-width: 140px; max-width: 220px; }
+
+    /* ── Policy tester ── */
+    .policy-result {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+    }
+    .policy-result.allow {
+      background: rgba(74,222,128,0.08);
+      border: 1px solid rgba(74,222,128,0.2);
+      color: var(--ok);
+      display: block;
+    }
+    .policy-result.deny {
+      background: rgba(248,113,113,0.08);
+      border: 1px solid rgba(248,113,113,0.2);
+      color: var(--err);
+      display: block;
+    }
+    .policy-result.info {
+      background: rgba(99,102,241,0.08);
+      border: 1px solid rgba(99,102,241,0.2);
+      color: var(--accent-h);
+      display: block;
+    }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Empty/error states ── */
+    .empty-state {
+      text-align: center;
+      padding: 32px;
+      color: var(--faint);
+      font-size: 13px;
+    }
+
+    /* ── Auto-refresh indicator ── */
+    .refresh-chip {
+      font-size: 11px;
+      color: var(--faint);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .refresh-chip .spinner { width: 10px; height: 10px; border-width: 1.5px; }
+  </style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <span class="topbar-logo">Cyntr</span>
+  <span class="topbar-sub">Agent OS</span>
+  <div class="topbar-spacer"></div>
+  <div class="topbar-status">
+    <span class="dot" id="health-dot"></span>
+    <span id="health-label">Connecting…</span>
+  </div>
+</div>
+
+<!-- Main layout -->
+<div class="layout">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-section">Navigation</div>
+    <div class="nav-item active" data-page="dashboard">
+      <i class="nav-icon">&#9632;</i> Dashboard
+    </div>
+    <div class="nav-item" data-page="agents">
+      <i class="nav-icon">&#9670;</i> Agents
+    </div>
+    <div class="nav-item" data-page="audit">
+      <i class="nav-icon">&#9776;</i> Audit
+    </div>
+    <div class="nav-item" data-page="policies">
+      <i class="nav-icon">&#9679;</i> Policies
+    </div>
+    <div class="nav-item" data-page="federation">
+      <i class="nav-icon">&#9670;</i> Federation
+    </div>
+  </nav>
+
+  <!-- Content -->
+  <main class="main">
+
+    <!-- ══ Dashboard ══ -->
+    <section class="page active" id="page-dashboard">
+      <div class="page-header">
+        <h2>Dashboard</h2>
+        <p>System overview and recent activity.</p>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-label">System Health</div>
+          <div class="card-value" id="d-health-value">…</div>
+          <div class="card-sub" id="d-health-sub"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Version</div>
+          <div class="card-value v-acc" id="d-version">…</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Tenants</div>
+          <div class="card-value v-acc" id="d-tenants">…</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Recent Audit Events</span>
+          <span class="refresh-chip" id="audit-refresh-chip">
+            <span class="spinner"></span> Live
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Tenant</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Decision</th>
+              </tr>
+            </thead>
+            <tbody id="d-audit-tbody">
+              <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Agents ══ -->
+    <section class="page" id="page-agents">
+      <div class="page-header">
+        <h2>Agents</h2>
+        <p>Create and interact with tenant agents.</p>
+      </div>
+
+      <!-- Create agent -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Create Agent</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="ag-tenant">Tenant</label>
+              <select id="ag-tenant"><option value="">Select tenant…</option></select>
+            </div>
+            <div class="form-group">
+              <label for="ag-name">Agent name</label>
+              <input type="text" id="ag-name" placeholder="my-agent">
+            </div>
+            <div class="form-group">
+              <label for="ag-model">Model</label>
+              <select id="ag-model">
+                <option value="claude-opus-4-5">claude-opus-4-5</option>
+                <option value="claude-sonnet-4-5" selected>claude-sonnet-4-5</option>
+                <option value="claude-haiku-3-5">claude-haiku-3-5</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ag-maxturns">Max turns</label>
+              <input type="number" id="ag-maxturns" value="10" min="1" max="100">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="ag-sysprompt">System prompt (optional)</label>
+              <textarea id="ag-sysprompt" placeholder="You are a helpful assistant…"></textarea>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="createAgent()">Create Agent</button>
+            <span id="ag-create-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Chat Interface</span>
+        </div>
+        <div class="section-body">
+          <div class="chat-wrap">
+            <div class="chat-toolbar">
+              <div class="form-group" style="flex:1;max-width:200px;">
+                <label for="chat-tenant">Tenant</label>
+                <select id="chat-tenant" onchange="updateChatAgents()">
+                  <option value="">Select tenant…</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex:1;max-width:200px;">
+                <label for="chat-agent">Agent</label>
+                <input type="text" id="chat-agent" placeholder="agent-name">
+              </div>
+              <div class="form-group" style="align-self:flex-end;">
+                <button class="btn btn-secondary btn-sm" onclick="clearChat()">Clear</button>
+              </div>
+            </div>
+            <div class="chat-messages" id="chat-messages">
+              <span class="chat-empty">Select a tenant and agent, then send a message.</span>
+            </div>
+            <div class="chat-input-row">
+              <input type="text" id="chat-input" placeholder="Type a message…"
+                     onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}">
+              <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent list -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Agent List</span>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <select id="aglist-tenant" style="padding:5px 10px;font-size:12px;" onchange="loadAgentList()">
+              <option value="">All tenants</option>
+            </select>
+          </div>
+        </div>
+        <div id="aglist-body">
+          <div class="empty-state">Select a tenant or create an agent above.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Audit ══ -->
+    <section class="page" id="page-audit">
+      <div class="page-header">
+        <h2>Audit Log</h2>
+        <p>Searchable audit trail for all policy decisions and actions.</p>
+      </div>
+
+      <div class="filter-bar">
+        <div class="form-group">
+          <label for="audit-tenant">Tenant</label>
+          <input type="text" id="audit-tenant" placeholder="all tenants">
+        </div>
+        <div class="form-group">
+          <label for="audit-user">User</label>
+          <input type="text" id="audit-user" placeholder="any user">
+        </div>
+        <div class="form-group">
+          <label for="audit-action">Action</label>
+          <input type="text" id="audit-action" placeholder="any action">
+        </div>
+        <div class="form-group" style="justify-content:flex-end;align-self:flex-end;">
+          <button class="btn btn-primary" onclick="loadAudit()">Search</button>
+        </div>
+        <div class="form-group" style="justify-content:flex-end;align-self:flex-end;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" id="audit-autorefresh" onchange="toggleAuditRefresh()"> Auto-refresh
+          </label>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Events</span>
+          <span id="audit-count" style="font-size:12px;color:var(--muted);">—</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Tenant</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Decision</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr><td colspan="6" class="empty-state">Run a search above.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Policies ══ -->
+    <section class="page" id="page-policies">
+      <div class="page-header">
+        <h2>Policies</h2>
+        <p>Test policy decisions against tenant rules.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Policy Tester</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="pol-tenant">Tenant</label>
+              <input type="text" id="pol-tenant" placeholder="tenant-id">
+            </div>
+            <div class="form-group">
+              <label for="pol-agent">Agent</label>
+              <input type="text" id="pol-agent" placeholder="agent-name">
+            </div>
+            <div class="form-group">
+              <label for="pol-action">Action</label>
+              <input type="text" id="pol-action" placeholder="e.g. tool_call">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="pol-inputs">Tool inputs (JSON)</label>
+              <textarea id="pol-inputs" placeholder='{"tool": "bash", "command": "ls"}'></textarea>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="testPolicy()">Test Policy</button>
+            <span id="pol-status" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+          <div class="policy-result" id="pol-result"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Federation ══ -->
+    <section class="page" id="page-federation">
+      <div class="page-header">
+        <h2>Federation</h2>
+        <p>Manage peer Cyntr nodes.</p>
+      </div>
+
+      <!-- Join peer -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Add Peer</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="fed-name">Name</label>
+              <input type="text" id="fed-name" placeholder="peer-node-1">
+            </div>
+            <div class="form-group">
+              <label for="fed-addr">Address</label>
+              <input type="text" id="fed-addr" placeholder="https://peer.example.com">
+            </div>
+            <div class="form-group">
+              <label for="fed-token">Token</label>
+              <input type="password" id="fed-token" placeholder="shared-secret">
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="joinPeer()">Add Peer</button>
+            <span id="fed-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Peer list -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Peers</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadPeers()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Address</th>
+                <th>Status</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody id="peers-tbody">
+              <tr><td colspan="4" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+'use strict';
+
+/* ─────────────── Routing ─────────────── */
+
+let currentPage = 'dashboard';
+
+document.querySelectorAll('.nav-item').forEach(el => {
+  el.addEventListener('click', () => {
+    const page = el.dataset.page;
+    navigate(page);
+  });
+});
+
+function navigate(page) {
+  currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.page === page));
+  document.querySelectorAll('.page').forEach(el =>
+    el.classList.toggle('active', el.id === 'page-' + page));
+  onPageEnter(page);
+}
+
+function onPageEnter(page) {
+  if (page === 'dashboard')  loadDashboard();
+  if (page === 'agents')     loadAgentsPage();
+  if (page === 'audit')      loadAudit();
+  if (page === 'federation') loadPeers();
+}
+
+/* ─────────────── Helpers ─────────────── */
+
+async function apiFetch(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data: j.data ?? j, raw: j };
+}
+
+function fmtTime(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts).toLocaleString(); } catch { return ts; }
+}
+
+function decisionBadge(d) {
+  if (!d) return '<span class="badge badge-grey">—</span>';
+  const l = String(d).toLowerCase();
+  if (l === 'allow') return `<span class="badge badge-ok">allow</span>`;
+  if (l === 'deny')  return `<span class="badge badge-err">deny</span>`;
+  return `<span class="badge badge-warn">${esc(d)}</span>`;
+}
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function setMsg(id, text, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color || 'var(--muted)';
+}
+
+/* ─────────────── Dashboard ─────────────── */
+
+async function loadDashboard() {
+  try {
+    const [health, version, tenants] = await Promise.all([
+      apiFetch('/api/v1/system/health'),
+      apiFetch('/api/v1/system/version'),
+      apiFetch('/api/v1/tenants'),
+    ]);
+
+    // Health
+    const hv = document.getElementById('d-health-value');
+    const hs = document.getElementById('d-health-sub');
+    const dot = document.getElementById('health-dot');
+    const lbl = document.getElementById('health-label');
+    if (health.ok) {
+      hv.textContent = 'Healthy';
+      hv.className = 'card-value v-ok';
+      dot.className = 'dot ok';
+      lbl.textContent = 'Healthy';
+      const info = health.data;
+      if (info && typeof info === 'object') {
+        hs.textContent = JSON.stringify(info, null, 2);
+      }
+    } else {
+      hv.textContent = 'Error';
+      hv.className = 'card-value v-err';
+      dot.className = 'dot err';
+      lbl.textContent = 'Unhealthy';
+    }
+
+    // Version
+    const vd = version.data;
+    document.getElementById('d-version').textContent =
+      (vd && vd.version) ? vd.version : (typeof vd === 'string' ? vd : '0.1.0');
+
+    // Tenants
+    const tlist = Array.isArray(tenants.data) ? tenants.data : [];
+    document.getElementById('d-tenants').textContent = tlist.length;
+
+  } catch(e) {
+    document.getElementById('d-health-value').textContent = 'Error';
+    document.getElementById('d-health-value').className = 'card-value v-err';
+    document.getElementById('health-dot').className = 'dot err';
+    document.getElementById('health-label').textContent = 'Unreachable';
+  }
+
+  // Recent audit events
+  loadDashboardAudit();
+}
+
+async function loadDashboardAudit() {
+  const tbody = document.getElementById('d-audit-tbody');
+  try {
+    const res = await apiFetch('/api/v1/audit');
+    const events = Array.isArray(res.data) ? res.data : [];
+    const last10 = events.slice(-10).reverse();
+    if (!last10.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No audit events found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = last10.map(e => `
+      <tr>
+        <td class="mono">${fmtTime(e.timestamp || e.time || e.created_at)}</td>
+        <td>${esc(e.tenant || e.tenant_id || '—')}</td>
+        <td>${esc(e.user || e.user_id || '—')}</td>
+        <td>${esc(e.action || e.action_type || '—')}</td>
+        <td>${decisionBadge(e.decision)}</td>
+      </tr>`).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Could not load audit events.</td></tr>';
+  }
+}
+
+/* ─────────────── Agents page ─────────────── */
+
+async function loadAgentsPage() {
+  const tenants = await loadTenants();
+  populateTenantSelects(tenants);
+}
+
+async function loadTenants() {
+  try {
+    const res = await apiFetch('/api/v1/tenants');
+    return Array.isArray(res.data) ? res.data : [];
+  } catch { return []; }
+}
+
+function populateTenantSelects(tenants) {
+  const selects = ['ag-tenant', 'chat-tenant', 'aglist-tenant'];
+  selects.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const current = el.value;
+    const isFilter = id === 'aglist-tenant';
+    el.innerHTML = isFilter
+      ? '<option value="">All tenants</option>'
+      : '<option value="">Select tenant…</option>';
+    tenants.forEach(t => {
+      const name = typeof t === 'string' ? t : (t.name || t.id || JSON.stringify(t));
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name === current) opt.selected = true;
+      el.appendChild(opt);
+    });
+  });
+}
+
+async function createAgent() {
+  const tenant = document.getElementById('ag-tenant').value.trim();
+  const name   = document.getElementById('ag-name').value.trim();
+  const model  = document.getElementById('ag-model').value;
+  const maxTurns = parseInt(document.getElementById('ag-maxturns').value, 10) || 10;
+  const sysprompt = document.getElementById('ag-sysprompt').value.trim();
+
+  if (!tenant) { setMsg('ag-create-msg', 'Please select a tenant.', 'var(--warn)'); return; }
+  if (!name)   { setMsg('ag-create-msg', 'Agent name is required.', 'var(--warn)'); return; }
+
+  setMsg('ag-create-msg', 'Creating…', 'var(--muted)');
+
+  try {
+    const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, model, system_prompt: sysprompt, max_turns: maxTurns }),
+    });
+
+    if (res.ok) {
+      setMsg('ag-create-msg', `Agent "${name}" created.`, 'var(--ok)');
+      document.getElementById('ag-name').value = '';
+      document.getElementById('ag-sysprompt').value = '';
+      loadAgentList();
+    } else {
+      const msg = res.raw?.error?.message || res.raw?.message || 'Create failed';
+      setMsg('ag-create-msg', msg, 'var(--err)');
+    }
+  } catch(e) {
+    setMsg('ag-create-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+async function loadAgentList() {
+  const tenant = document.getElementById('aglist-tenant').value;
+  const body = document.getElementById('aglist-body');
+
+  if (!tenant) {
+    body.innerHTML = '<div class="empty-state">Select a tenant to list agents.</div>';
+    return;
+  }
+
+  body.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
+
+  // There is no GET agents list endpoint in the current API; show a note.
+  // If an endpoint is added later it would be GET /api/v1/tenants/{tid}/agents
+  try {
+    const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents`).catch(() => null);
+    if (!res || !res.ok) {
+      body.innerHTML = '<div class="empty-state">Agent list endpoint not yet available — create an agent above to register it.</div>';
+      return;
+    }
+    const agents = Array.isArray(res.data) ? res.data : [];
+    if (!agents.length) {
+      body.innerHTML = '<div class="empty-state">No agents for this tenant yet.</div>';
+      return;
+    }
+    body.innerHTML = `<table>
+      <thead><tr><th>Name</th><th>Model</th><th>Max Turns</th></tr></thead>
+      <tbody>${agents.map(a => `
+        <tr>
+          <td>${esc(a.name || a)}</td>
+          <td class="mono">${esc(a.model || '—')}</td>
+          <td>${esc(a.max_turns ?? '—')}</td>
+        </tr>`).join('')}
+      </tbody></table>`;
+  } catch {
+    body.innerHTML = '<div class="empty-state">Failed to load agents.</div>';
+  }
+}
+
+function updateChatAgents() { /* placeholder for future agent list dropdown */ }
+
+let chatHistory = [];
+
+function clearChat() {
+  chatHistory = [];
+  renderChat();
+}
+
+function renderChat() {
+  const container = document.getElementById('chat-messages');
+  if (!chatHistory.length) {
+    container.innerHTML = '<span class="chat-empty">Select a tenant and agent, then send a message.</span>';
+    return;
+  }
+  container.innerHTML = chatHistory.map(m => {
+    const isUser = m.role === 'user';
+    return `<div class="msg ${isUser ? 'msg-user' : 'msg-agent'}">
+      <div class="msg-bubble">${esc(m.content)}</div>
+      <div class="msg-meta">${isUser ? 'You' : (m.agent || 'Agent')} &bull; ${fmtTime(m.ts)}</div>
+    </div>`;
+  }).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendChat() {
+  const tenant = document.getElementById('chat-tenant').value.trim();
+  const agentName = document.getElementById('chat-agent').value.trim();
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+
+  if (!tenant)     { alert('Select a tenant.'); return; }
+  if (!agentName)  { alert('Enter an agent name.'); return; }
+  if (!message)    return;
+
+  input.value = '';
+  chatHistory.push({ role: 'user', content: message, ts: new Date().toISOString() });
+  renderChat();
+
+  const btn = document.getElementById('chat-send-btn');
+  btn.disabled = true;
+
+  try {
+    const res = await apiFetch(
+      `/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(agentName)}/chat`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      }
+    );
+
+    if (res.ok) {
+      const d = res.data;
+      const content = d.content || d.message || JSON.stringify(d);
+      chatHistory.push({ role: 'agent', agent: d.agent || agentName, content, ts: new Date().toISOString() });
+    } else {
+      const errMsg = res.raw?.error?.message || res.raw?.message || `Error ${res.status}`;
+      chatHistory.push({ role: 'agent', agent: 'System', content: '[Error] ' + errMsg, ts: new Date().toISOString() });
+    }
+  } catch(e) {
+    chatHistory.push({ role: 'agent', agent: 'System', content: '[Network error] ' + e.message, ts: new Date().toISOString() });
+  } finally {
+    btn.disabled = false;
+    renderChat();
+    input.focus();
+  }
+}
+
+/* ─────────────── Audit ─────────────── */
+
+let auditRefreshTimer = null;
+
+function toggleAuditRefresh() {
+  const checked = document.getElementById('audit-autorefresh').checked;
+  if (checked) {
+    auditRefreshTimer = setInterval(loadAudit, 5000);
+  } else {
+    clearInterval(auditRefreshTimer);
+    auditRefreshTimer = null;
+  }
+}
+
+async function loadAudit() {
+  const tenant = document.getElementById('audit-tenant')?.value?.trim() || '';
+  const user   = document.getElementById('audit-user')?.value?.trim() || '';
+  const action = document.getElementById('audit-action')?.value?.trim() || '';
+
+  const params = new URLSearchParams();
+  if (tenant) params.set('tenant', tenant);
+  if (user)   params.set('user', user);
+  if (action) params.set('action', action);
+
+  const tbody = document.getElementById('audit-tbody');
+  if (!tbody) return;
+
+  try {
+    const res = await apiFetch('/api/v1/audit?' + params.toString());
+    const events = Array.isArray(res.data) ? res.data : [];
+
+    const countEl = document.getElementById('audit-count');
+    if (countEl) countEl.textContent = events.length + ' event' + (events.length !== 1 ? 's' : '');
+
+    if (!events.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No matching events.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = events.slice().reverse().map(e => `
+      <tr>
+        <td class="mono">${fmtTime(e.timestamp || e.time || e.created_at)}</td>
+        <td>${esc(e.tenant || e.tenant_id || '—')}</td>
+        <td>${esc(e.user || e.user_id || '—')}</td>
+        <td>${esc(e.action || e.action_type || '—')}</td>
+        <td>${decisionBadge(e.decision)}</td>
+        <td class="mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+            title="${esc(JSON.stringify(e.details || e.metadata || {}))}">
+          ${esc(JSON.stringify(e.details || e.metadata || {}))}
+        </td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+/* ─────────────── Policies ─────────────── */
+
+async function testPolicy() {
+  const tenant = document.getElementById('pol-tenant').value.trim();
+  const agent  = document.getElementById('pol-agent').value.trim();
+  const action = document.getElementById('pol-action').value.trim();
+  const inputsRaw = document.getElementById('pol-inputs').value.trim();
+
+  if (!tenant || !action) {
+    setMsg('pol-status', 'Tenant and action are required.', 'var(--warn)');
+    return;
+  }
+
+  let toolInputs = {};
+  if (inputsRaw) {
+    try { toolInputs = JSON.parse(inputsRaw); }
+    catch { setMsg('pol-status', 'Invalid JSON in tool inputs.', 'var(--err)'); return; }
+  }
+
+  setMsg('pol-status', 'Testing…', 'var(--muted)');
+  const resultEl = document.getElementById('pol-result');
+  resultEl.className = 'policy-result';
+  resultEl.textContent = '';
+
+  try {
+    const res = await apiFetch('/api/v1/policies/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant, agent, action, tool_inputs: toolInputs }),
+    });
+
+    setMsg('pol-status', '');
+
+    if (res.ok) {
+      const d = res.data;
+      const decision = (d.decision || d.result || '').toString().toLowerCase();
+      const reason = d.reason || d.message || '';
+      const display = `Decision: ${(d.decision || d.result || 'unknown').toString().toUpperCase()}` +
+        (reason ? `\nReason: ${reason}` : '') +
+        (Object.keys(d).length ? '\n\n' + JSON.stringify(d, null, 2) : '');
+
+      resultEl.textContent = display;
+      resultEl.className = 'policy-result ' + (decision === 'allow' ? 'allow' : decision === 'deny' ? 'deny' : 'info');
+    } else {
+      resultEl.textContent = res.raw?.error?.message || res.raw?.message || `HTTP ${res.status}`;
+      resultEl.className = 'policy-result deny';
+    }
+  } catch(e) {
+    setMsg('pol-status', '');
+    resultEl.textContent = 'Network error: ' + e.message;
+    resultEl.className = 'policy-result deny';
+  }
+}
+
+/* ─────────────── Federation ─────────────── */
+
+async function loadPeers() {
+  const tbody = document.getElementById('peers-tbody');
+  try {
+    const res = await apiFetch('/api/v1/federation/peers');
+    const peers = Array.isArray(res.data) ? res.data :
+      (res.data && typeof res.data === 'object' ? Object.values(res.data) : []);
+
+    if (!peers.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No peers configured.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = peers.map(p => `
+      <tr>
+        <td>${esc(p.name || p.id || '—')}</td>
+        <td class="mono">${esc(p.address || p.addr || p.url || '—')}</td>
+        <td>${p.status ? `<span class="badge ${p.status === 'online' ? 'badge-ok' : 'badge-grey'}">${esc(p.status)}</span>` : '<span class="badge badge-grey">unknown</span>'}</td>
+        <td class="mono">${fmtTime(p.last_seen || p.lastSeen)}</td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-state">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function joinPeer() {
+  const name  = document.getElementById('fed-name').value.trim();
+  const addr  = document.getElementById('fed-addr').value.trim();
+  const token = document.getElementById('fed-token').value.trim();
+
+  if (!name || !addr) {
+    setMsg('fed-msg', 'Name and address are required.', 'var(--warn)');
+    return;
+  }
+
+  setMsg('fed-msg', 'Adding…', 'var(--muted)');
+
+  try {
+    const res = await apiFetch('/api/v1/federation/peers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, address: addr, token }),
+    });
+
+    if (res.ok) {
+      setMsg('fed-msg', `Peer "${name}" added.`, 'var(--ok)');
+      document.getElementById('fed-name').value = '';
+      document.getElementById('fed-addr').value = '';
+      document.getElementById('fed-token').value = '';
+      loadPeers();
+    } else {
+      const msg = res.raw?.error?.message || res.raw?.message || 'Failed to add peer';
+      setMsg('fed-msg', msg, 'var(--err)');
+    }
+  } catch(e) {
+    setMsg('fed-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+/* ─────────────── Init ─────────────── */
+
+loadDashboard();
+setInterval(loadDashboard, 15000);
+</script>
+</body>
+</html>

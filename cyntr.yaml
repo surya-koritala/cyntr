@@ -1,0 +1,5 @@
+version: "1"
+listen:
+  address: "127.0.0.1:8080"
+  webui: ":7700"
+tenants: {}
