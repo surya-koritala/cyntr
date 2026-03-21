@@ -12,11 +12,13 @@ import (
 
 type ShellTool struct{}
 
-func (t *ShellTool) Name() string        { return "shell_exec" }
-func (t *ShellTool) Description() string { return "Execute a shell command and return its output" }
+func (t *ShellTool) Name() string { return "shell_exec" }
+func (t *ShellTool) Description() string {
+	return "Execute a shell command via bash and return its output. Supports multi-line scripts, pipes, and bash features. AWS CLI, Azure CLI, gcloud, and other tools are available if installed."
+}
 func (t *ShellTool) Parameters() map[string]agent.ToolParam {
 	return map[string]agent.ToolParam{
-		"command": {Type: "string", Description: "The shell command to execute", Required: true},
+		"command": {Type: "string", Description: "The bash command to execute", Required: true},
 	}
 }
 
@@ -26,10 +28,10 @@ func (t *ShellTool) Execute(ctx context.Context, input map[string]string) (strin
 		return "", fmt.Errorf("command is required")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
