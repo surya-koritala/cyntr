@@ -49,6 +49,29 @@ func (s *Server) handleWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 201, map[string]string{"run_id": resp.Payload.(string)})
 }
 
+func (s *Server) handleWorkflowGet(w http.ResponseWriter, r *http.Request) {
+	wfID := r.PathValue("id")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{Source: "api", Target: "workflow", Topic: "workflow.get", Payload: wfID})
+	if err != nil {
+		RespondError(w, 404, "NOT_FOUND", err.Error())
+		return
+	}
+	Respond(w, 200, resp.Payload)
+}
+
+func (s *Server) handleWorkflowListRuns(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{Source: "api", Target: "workflow", Topic: "workflow.list_runs"})
+	if err != nil {
+		Respond(w, 200, []any{})
+		return
+	}
+	Respond(w, 200, resp.Payload)
+}
+
 func (s *Server) handleWorkflowRunStatus(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)

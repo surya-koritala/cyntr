@@ -34,18 +34,18 @@ func (s ApprovalStatus) String() string {
 
 // ApprovalRequest represents a pending action waiting for approval.
 type ApprovalRequest struct {
-	ID        string
-	Tenant    string
-	User      string
-	Agent     string
-	Action    string
-	Tool      string
-	Rule      string         // policy rule that triggered approval
-	Status    ApprovalStatus
-	CreatedAt time.Time
-	ExpiresAt time.Time
-	DecidedBy string         // who approved/denied
-	DecidedAt time.Time
+	ID        string         `json:"id"`
+	Tenant    string         `json:"tenant"`
+	User      string         `json:"user"`
+	Agent     string         `json:"agent"`
+	Action    string         `json:"action"`
+	Tool      string         `json:"tool"`
+	Rule      string         `json:"rule"`      // policy rule that triggered approval
+	Status    ApprovalStatus `json:"status"`
+	CreatedAt time.Time      `json:"created_at"`
+	ExpiresAt time.Time      `json:"expires_at"`
+	DecidedBy string         `json:"decided_by"` // who approved/denied
+	DecidedAt time.Time      `json:"decided_at"`
 }
 
 // ApprovalQueue manages pending approval requests.

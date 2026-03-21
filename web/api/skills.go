@@ -48,6 +48,24 @@ func (s *Server) handleSkillInstall(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 201, map[string]string{"status": "installed"})
 }
 
+func (s *Server) handleSkillUninstall(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	_, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "skill_runtime", Topic: "skill.uninstall",
+		Payload: name,
+	})
+	if err != nil {
+		RespondError(w, 500, "UNINSTALL_FAILED", err.Error())
+		return
+	}
+
+	Respond(w, 200, map[string]string{"status": "uninstalled", "name": name})
+}
+
 func (s *Server) handleSkillMarketplaceSearch(w http.ResponseWriter, r *http.Request) {
 	// Marketplace is not yet deployed — return placeholder
 	Respond(w, 200, map[string]any{

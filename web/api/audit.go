@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
@@ -14,6 +15,23 @@ func (s *Server) handleAuditQuery(w http.ResponseWriter, r *http.Request) {
 		Tenant:     r.URL.Query().Get("tenant"),
 		ActionType: r.URL.Query().Get("action"),
 		User:       r.URL.Query().Get("user"),
+		Agent:      r.URL.Query().Get("agent"),
+	}
+
+	if since := r.URL.Query().Get("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			filter.Since = t
+		}
+	}
+	if until := r.URL.Query().Get("until"); until != "" {
+		if t, err := time.Parse(time.RFC3339, until); err == nil {
+			filter.Until = t
+		}
+	}
+	if limit := r.URL.Query().Get("limit"); limit != "" {
+		if n, err := strconv.Atoi(limit); err == nil {
+			filter.Limit = n
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)

@@ -82,6 +82,12 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("agent_runtime", "agent.create", r.handleCreate)
 	r.bus.Handle("agent_runtime", "agent.chat", r.handleChat)
 	r.bus.Handle("agent_runtime", "agent.list", r.handleList)
+	r.bus.Handle("agent_runtime", "agent.get", r.handleGet)
+	r.bus.Handle("agent_runtime", "agent.delete", r.handleDelete)
+	r.bus.Handle("agent_runtime", "agent.sessions", r.handleSessions)
+	r.bus.Handle("agent_runtime", "agent.session.messages", r.handleSessionMessages)
+	r.bus.Handle("agent_runtime", "agent.memories", r.handleMemories)
+	r.bus.Handle("agent_runtime", "agent.memory.delete", r.handleMemoryDelete)
 	return r.LoadSavedAgents()
 }
 
@@ -342,5 +348,151 @@ func (r *Runtime) handleList(msg ipc.Message) (ipc.Message, error) {
 	sort.Strings(names)
 
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: names}, nil
+}
+
+func (r *Runtime) handleGet(msg ipc.Message) (ipc.Message, error) {
+	params, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	tenant, name := params["tenant"], params["name"]
+	key := tenant + "/" + name
+
+	r.mu.RLock()
+	inst, exists := r.agents[key]
+	r.mu.RUnlock()
+
+	if exists {
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: inst.config}, nil
+	}
+
+	// Try loading from store
+	if r.store != nil {
+		agents, err := r.store.LoadAgents()
+		if err == nil {
+			for _, cfg := range agents {
+				if cfg.Tenant == tenant && cfg.Name == name {
+					return ipc.Message{Type: ipc.MessageTypeResponse, Payload: cfg}, nil
+				}
+			}
+		}
+	}
+
+	return ipc.Message{}, fmt.Errorf("agent %q not found in tenant %q", name, tenant)
+}
+
+func (r *Runtime) handleDelete(msg ipc.Message) (ipc.Message, error) {
+	params, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	tenant, name := params["tenant"], params["name"]
+	key := tenant + "/" + name
+
+	r.mu.Lock()
+	delete(r.agents, key)
+	r.mu.Unlock()
+
+	if r.store != nil {
+		r.store.DeleteAgent(tenant, name)
+		r.store.DeleteSession("sess_" + tenant + "_" + name)
+	}
+
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "deleted"}, nil
+}
+
+func (r *Runtime) handleSessions(msg ipc.Message) (ipc.Message, error) {
+	params, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	tenant, name := params["tenant"], params["name"]
+	prefix := "sess_" + tenant + "_" + name
+
+	if r.store == nil {
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: []string{}}, nil
+	}
+
+	all, err := r.store.ListSessions()
+	if err != nil {
+		return ipc.Message{}, err
+	}
+
+	var filtered []string
+	for _, id := range all {
+		if len(id) >= len(prefix) && id[:len(prefix)] == prefix {
+			filtered = append(filtered, id)
+		}
+	}
+	if filtered == nil {
+		filtered = []string{}
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: filtered}, nil
+}
+
+func (r *Runtime) handleSessionMessages(msg ipc.Message) (ipc.Message, error) {
+	sessionID, ok := msg.Payload.(string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)
+	}
+	if r.store == nil {
+		return ipc.Message{}, fmt.Errorf("session store not configured")
+	}
+
+	_, messages, err := r.store.LoadSession(sessionID)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+
+	// Convert to serializable format
+	type msgOut struct {
+		Role        string       `json:"role"`
+		Content     string       `json:"content"`
+		ToolCalls   []ToolCall   `json:"tool_calls,omitempty"`
+		ToolResults []ToolResult `json:"tool_results,omitempty"`
+	}
+
+	out := make([]msgOut, len(messages))
+	for i, m := range messages {
+		out[i] = msgOut{
+			Role:        m.Role.String(),
+			Content:     m.Content,
+			ToolCalls:   m.ToolCalls,
+			ToolResults: m.ToolResults,
+		}
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: out}, nil
+}
+
+func (r *Runtime) handleMemories(msg ipc.Message) (ipc.Message, error) {
+	params, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	tenant, name := params["tenant"], params["name"]
+
+	if r.memoryStore == nil {
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: []Memory{}}, nil
+	}
+
+	memories, err := r.memoryStore.Recall(name, tenant)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: memories}, nil
+}
+
+func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {
+	memID, ok := msg.Payload.(string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)
+	}
+	if r.memoryStore == nil {
+		return ipc.Message{}, fmt.Errorf("memory store not configured")
+	}
+	if err := r.memoryStore.Delete(memID); err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "deleted"}, nil
 }
 

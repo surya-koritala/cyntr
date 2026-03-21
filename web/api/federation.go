@@ -10,6 +10,24 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/federation"
 )
 
+func (s *Server) handleFederationRemove(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	_, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "federation", Topic: "federation.remove",
+		Payload: name,
+	})
+	if err != nil {
+		RespondError(w, 500, "REMOVE_FAILED", err.Error())
+		return
+	}
+
+	Respond(w, 200, map[string]string{"status": "removed", "name": name})
+}
+
 func (s *Server) handleFederationPeers(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()

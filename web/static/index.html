@@ -151,7 +151,7 @@
     /* ── Cards ── */
     .card-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
       gap: 16px;
       margin-bottom: 28px;
     }
@@ -177,9 +177,6 @@
       font-size: 12px;
       color: var(--faint);
       margin-top: 6px;
-      font-family: monospace;
-      white-space: pre-wrap;
-      word-break: break-all;
     }
     .v-ok  { color: var(--ok); }
     .v-err { color: var(--err); }
@@ -304,6 +301,8 @@
       border: 1px solid var(--border2);
     }
     .btn-secondary:hover:not(:disabled) { background: var(--border); }
+    .btn-danger { background: rgba(248,113,113,0.15); color: var(--err); border: 1px solid rgba(248,113,113,0.25); }
+    .btn-danger:hover:not(:disabled) { background: rgba(248,113,113,0.25); }
     .btn-sm { padding: 5px 10px; font-size: 12px; }
 
     /* ── Chat interface ── */
@@ -400,6 +399,8 @@
       border-radius: 8px;
       font-size: 13px;
       display: none;
+      white-space: pre-wrap;
+      font-family: monospace;
     }
     .policy-result.allow {
       background: rgba(74,222,128,0.08);
@@ -448,6 +449,90 @@
       gap: 5px;
     }
     .refresh-chip .spinner { width: 10px; height: 10px; border-width: 1.5px; }
+
+    /* ── Module health grid ── */
+    .health-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .health-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: var(--bg);
+      border-radius: 8px;
+      border: 1px solid var(--border2);
+    }
+    .health-item .dot { flex-shrink: 0; }
+    .health-name {
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .health-msg {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* ── Tool checkbox grid ── */
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 6px 16px;
+      padding: 8px 0;
+    }
+    .tool-grid label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 400;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    /* ── Inline actions ── */
+    .inline-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* ── Session messages ── */
+    .session-msg {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .session-msg-user {
+      background: rgba(99,102,241,0.12);
+      border: 1px solid rgba(99,102,241,0.2);
+    }
+    .session-msg-assistant {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .session-msg-tool {
+      background: rgba(251,191,36,0.08);
+      border: 1px solid rgba(251,191,36,0.15);
+    }
+    .session-msg .role-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    .role-badge-user { background: rgba(99,102,241,0.2); color: var(--accent-h); }
+    .role-badge-assistant { background: rgba(136,136,136,0.2); color: var(--muted); }
+    .role-badge-tool { background: rgba(251,191,36,0.2); color: var(--warn); }
   </style>
 </head>
 <body>
@@ -459,7 +544,7 @@
   <div class="topbar-spacer"></div>
   <div class="topbar-status">
     <span class="dot" id="health-dot"></span>
-    <span id="health-label">Connecting…</span>
+    <span id="health-label">Connecting...</span>
   </div>
 </div>
 
@@ -468,18 +553,46 @@
 
   <!-- Sidebar -->
   <nav class="sidebar">
-    <div class="sidebar-section">Navigation</div>
+    <div class="sidebar-section">Overview</div>
     <div class="nav-item active" data-page="dashboard">
       <i class="nav-icon">&#9632;</i> Dashboard
     </div>
+    <div class="sidebar-section">Agents</div>
     <div class="nav-item" data-page="agents">
       <i class="nav-icon">&#9670;</i> Agents
+    </div>
+    <div class="nav-item" data-page="sessions">
+      <i class="nav-icon">&#128196;</i> Sessions
+    </div>
+    <div class="nav-item" data-page="memories">
+      <i class="nav-icon">&#129504;</i> Memories
+    </div>
+    <div class="nav-item" data-page="skills">
+      <i class="nav-icon">&#10070;</i> Skills
+    </div>
+    <div class="sidebar-section">Automation</div>
+    <div class="nav-item" data-page="workflows">
+      <i class="nav-icon">&#8634;</i> Workflows
+    </div>
+    <div class="nav-item" data-page="scheduler">
+      <i class="nav-icon">&#9200;</i> Scheduler
+    </div>
+    <div class="sidebar-section">Governance</div>
+    <div class="nav-item" data-page="tenants">
+      <i class="nav-icon">&#9733;</i> Tenants
     </div>
     <div class="nav-item" data-page="audit">
       <i class="nav-icon">&#9776;</i> Audit
     </div>
     <div class="nav-item" data-page="policies">
       <i class="nav-icon">&#9679;</i> Policies
+    </div>
+    <div class="nav-item" data-page="approvals">
+      <i class="nav-icon">&#10003;</i> Approvals
+    </div>
+    <div class="sidebar-section">Infrastructure</div>
+    <div class="nav-item" data-page="channels">
+      <i class="nav-icon">&#9993;</i> Channels
     </div>
     <div class="nav-item" data-page="federation">
       <i class="nav-icon">&#9670;</i> Federation
@@ -493,31 +606,63 @@
     <section class="page active" id="page-dashboard">
       <div class="page-header">
         <h2>Dashboard</h2>
-        <p>System overview and recent activity.</p>
+        <p>System overview and health status.</p>
       </div>
 
-      <div class="card-grid">
+      <div class="card-grid" id="d-cards">
         <div class="card">
-          <div class="card-label">System Health</div>
-          <div class="card-value" id="d-health-value">…</div>
-          <div class="card-sub" id="d-health-sub"></div>
+          <div class="card-label">Status</div>
+          <div class="card-value" id="d-health-value">...</div>
         </div>
         <div class="card">
           <div class="card-label">Version</div>
-          <div class="card-value v-acc" id="d-version">…</div>
+          <div class="card-value v-acc" id="d-version">...</div>
         </div>
         <div class="card">
           <div class="card-label">Tenants</div>
-          <div class="card-value v-acc" id="d-tenants">…</div>
+          <div class="card-value v-acc" id="d-tenants">...</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Providers</div>
+          <div class="card-value v-acc" id="d-providers">...</div>
+          <div class="card-sub" id="d-providers-sub"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Tools</div>
+          <div class="card-value v-acc" id="d-tools">...</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Channels</div>
+          <div class="card-value v-acc" id="d-channels">...</div>
+          <div class="card-sub" id="d-channels-sub"></div>
+        </div>
+        <div class="card">
+          <div class="card-label">Scheduled Jobs</div>
+          <div class="card-value v-acc" id="d-schedules">...</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Skills</div>
+          <div class="card-value v-acc" id="d-skills">...</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Module Health</span>
+          <span class="refresh-chip" id="audit-refresh-chip">
+            <span class="spinner"></span> Live
+          </span>
+        </div>
+        <div class="section-body">
+          <div class="health-grid" id="d-health-grid">
+            <div class="empty-state">Loading...</div>
+          </div>
         </div>
       </div>
 
       <div class="section">
         <div class="section-header">
           <span class="section-title">Recent Audit Events</span>
-          <span class="refresh-chip" id="audit-refresh-chip">
-            <span class="spinner"></span> Live
-          </span>
         </div>
         <div class="table-wrap">
           <table>
@@ -531,7 +676,7 @@
               </tr>
             </thead>
             <tbody id="d-audit-tbody">
-              <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -542,7 +687,7 @@
     <section class="page" id="page-agents">
       <div class="page-header">
         <h2>Agents</h2>
-        <p>Create and interact with tenant agents.</p>
+        <p>Create, manage, and chat with AI agents.</p>
       </div>
 
       <!-- Create agent -->
@@ -554,20 +699,45 @@
           <div class="form-row">
             <div class="form-group">
               <label for="ag-tenant">Tenant</label>
-              <select id="ag-tenant"><option value="">Select tenant…</option></select>
+              <select id="ag-tenant"><option value="">Select tenant...</option></select>
             </div>
             <div class="form-group">
               <label for="ag-name">Agent name</label>
               <input type="text" id="ag-name" placeholder="my-agent">
             </div>
             <div class="form-group">
-              <label for="ag-model">Model</label>
+              <label for="ag-model">Provider / Model</label>
               <select id="ag-model">
-                <option value="claude-opus-4-5">claude-opus-4-5</option>
-                <option value="claude-sonnet-4-5" selected>claude-sonnet-4-5</option>
-                <option value="claude-haiku-3-5">claude-haiku-3-5</option>
-                <option value="gpt-4o">gpt-4o</option>
-                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <optgroup label="Anthropic (Claude)">
+                  <option value="claude-sonnet-4-20250514" selected>claude-sonnet-4</option>
+                  <option value="claude-opus-4-20250514">claude-opus-4</option>
+                  <option value="claude-haiku-3-5">claude-haiku-3.5</option>
+                </optgroup>
+                <optgroup label="OpenAI (GPT)">
+                  <option value="gpt-4o">gpt-4o</option>
+                  <option value="gpt-4o-mini">gpt-4o-mini</option>
+                  <option value="gpt-4">gpt-4</option>
+                </optgroup>
+                <optgroup label="Azure OpenAI">
+                  <option value="azure-openai">azure-openai (deployment)</option>
+                </optgroup>
+                <optgroup label="Google (Gemini)">
+                  <option value="gemini-pro">gemini-pro</option>
+                  <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                </optgroup>
+                <optgroup label="OpenRouter">
+                  <option value="anthropic/claude-3.5-sonnet">openrouter: claude-3.5-sonnet</option>
+                  <option value="openai/gpt-4o">openrouter: gpt-4o</option>
+                  <option value="meta-llama/llama-3-70b">openrouter: llama-3-70b</option>
+                </optgroup>
+                <optgroup label="Ollama (Local)">
+                  <option value="llama3">ollama: llama3</option>
+                  <option value="mistral">ollama: mistral</option>
+                  <option value="codellama">ollama: codellama</option>
+                </optgroup>
+                <optgroup label="Test">
+                  <option value="mock">mock (testing)</option>
+                </optgroup>
               </select>
             </div>
             <div class="form-group">
@@ -578,42 +748,19 @@
           <div class="form-row single">
             <div class="form-group">
               <label for="ag-sysprompt">System prompt (optional)</label>
-              <textarea id="ag-sysprompt" placeholder="You are a helpful assistant…"></textarea>
+              <textarea id="ag-sysprompt" placeholder="You are a helpful assistant..."></textarea>
             </div>
           </div>
           <div class="form-row single">
             <div class="form-group">
-              <label>Tools</label>
-              <div id="ag-tools-checkboxes" style="display:flex;flex-wrap:wrap;gap:10px 20px;padding:8px 0;">
-                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
-                  <input type="checkbox" value="file_read"> file_read
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
-                  <input type="checkbox" value="file_write"> file_write
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
-                  <input type="checkbox" value="file_search"> file_search
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
-                  <input type="checkbox" value="browse_web"> browse_web
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
-                  <input type="checkbox" value="http_request"> http_request
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
-                  <input type="checkbox" value="shell_exec"> shell_exec
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
-                  <input type="checkbox" value="github"> github
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text);cursor:pointer;">
-                  <input type="checkbox" value="jira"> jira
-                </label>
-              </div>
+              <label>Tools <span style="font-weight:400;color:var(--faint);">(17 available)</span></label>
+              <div id="ag-tools-checkboxes" class="tool-grid"></div>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:12px;">
             <button class="btn btn-primary" onclick="createAgent()">Create Agent</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleAllTools(true)">Select All</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleAllTools(false)">Clear All</button>
             <span id="ag-create-msg" style="font-size:13px;color:var(--muted);"></span>
           </div>
         </div>
@@ -629,9 +776,7 @@
             <div class="chat-toolbar">
               <div class="form-group" style="flex:1;max-width:200px;">
                 <label for="chat-tenant">Tenant</label>
-                <select id="chat-tenant" onchange="updateChatAgents()">
-                  <option value="">Select tenant…</option>
-                </select>
+                <select id="chat-tenant"><option value="">Select tenant...</option></select>
               </div>
               <div class="form-group" style="flex:1;max-width:200px;">
                 <label for="chat-agent">Agent</label>
@@ -645,7 +790,7 @@
               <span class="chat-empty">Select a tenant and agent, then send a message.</span>
             </div>
             <div class="chat-input-row">
-              <input type="text" id="chat-input" placeholder="Type a message…"
+              <input type="text" id="chat-input" placeholder="Type a message..."
                      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}">
               <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">Send</button>
             </div>
@@ -657,14 +802,356 @@
       <div class="section">
         <div class="section-header">
           <span class="section-title">Agent List</span>
-          <div style="display:flex;gap:10px;align-items:center;">
-            <select id="aglist-tenant" style="padding:5px 10px;font-size:12px;" onchange="loadAgentList()">
-              <option value="">All tenants</option>
-            </select>
-          </div>
+          <select id="aglist-tenant" style="padding:5px 10px;font-size:12px;" onchange="loadAgentList()">
+            <option value="">All tenants</option>
+          </select>
         </div>
         <div id="aglist-body">
           <div class="empty-state">Select a tenant or create an agent above.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Sessions ══ -->
+    <section class="page" id="page-sessions">
+      <div class="page-header">
+        <h2>Sessions</h2>
+        <p>Browse agent conversation sessions and their messages.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Load Sessions</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="sess-tenant">Tenant</label>
+              <select id="sess-tenant"><option value="">Select tenant...</option></select>
+            </div>
+            <div class="form-group">
+              <label for="sess-agent">Agent name</label>
+              <input type="text" id="sess-agent" placeholder="agent-name">
+            </div>
+            <div class="form-group" style="align-self:flex-end;">
+              <button class="btn btn-primary" onclick="loadSessions()">Load</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Session List</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Session ID</th><th>Actions</th></tr></thead>
+            <tbody id="sessions-tbody">
+              <tr><td colspan="2" class="empty-state">Select a tenant and agent above, then click Load.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Messages</span>
+          <span id="sess-msg-label" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+        <div class="section-body" id="sess-messages-body">
+          <div class="empty-state">Click "View Messages" on a session to see the conversation.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Memories ══ -->
+    <section class="page" id="page-memories">
+      <div class="page-header">
+        <h2>Memories</h2>
+        <p>Browse and manage agent memory entries.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Load Memories</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="mem-tenant">Tenant</label>
+              <select id="mem-tenant"><option value="">Select tenant...</option></select>
+            </div>
+            <div class="form-group">
+              <label for="mem-agent">Agent name</label>
+              <input type="text" id="mem-agent" placeholder="agent-name">
+            </div>
+            <div class="form-group" style="align-self:flex-end;">
+              <button class="btn btn-primary" onclick="loadMemoriesList()">Load</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Memory Entries</span>
+          <span id="mem-count" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Key</th><th>Content</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="memories-tbody">
+              <tr><td colspan="5" class="empty-state">Select a tenant and agent above, then click Load.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Skills ══ -->
+    <section class="page" id="page-skills">
+      <div class="page-header">
+        <h2>Skills</h2>
+        <p>Manage reusable agent skills. Import from OpenClaw or install from marketplace.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Installed Skills</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadSkills()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Version</th><th>Description</th><th>Source</th><th>Actions</th></tr></thead>
+            <tbody id="skills-tbody">
+              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Install Skill</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <label for="skill-path">Skill directory path (must contain skill.yaml)</label>
+              <input type="text" id="skill-path" placeholder="/path/to/skill-directory">
+            </div>
+            <div class="form-group">
+              <label for="skill-source">Source</label>
+              <select id="skill-source">
+                <option value="local">Local Path</option>
+                <option value="openclaw">OpenClaw Import</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="installSkill()">Install</button>
+            <span id="skill-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Marketplace Search</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="skill-search">Search skills</label>
+              <input type="text" id="skill-search" placeholder="e.g. summarizer, code review">
+            </div>
+            <div class="form-group" style="align-self:flex-end;">
+              <button class="btn btn-primary" onclick="searchMarketplace()">Search</button>
+            </div>
+          </div>
+          <div id="marketplace-results"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Workflows ══ -->
+    <section class="page" id="page-workflows">
+      <div class="page-header">
+        <h2>Workflows</h2>
+        <p>Define and run multi-step agent workflows.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Registered Workflows</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadWorkflows()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Steps</th><th>Actions</th></tr></thead>
+            <tbody id="wf-tbody">
+              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Register Workflow</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="wf-body">Workflow definition (JSON)</label>
+              <textarea id="wf-body" placeholder='{"name":"my-workflow","steps":[{"agent":"assistant","prompt":"Summarize the input"}]}'></textarea>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="registerWorkflow()">Register</button>
+            <span id="wf-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Run Workflow</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="wfrun-id">Run ID</label>
+              <input type="text" id="wfrun-id" placeholder="run-id">
+            </div>
+            <div class="form-group" style="align-self:flex-end;">
+              <button class="btn btn-primary" onclick="checkRunStatus()">Check Status</button>
+            </div>
+          </div>
+          <div class="policy-result" id="wfrun-result"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Run History</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadWorkflowRuns()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Run ID</th><th>Workflow ID</th><th>Status</th><th>Started</th><th>Error</th></tr></thead>
+            <tbody id="wf-runs-tbody">
+              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Scheduler ══ -->
+    <section class="page" id="page-scheduler">
+      <div class="page-header">
+        <h2>Scheduler</h2>
+        <p>Manage cron-based scheduled jobs for agents.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Scheduled Jobs</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadSchedules()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Interval</th><th>Tenant</th><th>Agent</th><th>Message</th><th>Last Run</th><th>Next Run</th><th>Enabled</th><th>Actions</th></tr></thead>
+            <tbody id="sched-tbody">
+              <tr><td colspan="9" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Add Schedule</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="sched-interval">Interval (Go duration)</label>
+              <input type="text" id="sched-interval" placeholder="30m, 1h, 24h">
+            </div>
+            <div class="form-group">
+              <label for="sched-tenant">Tenant</label>
+              <input type="text" id="sched-tenant" placeholder="default">
+            </div>
+            <div class="form-group">
+              <label for="sched-agent">Agent</label>
+              <input type="text" id="sched-agent" placeholder="assistant">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="sched-message">Message to send</label>
+              <input type="text" id="sched-message" placeholder="Generate daily report">
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="addSchedule()">Add Schedule</button>
+            <span id="sched-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Tenants ══ -->
+    <section class="page" id="page-tenants">
+      <div class="page-header">
+        <h2>Tenants</h2>
+        <p>Manage multi-tenant isolation and policies.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Create Tenant</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="tenant-name">Name</label>
+              <input type="text" id="tenant-name" placeholder="my-tenant">
+            </div>
+            <div class="form-group">
+              <label for="tenant-isolation">Isolation</label>
+              <select id="tenant-isolation">
+                <option value="namespace">namespace</option>
+                <option value="process">process</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="tenant-policy">Policy</label>
+              <input type="text" id="tenant-policy" placeholder="default">
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="createTenant()">Create</button>
+            <span id="tenant-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Tenant List</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadTenantsList()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Isolation</th><th>Policy</th><th>Actions</th></tr></thead>
+            <tbody id="tenants-tbody">
+              <tr><td colspan="4" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -689,10 +1176,29 @@
           <label for="audit-action">Action</label>
           <input type="text" id="audit-action" placeholder="any action">
         </div>
-        <div class="form-group" style="justify-content:flex-end;align-self:flex-end;">
+        <div class="form-group">
+          <label for="audit-agent">Agent</label>
+          <input type="text" id="audit-agent" placeholder="any agent">
+        </div>
+        <div class="form-group">
+          <label for="audit-since">Since</label>
+          <input type="datetime-local" id="audit-since">
+        </div>
+        <div class="form-group">
+          <label for="audit-until">Until</label>
+          <input type="datetime-local" id="audit-until">
+        </div>
+        <div class="form-group">
+          <label for="audit-limit">Limit</label>
+          <input type="number" id="audit-limit" value="50" min="1" max="1000" style="width:80px;">
+        </div>
+        <div class="form-group" style="align-self:flex-end;">
           <button class="btn btn-primary" onclick="loadAudit()">Search</button>
         </div>
-        <div class="form-group" style="justify-content:flex-end;align-self:flex-end;">
+        <div class="form-group" style="align-self:flex-end;">
+          <button class="btn btn-secondary btn-sm" onclick="exportAuditCSV()">Export CSV</button>
+        </div>
+        <div class="form-group" style="align-self:flex-end;">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
             <input type="checkbox" id="audit-autorefresh" onchange="toggleAuditRefresh()"> Auto-refresh
           </label>
@@ -702,22 +1208,23 @@
       <div class="section">
         <div class="section-header">
           <span class="section-title">Events</span>
-          <span id="audit-count" style="font-size:12px;color:var(--muted);">—</span>
+          <span id="audit-count" style="font-size:12px;color:var(--muted);">-</span>
         </div>
         <div class="table-wrap">
-          <table>
+          <table id="audit-table">
             <thead>
               <tr>
                 <th>Timestamp</th>
                 <th>Tenant</th>
                 <th>User</th>
                 <th>Action</th>
+                <th>Agent</th>
                 <th>Decision</th>
                 <th>Details</th>
               </tr>
             </thead>
             <tbody id="audit-tbody">
-              <tr><td colspan="6" class="empty-state">Run a search above.</td></tr>
+              <tr><td colspan="7" class="empty-state">Run a search above.</td></tr>
             </tbody>
           </table>
         </div>
@@ -728,7 +1235,22 @@
     <section class="page" id="page-policies">
       <div class="page-header">
         <h2>Policies</h2>
-        <p>Test policy decisions against tenant rules.</p>
+        <p>View loaded rules and test policy decisions against tenant rules.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Loaded Rules</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadPolicyRules()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Tenant</th><th>Action</th><th>Tool</th><th>Agent</th><th>Decision</th><th>Priority</th></tr></thead>
+            <tbody id="policy-rules-tbody">
+              <tr><td colspan="7" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="section">
@@ -765,14 +1287,67 @@
       </div>
     </section>
 
+    <!-- ══ Approvals ══ -->
+    <section class="page" id="page-approvals">
+      <div class="page-header">
+        <h2>Approvals</h2>
+        <p>Review and approve or deny pending tool execution requests.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Pending Approvals</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadApprovals()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Tenant</th><th>Agent</th><th>User</th><th>Tool</th><th>Rule</th><th>Created</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="approvals-tbody">
+              <tr><td colspan="10" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Channels ══ -->
+    <section class="page" id="page-channels">
+      <div class="page-header">
+        <h2>Channels</h2>
+        <p>Active messaging platform integrations.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Configured Channels</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadChannels()">Refresh</button>
+        </div>
+        <div id="channels-body">
+          <div class="empty-state">Loading...</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Channel Configuration Guide</span>
+        </div>
+        <div class="section-body" style="font-size:13px;color:var(--muted);line-height:1.8;">
+          <p>Channels are configured via environment variables before starting Cyntr:</p>
+          <table style="margin-top:12px;">
+            <thead><tr><th>Channel</th><th>Required Env Var</th><th>Status</th></tr></thead>
+            <tbody id="channel-guide-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- ══ Federation ══ -->
     <section class="page" id="page-federation">
       <div class="page-header">
         <h2>Federation</h2>
-        <p>Manage peer Cyntr nodes.</p>
+        <p>Manage peer Cyntr nodes for cross-instance agent communication.</p>
       </div>
 
-      <!-- Join peer -->
       <div class="section">
         <div class="section-header">
           <span class="section-title">Add Peer</span>
@@ -799,7 +1374,6 @@
         </div>
       </div>
 
-      <!-- Peer list -->
       <div class="section">
         <div class="section-header">
           <span class="section-title">Peers</span>
@@ -807,16 +1381,9 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Address</th>
-                <th>Status</th>
-                <th>Last Seen</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Name</th><th>Address</th><th>Status</th><th>Last Seen</th><th>Actions</th></tr></thead>
             <tbody id="peers-tbody">
-              <tr><td colspan="4" class="empty-state">Loading…</td></tr>
+              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -829,15 +1396,47 @@
 <script>
 'use strict';
 
+/* ─────────────── Constants ─────────────── */
+
+const ALL_TOOLS = [
+  'shell_exec','http_request','file_read','file_write','file_search',
+  'browse_web','advanced_browse','chromium_browser','web_search',
+  'github','jira','code_interpreter','transcribe_audio',
+  'pdf_reader','database_query','generate_image','delegate_agent'
+];
+
+const CHANNEL_DEFS = [
+  { name: 'Slack',       env: 'SLACK_BOT_TOKEN' },
+  { name: 'Teams',       env: 'TEAMS_APP_ID' },
+  { name: 'Discord',     env: 'DISCORD_BOT_TOKEN' },
+  { name: 'Telegram',    env: 'TELEGRAM_BOT_TOKEN' },
+  { name: 'WhatsApp',    env: 'WHATSAPP_ACCESS_TOKEN' },
+  { name: 'Email',       env: 'EMAIL_SMTP_HOST' },
+  { name: 'Google Chat', env: 'GOOGLE_CHAT_WEBHOOK_URL' },
+  { name: 'Webhook',     env: '(always available)' },
+];
+
+/* ─────────────── Init tool checkboxes ─────────────── */
+
+(function() {
+  const container = document.getElementById('ag-tools-checkboxes');
+  if (!container) return;
+  container.innerHTML = ALL_TOOLS.map(t =>
+    `<label><input type="checkbox" value="${t}"> ${t}</label>`
+  ).join('');
+})();
+
+function toggleAllTools(on) {
+  document.querySelectorAll('#ag-tools-checkboxes input[type="checkbox"]')
+    .forEach(cb => cb.checked = on);
+}
+
 /* ─────────────── Routing ─────────────── */
 
 let currentPage = 'dashboard';
 
 document.querySelectorAll('.nav-item').forEach(el => {
-  el.addEventListener('click', () => {
-    const page = el.dataset.page;
-    navigate(page);
-  });
+  el.addEventListener('click', () => navigate(el.dataset.page));
 });
 
 function navigate(page) {
@@ -854,6 +1453,15 @@ function onPageEnter(page) {
   if (page === 'agents')     loadAgentsPage();
   if (page === 'audit')      loadAudit();
   if (page === 'federation') loadPeers();
+  if (page === 'skills')     loadSkills();
+  if (page === 'workflows')  { loadWorkflows(); loadWorkflowRuns(); }
+  if (page === 'scheduler')  loadSchedules();
+  if (page === 'approvals')  loadApprovals();
+  if (page === 'channels')   loadChannels();
+  if (page === 'tenants')    loadTenantsList();
+  if (page === 'sessions')   loadSessionsPage();
+  if (page === 'memories')   loadMemoriesPage();
+  if (page === 'policies')   { loadPolicyRules(); }
 }
 
 /* ─────────────── Helpers ─────────────── */
@@ -865,21 +1473,33 @@ async function apiFetch(path, opts) {
 }
 
 function fmtTime(ts) {
-  if (!ts) return '—';
+  if (!ts) return '-';
   try { return new Date(ts).toLocaleString(); } catch { return ts; }
 }
 
 function decisionBadge(d) {
-  if (!d) return '<span class="badge badge-grey">—</span>';
+  if (!d && d !== 0) return '<span class="badge badge-grey">-</span>';
   const l = String(d).toLowerCase();
-  if (l === 'allow') return `<span class="badge badge-ok">allow</span>`;
-  if (l === 'deny')  return `<span class="badge badge-err">deny</span>`;
-  return `<span class="badge badge-warn">${esc(d)}</span>`;
+  if (l === 'allow' || l === '1') return '<span class="badge badge-ok">allow</span>';
+  if (l === 'deny' || l === '0')  return '<span class="badge badge-err">deny</span>';
+  if (l === 'require_approval' || l === '2') return '<span class="badge badge-warn">require_approval</span>';
+  return '<span class="badge badge-warn">' + esc(d) + '</span>';
 }
 
 function esc(s) {
-  return String(s ?? '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function fmtInterval(ns) {
+  if (!ns && ns !== 0) return '-';
+  // Go duration is in nanoseconds when serialized as int
+  if (typeof ns === 'number' && ns > 1000000) {
+    const secs = Math.floor(ns / 1e9);
+    if (secs >= 3600) return Math.floor(secs / 3600) + 'h' + (secs % 3600 >= 60 ? Math.floor((secs % 3600) / 60) + 'm' : '');
+    if (secs >= 60) return Math.floor(secs / 60) + 'm';
+    return secs + 's';
+  }
+  return String(ns);
 }
 
 function setMsg(id, text, color) {
@@ -889,7 +1509,31 @@ function setMsg(id, text, color) {
   el.style.color = color || 'var(--muted)';
 }
 
+function statusBadge(status) {
+  if (!status) return '<span class="badge badge-grey">-</span>';
+  const s = String(status).toLowerCase();
+  if (s === 'running')           return '<span class="badge badge-info">running</span>';
+  if (s === 'completed')         return '<span class="badge badge-ok">completed</span>';
+  if (s === 'failed')            return '<span class="badge badge-err">failed</span>';
+  if (s === 'pending')           return '<span class="badge badge-grey">pending</span>';
+  if (s === 'waiting_approval')  return '<span class="badge badge-warn">waiting_approval</span>';
+  return '<span class="badge badge-grey">' + esc(status) + '</span>';
+}
+
+function enabledBadge(enabled) {
+  if (enabled === true || enabled === 'true') return '<span class="badge badge-ok">enabled</span>';
+  return '<span class="badge badge-grey">disabled</span>';
+}
+
+function truncate(str, len) {
+  if (!str) return '-';
+  const s = String(str);
+  return s.length > len ? s.substring(0, len) + '...' : s;
+}
+
 /* ─────────────── Dashboard ─────────────── */
+
+let healthData = {};
 
 async function loadDashboard() {
   try {
@@ -899,20 +1543,16 @@ async function loadDashboard() {
       apiFetch('/api/v1/tenants'),
     ]);
 
-    // Health
-    const hv = document.getElementById('d-health-value');
-    const hs = document.getElementById('d-health-sub');
     const dot = document.getElementById('health-dot');
     const lbl = document.getElementById('health-label');
+    const hv  = document.getElementById('d-health-value');
+
     if (health.ok) {
       hv.textContent = 'Healthy';
       hv.className = 'card-value v-ok';
       dot.className = 'dot ok';
       lbl.textContent = 'Healthy';
-      const info = health.data;
-      if (info && typeof info === 'object') {
-        hs.textContent = JSON.stringify(info, null, 2);
-      }
+      healthData = health.data || {};
     } else {
       hv.textContent = 'Error';
       hv.className = 'card-value v-err';
@@ -923,11 +1563,15 @@ async function loadDashboard() {
     // Version
     const vd = version.data;
     document.getElementById('d-version').textContent =
-      (vd && vd.version) ? vd.version : (typeof vd === 'string' ? vd : '0.1.0');
+      (vd && vd.version) ? vd.version : (typeof vd === 'string' ? vd : '0.3.0');
 
     // Tenants
     const tlist = Array.isArray(tenants.data) ? tenants.data : [];
     document.getElementById('d-tenants').textContent = tlist.length;
+
+    // Extract counts from health data
+    renderHealthGrid(healthData);
+    extractCounts(healthData);
 
   } catch(e) {
     document.getElementById('d-health-value').textContent = 'Error';
@@ -936,8 +1580,53 @@ async function loadDashboard() {
     document.getElementById('health-label').textContent = 'Unreachable';
   }
 
-  // Recent audit events
   loadDashboardAudit();
+  loadDashboardSchedules();
+  loadDashboardSkills();
+}
+
+function renderHealthGrid(data) {
+  const grid = document.getElementById('d-health-grid');
+  if (!data || typeof data !== 'object' || !Object.keys(data).length) {
+    grid.innerHTML = '<div class="empty-state">No module data available.</div>';
+    return;
+  }
+  grid.innerHTML = Object.entries(data).map(([name, info]) => {
+    const healthy = info.Healthy || info.healthy;
+    const msg = info.Message || info.message || '';
+    const dotClass = healthy ? 'ok' : 'err';
+    const displayName = name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return `<div class="health-item">
+      <span class="dot ${dotClass}"></span>
+      <div>
+        <div class="health-name">${esc(displayName)}</div>
+        <div class="health-msg">${esc(msg)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function extractCounts(data) {
+  // Providers - parse from agent_runtime message
+  const agentMsg = (data.agent_runtime?.Message || data.agent_runtime?.message || '');
+  const provMatch = agentMsg.match(/(\d+)\s*agents?\s*running/i);
+
+  // Channel count from channel module
+  const chanMsg = (data.channel?.Message || data.channel?.message || '');
+  const chanMatch = chanMsg.match(/(\d+)\s*channel/i);
+  document.getElementById('d-channels').textContent = chanMatch ? chanMatch[1] : '0';
+
+  // Providers - we show from health
+  const providerEl = document.getElementById('d-providers');
+  const providerSub = document.getElementById('d-providers-sub');
+  providerEl.textContent = '-';
+  providerSub.textContent = '';
+
+  // Tools count
+  document.getElementById('d-tools').textContent = ALL_TOOLS.length;
+
+  // Channels sub
+  document.getElementById('d-channels-sub').textContent = chanMsg || '';
 }
 
 async function loadDashboardAudit() {
@@ -947,19 +1636,41 @@ async function loadDashboardAudit() {
     const events = Array.isArray(res.data) ? res.data : [];
     const last10 = events.slice(-10).reverse();
     if (!last10.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No audit events found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No audit events yet.</td></tr>';
       return;
     }
     tbody.innerHTML = last10.map(e => `
       <tr>
         <td class="mono">${fmtTime(e.timestamp || e.time || e.created_at)}</td>
-        <td>${esc(e.tenant || e.tenant_id || '—')}</td>
-        <td>${esc(e.user || e.user_id || '—')}</td>
-        <td>${esc(e.action || e.action_type || '—')}</td>
+        <td>${esc(e.tenant || e.tenant_id || '-')}</td>
+        <td>${esc(e.user || e.user_id || '-')}</td>
+        <td>${esc(e.action || e.action_type || '-')}</td>
         <td>${decisionBadge(e.decision)}</td>
       </tr>`).join('');
   } catch {
     tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Could not load audit events.</td></tr>';
+  }
+}
+
+async function loadDashboardSchedules() {
+  const el = document.getElementById('d-schedules');
+  try {
+    const res = await apiFetch('/api/v1/schedules');
+    const jobs = Array.isArray(res.data) ? res.data : [];
+    el.textContent = jobs.length;
+  } catch {
+    el.textContent = '0';
+  }
+}
+
+async function loadDashboardSkills() {
+  const el = document.getElementById('d-skills');
+  try {
+    const res = await apiFetch('/api/v1/skills');
+    const skills = Array.isArray(res.data) ? res.data : [];
+    el.textContent = skills.length;
+  } catch {
+    el.textContent = '0';
   }
 }
 
@@ -978,15 +1689,14 @@ async function loadTenants() {
 }
 
 function populateTenantSelects(tenants) {
-  const selects = ['ag-tenant', 'chat-tenant', 'aglist-tenant'];
-  selects.forEach(id => {
+  ['ag-tenant', 'chat-tenant', 'aglist-tenant', 'sess-tenant', 'mem-tenant'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     const current = el.value;
     const isFilter = id === 'aglist-tenant';
     el.innerHTML = isFilter
       ? '<option value="">All tenants</option>'
-      : '<option value="">Select tenant…</option>';
+      : '<option value="">Select tenant...</option>';
     tenants.forEach(t => {
       const name = typeof t === 'string' ? t : (t.name || t.id || JSON.stringify(t));
       const opt = document.createElement('option');
@@ -1005,7 +1715,6 @@ async function createAgent() {
   const maxTurns = parseInt(document.getElementById('ag-maxturns').value, 10) || 10;
   const sysprompt = document.getElementById('ag-sysprompt').value.trim();
 
-  // Collect selected tools from checkboxes
   const tools = Array.from(
     document.querySelectorAll('#ag-tools-checkboxes input[type="checkbox"]:checked')
   ).map(cb => cb.value);
@@ -1013,7 +1722,7 @@ async function createAgent() {
   if (!tenant) { setMsg('ag-create-msg', 'Please select a tenant.', 'var(--warn)'); return; }
   if (!name)   { setMsg('ag-create-msg', 'Agent name is required.', 'var(--warn)'); return; }
 
-  setMsg('ag-create-msg', 'Creating…', 'var(--muted)');
+  setMsg('ag-create-msg', 'Creating...', 'var(--muted)');
 
   try {
     const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents`, {
@@ -1048,12 +1757,10 @@ async function loadAgentList() {
 
   body.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
 
-  // There is no GET agents list endpoint in the current API; show a note.
-  // If an endpoint is added later it would be GET /api/v1/tenants/{tid}/agents
   try {
-    const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents`).catch(() => null);
-    if (!res || !res.ok) {
-      body.innerHTML = '<div class="empty-state">Agent list endpoint not yet available — create an agent above to register it.</div>';
+    const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents`);
+    if (!res.ok) {
+      body.innerHTML = '<div class="empty-state">Could not load agents.</div>';
       return;
     }
     const agents = Array.isArray(res.data) ? res.data : [];
@@ -1061,21 +1768,57 @@ async function loadAgentList() {
       body.innerHTML = '<div class="empty-state">No agents for this tenant yet.</div>';
       return;
     }
+
+    // For each agent name, try to fetch full config
+    const agentDetails = await Promise.all(agents.map(async (a) => {
+      const name = typeof a === 'string' ? a : (a.name || a.Name || '-');
+      try {
+        const detail = await apiFetch(`/agents/${encodeURIComponent(name)}`);
+        if (detail.ok && detail.data && typeof detail.data === 'object') {
+          return {
+            name: name,
+            model: detail.data.model || detail.data.Model || '-',
+            tools: detail.data.tools || detail.data.Tools || [],
+            max_turns: detail.data.max_turns || detail.data.MaxTurns || '-',
+          };
+        }
+      } catch {}
+      return { name: name, model: '-', tools: [], max_turns: '-' };
+    }));
+
     body.innerHTML = `<table>
-      <thead><tr><th>Name</th><th>Model</th><th>Max Turns</th></tr></thead>
-      <tbody>${agents.map(a => `
-        <tr>
-          <td>${esc(a.name || a)}</td>
-          <td class="mono">${esc(a.model || '—')}</td>
-          <td>${esc(a.max_turns ?? '—')}</td>
-        </tr>`).join('')}
+      <thead><tr><th>Name</th><th>Model</th><th>Tools</th><th>Max Turns</th><th>Actions</th></tr></thead>
+      <tbody>${agentDetails.map(ag => {
+        const toolCount = Array.isArray(ag.tools) ? ag.tools.length : 0;
+        const toolsTitle = Array.isArray(ag.tools) && ag.tools.length ? ag.tools.join(', ') : 'none';
+        return `<tr>
+          <td>${esc(ag.name)}</td>
+          <td class="mono">${esc(ag.model)}</td>
+          <td><span class="badge badge-info" title="${esc(toolsTitle)}">${toolCount} tool${toolCount !== 1 ? 's' : ''}</span></td>
+          <td>${esc(ag.max_turns)}</td>
+          <td class="inline-actions">
+            <button class="btn btn-sm btn-danger" onclick="deleteAgent('${esc(tenant)}','${esc(ag.name)}')">Delete</button>
+            <button class="btn btn-sm btn-primary" onclick="document.getElementById('chat-agent').value='${esc(ag.name)}';document.getElementById('chat-tenant').value='${esc(tenant)}';window.scrollTo(0,0);">Chat</button>
+          </td>
+        </tr>`;
+      }).join('')}
       </tbody></table>`;
   } catch {
     body.innerHTML = '<div class="empty-state">Failed to load agents.</div>';
   }
 }
 
-function updateChatAgents() { /* placeholder for future agent list dropdown */ }
+async function deleteAgent(tenant, name) {
+  if (!confirm('Delete agent "' + name + '"? This cannot be undone.')) return;
+  try {
+    await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    loadAgentList();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+/* ─────────────── Chat ─────────────── */
 
 let chatHistory = [];
 
@@ -1130,7 +1873,8 @@ async function sendChat() {
     if (res.ok) {
       const d = res.data;
       const content = d.content || d.message || JSON.stringify(d);
-      chatHistory.push({ role: 'agent', agent: d.agent || agentName, content, ts: new Date().toISOString() });
+      const toolsUsed = (d.tools_used || []).length ? '\n\n[Tools used: ' + d.tools_used.join(', ') + ']' : '';
+      chatHistory.push({ role: 'agent', agent: d.agent || agentName, content: content + toolsUsed, ts: new Date().toISOString() });
     } else {
       const errMsg = res.raw?.error?.message || res.raw?.message || `Error ${res.status}`;
       chatHistory.push({ role: 'agent', agent: 'System', content: '[Error] ' + errMsg, ts: new Date().toISOString() });
@@ -1141,6 +1885,515 @@ async function sendChat() {
     btn.disabled = false;
     renderChat();
     input.focus();
+  }
+}
+
+/* ─────────────── Sessions ─────────────── */
+
+async function loadSessionsPage() {
+  const tenants = await loadTenants();
+  populateTenantSelects(tenants);
+}
+
+async function loadSessions() {
+  const tenant = document.getElementById('sess-tenant').value.trim();
+  const agent = document.getElementById('sess-agent').value.trim();
+  const tbody = document.getElementById('sessions-tbody');
+
+  if (!tenant || !agent) {
+    tbody.innerHTML = '<tr><td colspan="2" class="empty-state">Please select a tenant and enter an agent name.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '<tr><td colspan="2" class="empty-state"><span class="spinner"></span></td></tr>';
+
+  try {
+    const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(agent)}/sessions`);
+    const sessions = Array.isArray(res.data) ? res.data : [];
+    if (!sessions.length) {
+      tbody.innerHTML = '<tr><td colspan="2" class="empty-state">No sessions found for this agent.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = sessions.map(s => {
+      const sid = typeof s === 'string' ? s : (s.id || s.ID || s.session_id || JSON.stringify(s));
+      return `<tr>
+        <td class="mono">${esc(sid)}</td>
+        <td><button class="btn btn-sm btn-primary" onclick="loadSessionMessages('${esc(sid)}')">View Messages</button></td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="2" class="empty-state">Failed to load sessions.</td></tr>';
+  }
+}
+
+async function loadSessionMessages(sid) {
+  const tenant = document.getElementById('sess-tenant').value.trim();
+  const agent = document.getElementById('sess-agent').value.trim();
+  const container = document.getElementById('sess-messages-body');
+  const label = document.getElementById('sess-msg-label');
+
+  if (!tenant || !agent) return;
+
+  label.textContent = 'Session: ' + sid;
+  container.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
+
+  try {
+    const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(agent)}/sessions/${encodeURIComponent(sid)}/messages`);
+    const messages = Array.isArray(res.data) ? res.data : [];
+    if (!messages.length) {
+      container.innerHTML = '<div class="empty-state">No messages in this session.</div>';
+      return;
+    }
+    container.innerHTML = messages.map(m => {
+      const role = (m.role || m.Role || 'unknown').toLowerCase();
+      let roleClass = 'session-msg-assistant';
+      let badgeClass = 'role-badge-assistant';
+      if (role === 'user') { roleClass = 'session-msg-user'; badgeClass = 'role-badge-user'; }
+      else if (role === 'tool') { roleClass = 'session-msg-tool'; badgeClass = 'role-badge-tool'; }
+      const content = m.content || m.Content || m.text || '';
+      return `<div class="session-msg ${roleClass}">
+        <span class="role-badge ${badgeClass}">${esc(role)}</span>
+        ${esc(content)}
+      </div>`;
+    }).join('');
+  } catch {
+    container.innerHTML = '<div class="empty-state">Failed to load messages.</div>';
+  }
+}
+
+/* ─────────────── Memories ─────────────── */
+
+async function loadMemoriesPage() {
+  const tenants = await loadTenants();
+  populateTenantSelects(tenants);
+}
+
+async function loadMemoriesList() {
+  const tenant = document.getElementById('mem-tenant').value.trim();
+  const agent = document.getElementById('mem-agent').value.trim();
+  const tbody = document.getElementById('memories-tbody');
+  const countEl = document.getElementById('mem-count');
+
+  if (!tenant || !agent) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Please select a tenant and enter an agent name.</td></tr>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+
+  tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><span class="spinner"></span></td></tr>';
+
+  try {
+    const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(agent)}/memories`);
+    const memories = Array.isArray(res.data) ? res.data : [];
+    if (countEl) countEl.textContent = memories.length + ' memor' + (memories.length !== 1 ? 'ies' : 'y');
+
+    if (!memories.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No memories found for this agent.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = memories.map(m => {
+      const mid = m.id || m.ID || '-';
+      const key = m.key || m.Key || '-';
+      const content = m.content || m.Content || m.value || m.Value || '-';
+      const created = m.created_at || m.CreatedAt || m.created || '';
+      return `<tr>
+        <td class="mono">${esc(mid)}</td>
+        <td>${esc(key)}</td>
+        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(content)}">${esc(truncate(content, 80))}</td>
+        <td class="mono">${fmtTime(created)}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="deleteMemoryItem('${esc(mid)}')">Delete</button></td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load memories.</td></tr>';
+    if (countEl) countEl.textContent = '';
+  }
+}
+
+async function deleteMemoryItem(mid) {
+  if (!confirm('Delete this memory entry?')) return;
+  const tenant = document.getElementById('mem-tenant').value.trim();
+  const agent = document.getElementById('mem-agent').value.trim();
+  if (!tenant || !agent) return;
+  try {
+    await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(agent)}/memories/${encodeURIComponent(mid)}`, { method: 'DELETE' });
+    loadMemoriesList();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+/* ─────────────── Skills ─────────────── */
+
+async function loadSkills() {
+  const tbody = document.getElementById('skills-tbody');
+  try {
+    const res = await apiFetch('/api/v1/skills');
+    const skills = Array.isArray(res.data) ? res.data : [];
+    if (!skills.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No skills installed. Install one below or search the marketplace.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = skills.map(s => {
+      const skillName = s.name || s.id || '-';
+      return `<tr>
+        <td>${esc(skillName)}</td>
+        <td class="mono">${esc(s.version || '-')}</td>
+        <td>${esc(s.description || '-')}</td>
+        <td><span class="badge badge-info">${esc(s.source || s.type || 'local')}</span></td>
+        <td><button class="btn btn-sm btn-danger" onclick="uninstallSkill('${esc(skillName)}')">Uninstall</button></td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load skills.</td></tr>';
+  }
+}
+
+async function uninstallSkill(name) {
+  if (!confirm('Uninstall skill "' + name + '"?')) return;
+  try {
+    await apiFetch(`/api/v1/skills/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    loadSkills();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function installSkill() {
+  const source = document.getElementById('skill-source').value;
+  const path = document.getElementById('skill-path').value.trim();
+
+  if (!path) { setMsg('skill-msg', 'Path is required.', 'var(--warn)'); return; }
+
+  setMsg('skill-msg', 'Installing...', 'var(--muted)');
+
+  const endpoint = source === 'openclaw' ? '/api/v1/skills/import/openclaw' : '/api/v1/skills';
+
+  try {
+    const res = await apiFetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+
+    if (res.ok) {
+      setMsg('skill-msg', 'Skill installed!', 'var(--ok)');
+      document.getElementById('skill-path').value = '';
+      loadSkills();
+    } else {
+      setMsg('skill-msg', res.raw?.error?.message || res.raw?.message || 'Install failed', 'var(--err)');
+    }
+  } catch(e) {
+    setMsg('skill-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+async function searchMarketplace() {
+  const query = document.getElementById('skill-search').value.trim();
+  const container = document.getElementById('marketplace-results');
+
+  if (!query) { container.innerHTML = ''; return; }
+
+  container.innerHTML = '<div class="empty-state"><span class="spinner"></span> Searching...</div>';
+
+  try {
+    const res = await apiFetch('/api/v1/skills/marketplace/search?q=' + encodeURIComponent(query));
+    const results = Array.isArray(res.data) ? res.data : [];
+    if (!results.length) {
+      container.innerHTML = '<div class="empty-state">No skills found for "' + esc(query) + '".</div>';
+      return;
+    }
+    container.innerHTML = '<table><thead><tr><th>Name</th><th>Description</th><th>Author</th></tr></thead><tbody>' +
+      results.map(s => `<tr>
+        <td>${esc(s.name || '-')}</td>
+        <td>${esc(s.description || '-')}</td>
+        <td class="mono">${esc(s.author || '-')}</td>
+      </tr>`).join('') + '</tbody></table>';
+  } catch {
+    container.innerHTML = '<div class="empty-state">Search failed.</div>';
+  }
+}
+
+/* ─────────────── Workflows ─────────────── */
+
+async function loadWorkflows() {
+  const tbody = document.getElementById('wf-tbody');
+  try {
+    const res = await apiFetch('/api/v1/workflows');
+    const wfs = Array.isArray(res.data) ? res.data : (res.data ? [res.data] : []);
+    if (!wfs.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No workflows registered. Define one below.</td></tr>';
+      return;
+    }
+
+    // For each workflow, try to fetch full details
+    const details = await Promise.all(wfs.map(async (w) => {
+      const isStr = typeof w === 'string';
+      const id = isStr ? w : (w.id || w.ID || '-');
+      if (isStr) {
+        // Try to fetch details
+        try {
+          const detail = await apiFetch(`/api/v1/workflows/${encodeURIComponent(id)}`);
+          if (detail.ok && detail.data && typeof detail.data === 'object') {
+            return {
+              id: id,
+              name: detail.data.name || detail.data.Name || id,
+              description: detail.data.description || detail.data.Description || '-',
+              steps: detail.data.steps || detail.data.Steps || [],
+            };
+          }
+        } catch {}
+        return { id: id, name: id, description: '-', steps: [] };
+      }
+      return {
+        id: id,
+        name: w.name || w.Name || '-',
+        description: w.description || w.Description || '-',
+        steps: w.steps || w.Steps || [],
+      };
+    }));
+
+    tbody.innerHTML = details.map(w => {
+      const stepCount = Array.isArray(w.steps) ? w.steps.length : '-';
+      return `<tr>
+        <td class="mono">${esc(w.id)}</td>
+        <td>${esc(w.name)}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(w.description)}">${esc(w.description)}</td>
+        <td>${esc(stepCount)}</td>
+        <td><button class="btn btn-sm btn-primary" onclick="runWorkflow('${esc(w.id)}')">Run</button></td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load workflows.</td></tr>';
+  }
+}
+
+async function loadWorkflowRuns() {
+  const tbody = document.getElementById('wf-runs-tbody');
+  try {
+    const res = await apiFetch('/api/v1/workflows/runs');
+    const runs = Array.isArray(res.data) ? res.data : [];
+    if (!runs.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No workflow runs yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = runs.map(r => {
+      const runId = r.run_id || r.id || r.ID || '-';
+      const wfId = r.workflow_id || r.WorkflowID || '-';
+      const status = r.status || r.Status || '-';
+      const started = r.started_at || r.StartedAt || r.created_at || r.CreatedAt || '';
+      const error = r.error || r.Error || '';
+      return `<tr>
+        <td class="mono">${esc(runId)}</td>
+        <td class="mono">${esc(wfId)}</td>
+        <td>${statusBadge(status)}</td>
+        <td class="mono">${fmtTime(started)}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(error)}">${esc(error || '-')}</td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load workflow runs.</td></tr>';
+  }
+}
+
+async function registerWorkflow() {
+  const body = document.getElementById('wf-body').value.trim();
+  if (!body) { setMsg('wf-msg', 'Workflow definition is required.', 'var(--warn)'); return; }
+
+  let parsed;
+  try { parsed = JSON.parse(body); } catch {
+    setMsg('wf-msg', 'Invalid JSON.', 'var(--err)'); return;
+  }
+
+  setMsg('wf-msg', 'Registering...', 'var(--muted)');
+
+  try {
+    const res = await apiFetch('/api/v1/workflows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(parsed),
+    });
+
+    if (res.ok) {
+      setMsg('wf-msg', 'Workflow registered!', 'var(--ok)');
+      document.getElementById('wf-body').value = '';
+      loadWorkflows();
+    } else {
+      setMsg('wf-msg', res.raw?.error?.message || res.raw?.message || 'Failed', 'var(--err)');
+    }
+  } catch(e) {
+    setMsg('wf-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+async function runWorkflow(id) {
+  try {
+    const res = await apiFetch(`/api/v1/workflows/${encodeURIComponent(id)}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    if (res.ok) {
+      const runId = res.data?.run_id || res.data?.id || '';
+      alert('Workflow started! Run ID: ' + runId);
+      if (runId) document.getElementById('wfrun-id').value = runId;
+      loadWorkflowRuns();
+    } else {
+      alert('Failed: ' + (res.raw?.error?.message || res.raw?.message || 'Unknown error'));
+    }
+  } catch(e) {
+    alert('Network error: ' + e.message);
+  }
+}
+
+async function checkRunStatus() {
+  const runId = document.getElementById('wfrun-id').value.trim();
+  const resultEl = document.getElementById('wfrun-result');
+  if (!runId) { resultEl.className = 'policy-result'; return; }
+
+  try {
+    const res = await apiFetch(`/api/v1/workflows/runs/${encodeURIComponent(runId)}`);
+    resultEl.textContent = JSON.stringify(res.data, null, 2);
+    resultEl.className = 'policy-result info';
+  } catch(e) {
+    resultEl.textContent = 'Error: ' + e.message;
+    resultEl.className = 'policy-result deny';
+  }
+}
+
+/* ─────────────── Scheduler ─────────────── */
+
+async function loadSchedules() {
+  const tbody = document.getElementById('sched-tbody');
+  try {
+    const res = await apiFetch('/api/v1/schedules');
+    const jobs = Array.isArray(res.data) ? res.data : [];
+    if (!jobs.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No scheduled jobs. Add one below.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = jobs.map(j => `
+      <tr>
+        <td class="mono">${esc(j.id || j.ID || '-')}</td>
+        <td class="mono">${esc(fmtInterval(j.interval || j.Interval))}</td>
+        <td>${esc(j.tenant || j.Tenant || '-')}</td>
+        <td>${esc(j.agent || j.Agent || '-')}</td>
+        <td>${esc(j.message || j.Message || j.payload || '-')}</td>
+        <td class="mono">${fmtTime(j.LastRun || j.last_run)}</td>
+        <td class="mono">${fmtTime(j.NextRun || j.next_run)}</td>
+        <td>${enabledBadge(j.Enabled !== undefined ? j.Enabled : j.enabled)}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="removeSchedule('${esc(j.id || j.ID)}')">Remove</button></td>
+      </tr>`).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Failed to load schedules.</td></tr>';
+  }
+}
+
+async function addSchedule() {
+  const interval = document.getElementById('sched-interval').value.trim();
+  const tenant   = document.getElementById('sched-tenant').value.trim();
+  const agent    = document.getElementById('sched-agent').value.trim();
+  const message  = document.getElementById('sched-message').value.trim();
+
+  if (!interval || !tenant || !agent || !message) {
+    setMsg('sched-msg', 'All fields are required.', 'var(--warn)'); return;
+  }
+
+  setMsg('sched-msg', 'Adding...', 'var(--muted)');
+
+  try {
+    const res = await apiFetch('/api/v1/schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interval, tenant, agent, message }),
+    });
+
+    if (res.ok) {
+      setMsg('sched-msg', 'Schedule added!', 'var(--ok)');
+      document.getElementById('sched-interval').value = '';
+      document.getElementById('sched-message').value = '';
+      loadSchedules();
+    } else {
+      setMsg('sched-msg', res.raw?.error?.message || res.raw?.message || 'Failed', 'var(--err)');
+    }
+  } catch(e) {
+    setMsg('sched-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+async function removeSchedule(id) {
+  if (!confirm('Remove this schedule?')) return;
+  try {
+    await apiFetch(`/api/v1/schedules/${encodeURIComponent(id)}/remove`, { method: 'POST' });
+    loadSchedules();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+/* ─────────────── Tenants ─────────────── */
+
+async function loadTenantsList() {
+  const tbody = document.getElementById('tenants-tbody');
+  try {
+    const res = await apiFetch('/api/v1/tenants');
+    const tenants = Array.isArray(res.data) ? res.data : [];
+    if (!tenants.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No tenants configured. Create one above.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = tenants.map(t => {
+      const name = typeof t === 'string' ? t : (t.name || t.id || JSON.stringify(t));
+      const isolation = typeof t === 'object' ? (t.isolation || t.Isolation || '-') : '-';
+      const policy = typeof t === 'object' ? (t.policy || t.Policy || '-') : '-';
+      return `<tr>
+        <td>${esc(name)}</td>
+        <td><span class="badge badge-info">${esc(isolation)}</span></td>
+        <td>${esc(policy)}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="deleteTenant('${esc(name)}')">Delete</button></td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Failed to load tenants.</td></tr>';
+  }
+}
+
+async function createTenant() {
+  const name = document.getElementById('tenant-name').value.trim();
+  const isolation = document.getElementById('tenant-isolation').value;
+  const policy = document.getElementById('tenant-policy').value.trim();
+
+  if (!name) { setMsg('tenant-msg', 'Name is required.', 'var(--warn)'); return; }
+
+  setMsg('tenant-msg', 'Creating...', 'var(--muted)');
+
+  try {
+    const res = await apiFetch('/api/v1/tenants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, isolation, policy }),
+    });
+
+    if (res.ok) {
+      setMsg('tenant-msg', 'Tenant "' + name + '" created.', 'var(--ok)');
+      document.getElementById('tenant-name').value = '';
+      document.getElementById('tenant-policy').value = '';
+      loadTenantsList();
+    } else {
+      setMsg('tenant-msg', res.raw?.error?.message || res.raw?.message || 'Create failed', 'var(--err)');
+    }
+  } catch(e) {
+    setMsg('tenant-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+async function deleteTenant(name) {
+  if (!confirm('Delete tenant "' + name + '"? This cannot be undone.')) return;
+  try {
+    await apiFetch(`/api/v1/tenants/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    loadTenantsList();
+  } catch(e) {
+    alert('Error: ' + e.message);
   }
 }
 
@@ -1162,11 +2415,19 @@ async function loadAudit() {
   const tenant = document.getElementById('audit-tenant')?.value?.trim() || '';
   const user   = document.getElementById('audit-user')?.value?.trim() || '';
   const action = document.getElementById('audit-action')?.value?.trim() || '';
+  const agent  = document.getElementById('audit-agent')?.value?.trim() || '';
+  const since  = document.getElementById('audit-since')?.value || '';
+  const until  = document.getElementById('audit-until')?.value || '';
+  const limit  = document.getElementById('audit-limit')?.value || '50';
 
   const params = new URLSearchParams();
   if (tenant) params.set('tenant', tenant);
   if (user)   params.set('user', user);
   if (action) params.set('action', action);
+  if (agent)  params.set('agent', agent);
+  if (since)  params.set('since', new Date(since).toISOString());
+  if (until)  params.set('until', new Date(until).toISOString());
+  if (limit)  params.set('limit', limit);
 
   const tbody = document.getElementById('audit-tbody');
   if (!tbody) return;
@@ -1179,16 +2440,17 @@ async function loadAudit() {
     if (countEl) countEl.textContent = events.length + ' event' + (events.length !== 1 ? 's' : '');
 
     if (!events.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No matching events.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No matching events.</td></tr>';
       return;
     }
 
     tbody.innerHTML = events.slice().reverse().map(e => `
       <tr>
         <td class="mono">${fmtTime(e.timestamp || e.time || e.created_at)}</td>
-        <td>${esc(e.tenant || e.tenant_id || '—')}</td>
-        <td>${esc(e.user || e.user_id || '—')}</td>
-        <td>${esc(e.action || e.action_type || '—')}</td>
+        <td>${esc(e.tenant || e.tenant_id || '-')}</td>
+        <td>${esc(e.user || e.user_id || '-')}</td>
+        <td>${esc(e.action || e.action_type || '-')}</td>
+        <td>${esc(e.agent || e.agent_id || '-')}</td>
         <td>${decisionBadge(e.decision)}</td>
         <td class="mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
             title="${esc(JSON.stringify(e.details || e.metadata || {}))}">
@@ -1196,11 +2458,80 @@ async function loadAudit() {
         </td>
       </tr>`).join('');
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">Error: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Error: ' + esc(e.message) + '</td></tr>';
   }
 }
 
+function exportAuditCSV() {
+  const table = document.getElementById('audit-table');
+  if (!table) return;
+
+  const rows = table.querySelectorAll('tr');
+  const csvRows = [];
+
+  rows.forEach(row => {
+    const cells = row.querySelectorAll('th, td');
+    if (!cells.length) return;
+    const rowData = [];
+    cells.forEach(cell => {
+      // Remove badge HTML, get text content
+      let text = cell.textContent.trim().replace(/"/g, '""');
+      rowData.push('"' + text + '"');
+    });
+    csvRows.push(rowData.join(','));
+  });
+
+  const csv = csvRows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'audit-log-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 /* ─────────────── Policies ─────────────── */
+
+async function loadPolicyRules() {
+  const tbody = document.getElementById('policy-rules-tbody');
+  try {
+    const res = await apiFetch('/api/v1/policies/rules');
+    const rules = Array.isArray(res.data) ? res.data : [];
+    if (!rules.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No policy rules loaded.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rules.map(r => {
+      const name = r.name || r.Name || '-';
+      const tenant = r.tenant || r.Tenant || '*';
+      const action = r.action || r.Action || '*';
+      const tool = r.tool || r.Tool || '*';
+      const agent = r.agent || r.Agent || '*';
+      // Decision can be numeric or string; prefer decision_str
+      let decision = r.decision_str || r.DecisionStr || '';
+      if (!decision) {
+        const DECISION_MAP = {0: 'deny', 1: 'allow', 2: 'require_approval'};
+        const rawDec = r.decision !== undefined ? r.decision : (r.Decision !== undefined ? r.Decision : '');
+        decision = typeof rawDec === 'number' ? (DECISION_MAP[rawDec] || String(rawDec)) : String(rawDec);
+      }
+      const priority = r.priority !== undefined ? r.priority : (r.Priority !== undefined ? r.Priority : '-');
+      return `<tr>
+        <td>${esc(name)}</td>
+        <td>${esc(tenant)}</td>
+        <td>${esc(action)}</td>
+        <td>${esc(tool)}</td>
+        <td>${esc(agent)}</td>
+        <td>${decisionBadge(decision)}</td>
+        <td>${esc(priority)}</td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load policy rules.</td></tr>';
+  }
+}
 
 async function testPolicy() {
   const tenant = document.getElementById('pol-tenant').value.trim();
@@ -1219,7 +2550,7 @@ async function testPolicy() {
     catch { setMsg('pol-status', 'Invalid JSON in tool inputs.', 'var(--err)'); return; }
   }
 
-  setMsg('pol-status', 'Testing…', 'var(--muted)');
+  setMsg('pol-status', 'Testing...', 'var(--muted)');
   const resultEl = document.getElementById('pol-result');
   resultEl.className = 'policy-result';
   resultEl.textContent = '';
@@ -1235,16 +2566,25 @@ async function testPolicy() {
 
     if (res.ok) {
       const d = res.data;
-      const decision = (d.decision || d.result || '').toString().toLowerCase();
-      const reason = d.reason || d.message || '';
-      const display = `Decision: ${(d.decision || d.result || 'unknown').toString().toUpperCase()}` +
-        (reason ? `\nReason: ${reason}` : '') +
-        (Object.keys(d).length ? '\n\n' + JSON.stringify(d, null, 2) : '');
-
+      // Decision can be numeric (0=deny, 1=allow, 2=require_approval) or string
+      const DECISION_MAP = {0: 'deny', 1: 'allow', 2: 'require_approval'};
+      // Prefer decision_str for display
+      let decision = d.decision_str || d.DecisionStr || '';
+      if (!decision) {
+        const rawDecision = d.Decision ?? d.decision ?? d.result ?? '';
+        decision = (typeof rawDecision === 'number' ? DECISION_MAP[rawDecision] : rawDecision.toString()).toLowerCase();
+      }
+      decision = decision.toLowerCase();
+      const reason = d.Reason || d.reason || d.message || '';
+      const rule = d.Rule || d.rule || '';
+      const display = 'Decision: ' + decision.toUpperCase() +
+        (rule ? '\nRule: ' + rule : '') +
+        (reason ? '\nReason: ' + reason : '') +
+        '\n\n' + JSON.stringify(d, null, 2);
       resultEl.textContent = display;
       resultEl.className = 'policy-result ' + (decision === 'allow' ? 'allow' : decision === 'deny' ? 'deny' : 'info');
     } else {
-      resultEl.textContent = res.raw?.error?.message || res.raw?.message || `HTTP ${res.status}`;
+      resultEl.textContent = res.raw?.error?.message || res.raw?.message || 'HTTP ' + res.status;
       resultEl.className = 'policy-result deny';
     }
   } catch(e) {
@@ -1252,6 +2592,128 @@ async function testPolicy() {
     resultEl.textContent = 'Network error: ' + e.message;
     resultEl.className = 'policy-result deny';
   }
+}
+
+/* ─────────────── Approvals ─────────────── */
+
+async function loadApprovals() {
+  const tbody = document.getElementById('approvals-tbody');
+  try {
+    const res = await apiFetch('/api/v1/approvals');
+    const items = Array.isArray(res.data) ? res.data : [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No pending approvals.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(a => {
+      const aid = a.id || a.ID || '-';
+      const tenant = a.tenant || a.Tenant || '-';
+      const agent = a.agent || a.Agent || '-';
+      const user = a.user || a.User || '-';
+      const tool = a.tool || a.Tool || '-';
+      const rule = a.rule || a.Rule || '-';
+      const created = a.created_at || a.CreatedAt || a.created || '';
+      const expires = a.expires_at || a.ExpiresAt || a.expires || '';
+      const status = a.status || a.Status || 'pending';
+      return `<tr>
+        <td class="mono">${esc(aid)}</td>
+        <td>${esc(tenant)}</td>
+        <td>${esc(agent)}</td>
+        <td>${esc(user)}</td>
+        <td><span class="badge badge-warn">${esc(tool)}</span></td>
+        <td class="mono">${esc(rule)}</td>
+        <td class="mono">${fmtTime(created)}</td>
+        <td class="mono">${fmtTime(expires)}</td>
+        <td>${statusBadge(status)}</td>
+        <td class="inline-actions">
+          <button class="btn btn-sm btn-primary" onclick="approveItem('${esc(aid)}')">Approve</button>
+          <button class="btn btn-sm btn-danger" onclick="denyItem('${esc(aid)}')">Deny</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">Failed to load approvals.</td></tr>';
+  }
+}
+
+async function approveItem(id) {
+  const username = prompt('Your name:');
+  if (!username) return;
+  await apiFetch(`/api/v1/approvals/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user: username }),
+  });
+  loadApprovals();
+}
+
+async function denyItem(id) {
+  const username = prompt('Your name:');
+  if (!username) return;
+  await apiFetch(`/api/v1/approvals/${encodeURIComponent(id)}/deny`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user: username }),
+  });
+  loadApprovals();
+}
+
+/* ─────────────── Channels ─────────────── */
+
+async function loadChannels() {
+  const body = document.getElementById('channels-body');
+  const guideTbody = document.getElementById('channel-guide-tbody');
+
+  // Try the channels endpoint first for per-adapter list
+  let hasChannelList = false;
+  try {
+    const chanRes = await apiFetch('/api/v1/channels');
+    const channels = Array.isArray(chanRes.data) ? chanRes.data : [];
+    if (channels.length > 0) {
+      hasChannelList = true;
+      body.innerHTML = '<div class="table-wrap"><table>' +
+        '<thead><tr><th>Name</th><th>Status</th></tr></thead><tbody>' +
+        channels.map(ch => {
+          const name = typeof ch === 'string' ? ch : (ch.name || ch.Name || '-');
+          const status = typeof ch === 'object' ? (ch.status || ch.Status || 'active') : 'active';
+          const badgeClass = status === 'active' || status === 'online' || status === 'connected' ? 'badge-ok' : 'badge-grey';
+          return `<tr>
+            <td>${esc(name)}</td>
+            <td><span class="badge ${badgeClass}">${esc(status)}</span></td>
+          </tr>`;
+        }).join('') + '</tbody></table></div>';
+    }
+  } catch {}
+
+  if (!hasChannelList) {
+    // Fall back to health-based detection
+    try {
+      const res = await apiFetch('/api/v1/system/health');
+      const chanInfo = res.data?.channel || {};
+      const msg = chanInfo.Message || chanInfo.message || '';
+      const match = msg.match(/(\d+)\s*channel/i);
+      const count = match ? parseInt(match[1]) : 0;
+
+      if (count === 0) {
+        body.innerHTML = '<div class="empty-state">No channels currently active. Configure channels via environment variables and restart Cyntr.</div>';
+      } else {
+        body.innerHTML = `<div style="padding:20px;">
+          <div style="font-size:16px;font-weight:600;margin-bottom:8px;">${count} channel adapter${count !== 1 ? 's' : ''} active</div>
+          <div style="color:var(--muted);font-size:13px;">${esc(msg)}</div>
+        </div>`;
+      }
+    } catch {
+      body.innerHTML = '<div class="empty-state">Could not load channel status.</div>';
+    }
+  }
+
+  // Guide table
+  guideTbody.innerHTML = CHANNEL_DEFS.map(ch => `
+    <tr>
+      <td>${esc(ch.name)}</td>
+      <td class="mono">${esc(ch.env)}</td>
+      <td><span class="badge badge-grey">env var</span></td>
+    </tr>`).join('');
 }
 
 /* ─────────────── Federation ─────────────── */
@@ -1264,18 +2726,31 @@ async function loadPeers() {
       (res.data && typeof res.data === 'object' ? Object.values(res.data) : []);
 
     if (!peers.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No peers configured.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No peers configured.</td></tr>';
       return;
     }
-    tbody.innerHTML = peers.map(p => `
-      <tr>
-        <td>${esc(p.name || p.id || '—')}</td>
-        <td class="mono">${esc(p.address || p.addr || p.url || '—')}</td>
-        <td>${p.status ? `<span class="badge ${p.status === 'online' ? 'badge-ok' : 'badge-grey'}">${esc(p.status)}</span>` : '<span class="badge badge-grey">unknown</span>'}</td>
+    tbody.innerHTML = peers.map(p => {
+      const peerName = p.name || p.id || '-';
+      return `<tr>
+        <td>${esc(peerName)}</td>
+        <td class="mono">${esc(p.address || p.addr || p.url || '-')}</td>
+        <td>${p.status ? '<span class="badge ' + (p.status === 'online' ? 'badge-ok' : 'badge-grey') + '">' + esc(p.status) + '</span>' : '<span class="badge badge-grey">unknown</span>'}</td>
         <td class="mono">${fmtTime(p.last_seen || p.lastSeen)}</td>
-      </tr>`).join('');
+        <td><button class="btn btn-sm btn-danger" onclick="removePeer('${esc(peerName)}')">Remove</button></td>
+      </tr>`;
+    }).join('');
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-state">Error: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Error: ' + esc(e.message) + '</td></tr>';
+  }
+}
+
+async function removePeer(name) {
+  if (!confirm('Remove peer "' + name + '"?')) return;
+  try {
+    await apiFetch(`/api/v1/federation/peers/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    loadPeers();
+  } catch(e) {
+    alert('Error: ' + e.message);
   }
 }
 
@@ -1289,7 +2764,7 @@ async function joinPeer() {
     return;
   }
 
-  setMsg('fed-msg', 'Adding…', 'var(--muted)');
+  setMsg('fed-msg', 'Adding...', 'var(--muted)');
 
   try {
     const res = await apiFetch('/api/v1/federation/peers', {
@@ -1299,14 +2774,13 @@ async function joinPeer() {
     });
 
     if (res.ok) {
-      setMsg('fed-msg', `Peer "${name}" added.`, 'var(--ok)');
+      setMsg('fed-msg', 'Peer "' + name + '" added.', 'var(--ok)');
       document.getElementById('fed-name').value = '';
       document.getElementById('fed-addr').value = '';
       document.getElementById('fed-token').value = '';
       loadPeers();
     } else {
-      const msg = res.raw?.error?.message || res.raw?.message || 'Failed to add peer';
-      setMsg('fed-msg', msg, 'var(--err)');
+      setMsg('fed-msg', res.raw?.error?.message || res.raw?.message || 'Failed to add peer', 'var(--err)');
     }
   } catch(e) {
     setMsg('fed-msg', 'Network error: ' + e.message, 'var(--err)');

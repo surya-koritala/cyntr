@@ -45,6 +45,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Register IPC handlers
 	m.bus.Handle("channel", "channel.send", m.handleSend)
 	m.bus.Handle("channel", "channel.list", m.handleList)
+	m.bus.Handle("channel", "channel.details", m.handleDetails)
 
 	// Start all adapters with the routing handler
 	m.mu.RLock()
@@ -130,6 +131,16 @@ func (m *Manager) handleSend(msg ipc.Message) (ipc.Message, error) {
 	}
 
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "ok"}, nil
+}
+
+func (m *Manager) handleDetails(msg ipc.Message) (ipc.Message, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	details := make([]map[string]string, 0, len(m.adapters))
+	for name := range m.adapters {
+		details = append(details, map[string]string{"name": name, "status": "active"})
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: details}, nil
 }
 
 func (m *Manager) handleList(msg ipc.Message) (ipc.Message, error) {

@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
+	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 	agentproviders "github.com/cyntr-dev/cyntr/modules/agent/providers"
@@ -17,6 +20,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/channel"
 	discordpkg "github.com/cyntr-dev/cyntr/modules/channel/discord"
 	emailpkg "github.com/cyntr-dev/cyntr/modules/channel/email"
+	googlechatpkg "github.com/cyntr-dev/cyntr/modules/channel/googlechat"
 	slackpkg "github.com/cyntr-dev/cyntr/modules/channel/slack"
 	teamspkg "github.com/cyntr-dev/cyntr/modules/channel/teams"
 	telegrampkg "github.com/cyntr-dev/cyntr/modules/channel/telegram"
@@ -28,11 +32,12 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/skill"
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
 	"github.com/cyntr-dev/cyntr/modules/workflow"
+	"github.com/cyntr-dev/cyntr/tenant"
 	"github.com/cyntr-dev/cyntr/web"
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -117,6 +122,11 @@ func runStart() {
 	toolReg.Register(agenttools.NewDelegateTool(k.Bus()))
 	toolReg.Register(agenttools.NewCodeInterpreterTool())
 	toolReg.Register(agenttools.NewTranscribeTool())
+	toolReg.Register(agenttools.NewWebSearchTool())
+	toolReg.Register(agenttools.NewPDFReaderTool())
+	toolReg.Register(agenttools.NewDatabaseTool())
+	toolReg.Register(agenttools.NewImageGenTool())
+	toolReg.Register(agenttools.NewChromiumTool())
 	agentRuntime.SetToolRegistry(toolReg)
 
 	// Register Claude provider if API key is set
@@ -161,6 +171,29 @@ func runStart() {
 		}
 		agentRuntime.RegisterProvider(agentproviders.NewOllama(ollamaModel, ollamaURL))
 		fmt.Printf("registered Ollama provider (model: %s)\n", ollamaModel)
+	}
+
+	// Register OpenRouter provider if API key is set
+	openrouterKey := os.Getenv("OPENROUTER_API_KEY")
+	if openrouterKey != "" {
+		openrouterModel := os.Getenv("OPENROUTER_MODEL")
+		if openrouterModel == "" {
+			openrouterModel = "anthropic/claude-3.5-sonnet"
+		}
+		agentRuntime.RegisterProvider(agentproviders.NewOpenRouter(openrouterKey, openrouterModel, ""))
+		fmt.Printf("registered OpenRouter provider (model: %s)\n", openrouterModel)
+	}
+
+	// Register Azure OpenAI provider if configured
+	azureKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	if azureKey != "" {
+		azureEndpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
+		azureDeployment := os.Getenv("AZURE_OPENAI_DEPLOYMENT")
+		azureAPIVersion := os.Getenv("AZURE_OPENAI_API_VERSION")
+		if azureEndpoint != "" && azureDeployment != "" {
+			agentRuntime.RegisterProvider(agentproviders.NewAzureOpenAI(azureKey, azureEndpoint, azureDeployment, azureAPIVersion))
+			fmt.Printf("registered Azure OpenAI provider (endpoint: %s, deployment: %s)\n", azureEndpoint, azureDeployment)
+		}
 	}
 
 	log.Info("providers registered", map[string]any{"count": len(agentRuntime.Providers())})
@@ -298,6 +331,26 @@ func runStart() {
 		fmt.Printf("registered Discord adapter (tenant: %s, agent: %s, listen: %s)\n", discordTenant, discordAgent, discordAddr)
 	}
 
+	// Register Google Chat adapter if configured
+	gchatWebhook := os.Getenv("GOOGLE_CHAT_WEBHOOK_URL")
+	if gchatWebhook != "" {
+		gchatTenant := os.Getenv("GOOGLE_CHAT_TENANT")
+		if gchatTenant == "" {
+			gchatTenant = "default"
+		}
+		gchatAgent := os.Getenv("GOOGLE_CHAT_AGENT")
+		if gchatAgent == "" {
+			gchatAgent = "assistant"
+		}
+		gchatAddr := os.Getenv("GOOGLE_CHAT_LISTEN_ADDR")
+		if gchatAddr == "" {
+			gchatAddr = "127.0.0.1:3006"
+		}
+		gchatAdapter := googlechatpkg.New(gchatAddr, gchatWebhook, gchatTenant, gchatAgent)
+		channelMgr.AddAdapter(gchatAdapter)
+		fmt.Printf("registered Google Chat adapter (tenant: %s, agent: %s, listen: %s)\n", gchatTenant, gchatAgent, gchatAddr)
+	}
+
 	proxyGateway := proxy.NewGateway(cfg.Listen.Address)
 	proxyUpstream := os.Getenv("PROXY_UPSTREAM_URL")
 	if proxyUpstream == "" {
@@ -332,6 +385,8 @@ func runStart() {
 
 	// Start API + Dashboard server
 	apiServer := webapi.NewServer(k.Bus(), k)
+	tenantMgr, _ := tenant.NewManager(cfg, nil)
+	apiServer.SetTenantManager(tenantMgr)
 	dashboard := web.NewDashboardHandler()
 
 	mux := http.NewServeMux()
@@ -350,6 +405,22 @@ func runStart() {
 	}()
 
 	showPostStartBanner("http://localhost"+webAddr, "http://"+cfg.Listen.Address+"/api/v1/")
+
+	// Auto-register cloud-ops agent if config file exists
+	if agentData, err := os.ReadFile("cloud-ops-agent.json"); err == nil {
+		var agentCfg agent.AgentConfig
+		if json.Unmarshal(agentData, &agentCfg) == nil && agentCfg.Name != "" {
+			regCtx, regCancel := context.WithTimeout(ctx, 5*time.Second)
+			_, regErr := k.Bus().Request(regCtx, ipc.Message{
+				Source: "startup", Target: "agent_runtime", Topic: "agent.create",
+				Payload: agentCfg,
+			})
+			regCancel()
+			if regErr == nil {
+				fmt.Printf("registered cloud-ops agent (tenant: %s, name: %s)\n", agentCfg.Tenant, agentCfg.Name)
+			}
+		}
+	}
 
 	// Signal handling
 	sigCh := make(chan os.Signal, 1)

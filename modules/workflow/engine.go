@@ -43,6 +43,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.bus.Handle("workflow", "workflow.status", e.handleStatus)
 	e.bus.Handle("workflow", "workflow.list", e.handleList)
 	e.bus.Handle("workflow", "workflow.list_runs", e.handleListRuns)
+	e.bus.Handle("workflow", "workflow.get", e.handleGet)
 	return nil
 }
 
@@ -121,6 +122,20 @@ func (e *Engine) handleStatus(msg ipc.Message) (ipc.Message, error) {
 	}
 
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: *run}, nil
+}
+
+func (e *Engine) handleGet(msg ipc.Message) (ipc.Message, error) {
+	id, ok := msg.Payload.(string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)
+	}
+	e.mu.RLock()
+	wf, exists := e.workflows[id]
+	e.mu.RUnlock()
+	if !exists {
+		return ipc.Message{}, fmt.Errorf("workflow %q not found", id)
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: wf}, nil
 }
 
 func (e *Engine) handleList(msg ipc.Message) (ipc.Message, error) {

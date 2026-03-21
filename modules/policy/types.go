@@ -38,14 +38,14 @@ type CheckResponse struct {
 }
 
 type PolicyRule struct {
-	Name        string   `yaml:"name"`
-	Tenant      string   `yaml:"tenant"`
-	Action      string   `yaml:"action"`
-	Tool        string   `yaml:"tool"`
-	Agent       string   `yaml:"agent"`
-	Decision    Decision `yaml:"-"`
-	DecisionStr string   `yaml:"decision"`
-	Priority    int      `yaml:"priority"`
+	Name        string   `yaml:"name" json:"name"`
+	Tenant      string   `yaml:"tenant" json:"tenant"`
+	Action      string   `yaml:"action" json:"action"`
+	Tool        string   `yaml:"tool" json:"tool"`
+	Agent       string   `yaml:"agent" json:"agent"`
+	Decision    Decision `yaml:"-" json:"decision"`
+	DecisionStr string   `yaml:"decision" json:"decision_str"`
+	Priority    int      `yaml:"priority" json:"priority"`
 }
 
 type PolicyConfig struct {

@@ -11,6 +11,25 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/agent"
 )
 
+func (s *Server) handleAgentList(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.list",
+		Payload: tid,
+	})
+	if err != nil {
+		// If agent.list not implemented, return empty list
+		Respond(w, 200, []any{})
+		return
+	}
+
+	Respond(w, 200, resp.Payload)
+}
+
 func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
 
@@ -89,6 +108,100 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		"content":    chatResp.Content,
 		"tools_used": chatResp.ToolsUsed,
 	})
+}
+
+func (s *Server) handleAgentGet(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	name := r.PathValue("name")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.get",
+		Payload: map[string]string{"tenant": tid, "name": name},
+	})
+	if err != nil {
+		RespondError(w, 404, "NOT_FOUND", err.Error())
+		return
+	}
+	Respond(w, 200, resp.Payload)
+}
+
+func (s *Server) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	name := r.PathValue("name")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	_, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.delete",
+		Payload: map[string]string{"tenant": tid, "name": name},
+	})
+	if err != nil {
+		RespondError(w, 500, "DELETE_FAILED", err.Error())
+		return
+	}
+	Respond(w, 200, map[string]string{"status": "deleted", "agent": name, "tenant": tid})
+}
+
+func (s *Server) handleAgentSessions(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	name := r.PathValue("name")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.sessions",
+		Payload: map[string]string{"tenant": tid, "name": name},
+	})
+	if err != nil {
+		RespondError(w, 500, "SESSION_ERROR", err.Error())
+		return
+	}
+	Respond(w, 200, resp.Payload)
+}
+
+func (s *Server) handleSessionMessages(w http.ResponseWriter, r *http.Request) {
+	sid := r.PathValue("sid")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.session.messages",
+		Payload: sid,
+	})
+	if err != nil {
+		RespondError(w, 500, "MESSAGE_ERROR", err.Error())
+		return
+	}
+	Respond(w, 200, resp.Payload)
+}
+
+func (s *Server) handleAgentMemories(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	name := r.PathValue("name")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.memories",
+		Payload: map[string]string{"tenant": tid, "name": name},
+	})
+	if err != nil {
+		RespondError(w, 500, "MEMORY_ERROR", err.Error())
+		return
+	}
+	Respond(w, 200, resp.Payload)
+}
+
+func (s *Server) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
+	mid := r.PathValue("mid")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	_, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.memory.delete",
+		Payload: mid,
+	})
+	if err != nil {
+		RespondError(w, 500, "DELETE_FAILED", err.Error())
+		return
+	}
+	Respond(w, 200, map[string]string{"status": "deleted", "id": mid})
 }
 
 func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {

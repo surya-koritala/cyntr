@@ -38,10 +38,12 @@ func runDoctor() {
 
 	// Check environment variables
 	envVars := map[string]string{
-		"ANTHROPIC_API_KEY": "Claude",
-		"OPENAI_API_KEY":    "GPT",
-		"GEMINI_API_KEY":    "Gemini",
-		"OLLAMA_URL":        "Ollama",
+		"ANTHROPIC_API_KEY":    "Claude",
+		"OPENAI_API_KEY":       "GPT",
+		"AZURE_OPENAI_API_KEY": "Azure OpenAI",
+		"GEMINI_API_KEY":       "Gemini",
+		"OPENROUTER_API_KEY":   "OpenRouter",
+		"OLLAMA_URL":           "Ollama",
 	}
 
 	providerFound := false
@@ -64,11 +66,12 @@ func runDoctor() {
 
 	// Check channels
 	channels := map[string]string{
-		"SLACK_BOT_TOKEN":       "Slack",
-		"TEAMS_APP_ID":          "Teams",
-		"WHATSAPP_ACCESS_TOKEN": "WhatsApp",
-		"TELEGRAM_BOT_TOKEN":    "Telegram",
-		"DISCORD_BOT_TOKEN":     "Discord",
+		"SLACK_BOT_TOKEN":          "Slack",
+		"TEAMS_APP_ID":             "Teams",
+		"WHATSAPP_ACCESS_TOKEN":    "WhatsApp",
+		"TELEGRAM_BOT_TOKEN":       "Telegram",
+		"DISCORD_BOT_TOKEN":        "Discord",
+		"GOOGLE_CHAT_WEBHOOK_URL":  "Google Chat",
 	}
 
 	channelCount := 0
@@ -80,6 +83,27 @@ func runDoctor() {
 	}
 	if channelCount == 0 {
 		fmt.Println("  ⚠ No messaging channels configured")
+	}
+
+	// Check cloud CLIs
+	fmt.Println()
+	fmt.Println("  Cloud Infrastructure CLIs:")
+	cloudCLIs := []struct{ cmd, name, help string }{
+		{"aws", "AWS CLI", "Install: https://aws.amazon.com/cli/"},
+		{"az", "Azure CLI", "Install: https://learn.microsoft.com/cli/azure/install-azure-cli"},
+		{"gcloud", "Google Cloud SDK", "Install: https://cloud.google.com/sdk/docs/install"},
+	}
+	for _, cli := range cloudCLIs {
+		if _, err := exec.LookPath(cli.cmd); err == nil {
+			fmt.Printf("  ✓ %s found (%s)\n", cli.name, cli.cmd)
+		} else {
+			fmt.Printf("  - %s not found — %s\n", cli.name, cli.help)
+		}
+	}
+
+	// Check cloud-ops agent config
+	if _, err := os.Stat("cloud-ops-agent.json"); err == nil {
+		fmt.Println("  ✓ cloud-ops-agent.json found")
 	}
 
 	fmt.Println()
