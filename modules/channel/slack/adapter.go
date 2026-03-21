@@ -163,13 +163,20 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Deduplicate using event_id OR client_msg_id OR user+text hash
-	dedupeKey := envelope.EventID
+	// Reject Slack retries immediately — Slack sends X-Slack-Retry-Num header
+	// when it doesn't get a response within 3 seconds. We already ACK'd the
+	// first request and are processing it async.
+	if r.Header.Get("X-Slack-Retry-Num") != "" {
+		w.WriteHeader(200)
+		return
+	}
+
+	// Deduplicate using client_msg_id (stable across retries) > event_id > user+text hash
+	dedupeKey := envelope.Event.ClientMsgID
 	if dedupeKey == "" {
-		dedupeKey = envelope.Event.ClientMsgID
+		dedupeKey = envelope.EventID
 	}
 	if dedupeKey == "" {
-		// Fallback: hash of user+channel+text
 		dedupeKey = envelope.Event.User + ":" + envelope.Event.Channel + ":" + envelope.Event.Text
 	}
 	if _, loaded := a.seen.LoadOrStore(dedupeKey, true); loaded {
