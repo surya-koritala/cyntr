@@ -570,6 +570,9 @@
     <div class="nav-item" data-page="skills">
       <i class="nav-icon">&#10070;</i> Skills
     </div>
+    <div class="nav-item" data-page="knowledge">
+      <i class="nav-icon">&#128218;</i> Knowledge
+    </div>
     <div class="sidebar-section">Automation</div>
     <div class="nav-item" data-page="workflows">
       <i class="nav-icon">&#8634;</i> Workflows
@@ -974,6 +977,55 @@
             </div>
           </div>
           <div id="marketplace-results"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Knowledge ══ -->
+    <section class="page" id="page-knowledge">
+      <div class="page-header">
+        <h2>Knowledge Base</h2>
+        <p>Manage documents for RAG-powered agent responses.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Documents</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadKnowledge()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Title</th><th>Tags</th><th>Actions</th></tr></thead>
+            <tbody id="knowledge-tbody">
+              <tr><td colspan="4" class="empty-state">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Ingest Document</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <label for="kb-title">Title</label>
+              <input type="text" id="kb-title" placeholder="Document title">
+            </div>
+            <div class="form-group">
+              <label for="kb-tags">Tags (comma-separated)</label>
+              <input type="text" id="kb-tags" placeholder="e.g. devops,deploy">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="kb-content">Content</label>
+            <textarea id="kb-content" rows="6" placeholder="Paste document content here..." style="width:100%;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;resize:vertical;"></textarea>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
+            <button class="btn btn-primary" onclick="ingestDocument()">Ingest</button>
+            <span id="kb-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
         </div>
       </div>
     </section>
@@ -1454,7 +1506,7 @@ const ALL_TOOLS = [
   'shell_exec','http_request','file_read','file_write','file_search',
   'browse_web','advanced_browse','chromium_browser','web_search',
   'github','jira','code_interpreter','transcribe_audio',
-  'pdf_reader','database_query','generate_image','delegate_agent'
+  'pdf_reader','database_query','generate_image','delegate_agent','knowledge_search'
 ];
 
 const CHANNEL_DEFS = [
@@ -1514,6 +1566,7 @@ function onPageEnter(page) {
   if (page === 'sessions')   loadSessionsPage();
   if (page === 'memories')   loadMemoriesPage();
   if (page === 'policies')   { loadPolicyRules(); }
+  if (page === 'knowledge')  loadKnowledge();
   if (page === 'logs')       startLogStream();
 }
 
@@ -2247,6 +2300,70 @@ async function searchMarketplace() {
       </tr>`).join('') + '</tbody></table>';
   } catch {
     container.innerHTML = '<div class="empty-state">Search failed.</div>';
+  }
+}
+
+/* ─────────────── Knowledge ─────────────── */
+
+async function loadKnowledge() {
+  const tbody = document.getElementById('knowledge-tbody');
+  try {
+    const res = await apiFetch('/api/v1/knowledge');
+    const docs = Array.isArray(res.data) ? res.data : [];
+    if (!docs.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No documents in the knowledge base. Ingest one below.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = docs.map(d => `<tr>
+      <td class="mono">${esc(d.id || '-')}</td>
+      <td>${esc(d.title || '-')}</td>
+      <td>${esc(d.tags || '-')}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="deleteDocument('${esc(d.id)}')">Delete</button></td>
+    </tr>`).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Failed to load knowledge base.</td></tr>';
+  }
+}
+
+async function ingestDocument() {
+  const title = document.getElementById('kb-title').value.trim();
+  const content = document.getElementById('kb-content').value.trim();
+  const tags = document.getElementById('kb-tags').value.trim();
+
+  if (!title || !content) {
+    setMsg('kb-msg', 'Title and content are required.', 'var(--warn)');
+    return;
+  }
+
+  setMsg('kb-msg', 'Ingesting...', 'var(--muted)');
+
+  try {
+    const res = await apiFetch('/api/v1/knowledge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, content, tags }),
+    });
+    if (res.ok) {
+      setMsg('kb-msg', 'Document ingested!', 'var(--ok)');
+      document.getElementById('kb-title').value = '';
+      document.getElementById('kb-content').value = '';
+      document.getElementById('kb-tags').value = '';
+      loadKnowledge();
+    } else {
+      setMsg('kb-msg', res.raw?.error?.message || 'Ingest failed', 'var(--err)');
+    }
+  } catch(e) {
+    setMsg('kb-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+async function deleteDocument(id) {
+  if (!confirm('Delete this document?')) return;
+  try {
+    await apiFetch(`/api/v1/knowledge/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    loadKnowledge();
+  } catch(e) {
+    alert('Error: ' + e.message);
   }
 }
 

@@ -106,6 +106,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/schedules", s.handleScheduleList)
 	s.mux.HandleFunc("POST /api/v1/schedules/{id}/remove", s.handleScheduleRemove)
 
+	// Knowledge base
+	s.mux.HandleFunc("GET /api/v1/knowledge", s.handleKnowledgeList)
+	s.mux.HandleFunc("POST /api/v1/knowledge", s.handleKnowledgeIngest)
+	s.mux.HandleFunc("DELETE /api/v1/knowledge/{id}", s.handleKnowledgeDelete)
+
 	// Webhooks
 	s.mux.HandleFunc("POST /api/v1/webhooks/trigger/{workflow_id}", s.handleWebhookTrigger)
 }

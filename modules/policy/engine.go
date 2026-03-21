@@ -36,6 +36,7 @@ func (e *Engine) Init(ctx context.Context, svc *kernel.Services) error {
 func (e *Engine) Start(ctx context.Context) error {
 	e.bus.Handle("policy", "policy.check", e.handleCheck)
 	e.bus.Handle("policy", "policy.list", e.handleListRules)
+	e.bus.Handle("policy", "policy.approval.submit", e.handleApprovalSubmit)
 	e.bus.Handle("policy", "approval.list", e.handleApprovalList)
 	e.bus.Handle("policy", "approval.approve", e.handleApprovalApprove)
 	e.bus.Handle("policy", "approval.deny", e.handleApprovalDeny)
@@ -86,6 +87,21 @@ func (e *Engine) handleApprovalDeny(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "denied"}, nil
+}
+
+func (e *Engine) handleApprovalSubmit(msg ipc.Message) (ipc.Message, error) {
+	params, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	id := e.approvals.Submit(ApprovalRequest{
+		Tenant: params["tenant"],
+		Agent:  params["agent"],
+		User:   params["user"],
+		Tool:   params["tool"],
+		Action: params["action"],
+	})
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: id}, nil
 }
 
 func (e *Engine) handleCheck(msg ipc.Message) (ipc.Message, error) {

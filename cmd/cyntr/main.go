@@ -128,6 +128,27 @@ func runStart() {
 	toolReg.Register(agenttools.NewDatabaseTool())
 	toolReg.Register(agenttools.NewImageGenTool())
 	toolReg.Register(agenttools.NewChromiumTool())
+
+	// Load custom YAML tools from tools/ directory
+	yamlTools, err := agenttools.LoadToolsFromDir("tools")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: YAML tools: %v\n", err)
+	} else {
+		for _, yt := range yamlTools {
+			toolReg.Register(yt)
+			fmt.Printf("registered YAML tool: %s\n", yt.Name())
+		}
+	}
+
+	// Knowledge base tool
+	knowledgeTool, err := agenttools.NewKnowledgeTool("knowledge_base.db")
+	if err == nil {
+		toolReg.Register(knowledgeTool)
+		webapi.SetKnowledgeTool(knowledgeTool)
+	} else {
+		fmt.Fprintf(os.Stderr, "warning: knowledge base disabled: %v\n", err)
+	}
+
 	agentRuntime.SetToolRegistry(toolReg)
 
 	// Register Claude provider if API key is set
@@ -402,6 +423,23 @@ func runStart() {
 		}
 		return ipc.Message{}, nil
 	})
+
+	// Approval notifications to Slack
+	if approvalChannel := os.Getenv("SLACK_APPROVAL_CHANNEL"); approvalChannel != "" {
+		k.Bus().Subscribe("notifications", "agent.activity", func(msg ipc.Message) (ipc.Message, error) {
+			if evt, ok := msg.Payload.(agent.ActivityEvent); ok && evt.Type == "approval_needed" {
+				k.Bus().Request(context.Background(), ipc.Message{
+					Source: "notifications", Target: "channel", Topic: "channel.send",
+					Payload: channel.OutboundMessage{
+						Channel:   "slack",
+						ChannelID: approvalChannel,
+						Text:      fmt.Sprintf("*Approval Required*\nAgent: %s\nTenant: %s\n%s\n\nApprove via dashboard: /api/v1/approvals", evt.Agent, evt.Tenant, evt.Detail),
+					},
+				})
+			}
+			return ipc.Message{}, nil
+		})
+	}
 
 	// Start API + Dashboard server
 	apiServer := webapi.NewServer(k.Bus(), k)

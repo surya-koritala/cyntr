@@ -305,6 +305,19 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 					ToolResults: []ToolResult{{CallID: tc.ID, Content: "PENDING APPROVAL: " + tc.Name + " requires human approval before execution. The request has been submitted.", IsError: true}},
 				})
 				toolsUsed = append(toolsUsed, tc.Name+"(pending)")
+
+				// Submit to approval queue and notify
+				go func() {
+					r.bus.Request(context.Background(), ipc.Message{
+						Source: "agent_runtime", Target: "policy", Topic: "policy.approval.submit",
+						Payload: map[string]string{
+							"tenant": req.Tenant, "agent": req.Agent, "user": req.User,
+							"tool": tc.Name, "action": "tool_call",
+						},
+					})
+					r.publishActivity(req.Agent, req.Tenant, "approval_needed", "Tool "+tc.Name+" requires approval")
+				}()
+
 				continue
 			}
 
