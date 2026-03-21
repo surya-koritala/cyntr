@@ -35,7 +35,10 @@ func (o *OpenAI) Name() string { return "gpt" }
 
 func (o *OpenAI) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef) (agent.Message, error) {
 	reqBody := o.buildRequest(messages, tools)
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return agent.Message{}, fmt.Errorf("marshal request: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {

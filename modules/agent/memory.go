@@ -6,8 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cyntr-dev/cyntr/kernel/log"
 	_ "modernc.org/sqlite"
 )
+
+var memoryLogger = log.Default().WithModule("agent_memory")
 
 // Memory represents a single piece of long-term knowledge.
 type Memory struct {
@@ -99,8 +102,15 @@ func (ms *MemoryStore) Recall(agent, tenant string) ([]Memory, error) {
 		if err := rows.Scan(&m.ID, &m.Agent, &m.Tenant, &m.Key, &m.Content, &created, &updated); err != nil {
 			return nil, err
 		}
-		m.CreatedAt, _ = time.Parse(time.RFC3339, created)
-		m.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+		var parseErr error
+		m.CreatedAt, parseErr = time.Parse(time.RFC3339, created)
+		if parseErr != nil {
+			memoryLogger.Warn("corrupt timestamp in memory", map[string]any{"id": m.ID, "field": "created_at", "value": created})
+		}
+		m.UpdatedAt, parseErr = time.Parse(time.RFC3339, updated)
+		if parseErr != nil {
+			memoryLogger.Warn("corrupt timestamp in memory", map[string]any{"id": m.ID, "field": "updated_at", "value": updated})
+		}
 		memories = append(memories, m)
 	}
 	if memories == nil {
@@ -128,8 +138,15 @@ func (ms *MemoryStore) RecallByKey(agent, tenant, key string) ([]Memory, error) 
 		var m Memory
 		var created, updated string
 		rows.Scan(&m.ID, &m.Agent, &m.Tenant, &m.Key, &m.Content, &created, &updated)
-		m.CreatedAt, _ = time.Parse(time.RFC3339, created)
-		m.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+		var parseErr error
+		m.CreatedAt, parseErr = time.Parse(time.RFC3339, created)
+		if parseErr != nil {
+			memoryLogger.Warn("corrupt timestamp in memory", map[string]any{"id": m.ID, "field": "created_at", "value": created})
+		}
+		m.UpdatedAt, parseErr = time.Parse(time.RFC3339, updated)
+		if parseErr != nil {
+			memoryLogger.Warn("corrupt timestamp in memory", map[string]any{"id": m.ID, "field": "updated_at", "value": updated})
+		}
 		memories = append(memories, m)
 	}
 	if memories == nil {
@@ -157,8 +174,15 @@ func (ms *MemoryStore) Search(agent, tenant, query string) ([]Memory, error) {
 		var m Memory
 		var created, updated string
 		rows.Scan(&m.ID, &m.Agent, &m.Tenant, &m.Key, &m.Content, &created, &updated)
-		m.CreatedAt, _ = time.Parse(time.RFC3339, created)
-		m.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+		var parseErr error
+		m.CreatedAt, parseErr = time.Parse(time.RFC3339, created)
+		if parseErr != nil {
+			memoryLogger.Warn("corrupt timestamp in memory", map[string]any{"id": m.ID, "field": "created_at", "value": created})
+		}
+		m.UpdatedAt, parseErr = time.Parse(time.RFC3339, updated)
+		if parseErr != nil {
+			memoryLogger.Warn("corrupt timestamp in memory", map[string]any{"id": m.ID, "field": "updated_at", "value": updated})
+		}
 		memories = append(memories, m)
 	}
 	if memories == nil {

@@ -9,8 +9,11 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/channel"
 )
+
+var logger = log.Default().WithModule("channel_teams")
 
 type Adapter struct {
 	listenAddr string
@@ -128,6 +131,7 @@ func (a *Adapter) handleActivity(w http.ResponseWriter, r *http.Request) {
 		Tenant: a.tenant, Agent: a.agent,
 	})
 	if err != nil {
+		logger.Error("message handler failed", map[string]any{"error": err.Error()})
 		w.WriteHeader(200)
 		return
 	}

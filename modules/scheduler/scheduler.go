@@ -9,9 +9,12 @@ import (
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 	"github.com/cyntr-dev/cyntr/modules/channel"
 )
+
+var logger = log.Default().WithModule("scheduler")
 
 // Scheduler is a kernel module that runs scheduled agent tasks.
 type Scheduler struct {
@@ -107,17 +110,19 @@ func (s *Scheduler) executeJob(job *Job) {
 		},
 	})
 	if err != nil {
+		logger.Error("scheduled job failed", map[string]any{"job_id": job.ID, "agent": job.Agent, "error": err.Error()})
 		return
 	}
 
 	chatResp, ok := resp.Payload.(agent.ChatResponse)
 	if !ok {
+		logger.Warn("scheduled job unexpected response", map[string]any{"job_id": job.ID})
 		return
 	}
 
 	// Deliver results to configured channel
 	if job.DestChannel != "" && job.DestChannelID != "" {
-		s.bus.Request(ctx, ipc.Message{
+		_, err := s.bus.Request(ctx, ipc.Message{
 			Source: "scheduler", Target: "channel", Topic: "channel.send",
 			Payload: channel.OutboundMessage{
 				Channel:   job.DestChannel,
@@ -125,6 +130,9 @@ func (s *Scheduler) executeJob(job *Job) {
 				Text:      chatResp.Content,
 			},
 		})
+		if err != nil {
+			logger.Warn("job delivery failed", map[string]any{"job_id": job.ID, "channel": job.DestChannel, "error": err.Error()})
+		}
 	}
 }
 

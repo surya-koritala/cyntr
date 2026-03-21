@@ -9,8 +9,11 @@ import (
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 )
+
+var logger = log.Default().WithModule("agent_runtime")
 
 // Runtime is the Agent Runtime kernel module.
 // It manages agent instances and orchestrates model calls + tool execution.
@@ -232,6 +235,8 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("agent %q not found in tenant %q", req.Agent, req.Tenant)
 	}
 
+	chatStart := time.Now()
+
 	r.publishActivity(req.Agent, req.Tenant, "chat_start", "User: "+req.Message[:min(80, len(req.Message))])
 
 	// Get the model provider
@@ -276,6 +281,13 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 
 		// If no tool calls, we're done
 		if len(response.ToolCalls) == 0 {
+			chatDuration := time.Since(chatStart)
+			if chatDuration > 5*time.Second {
+				logger.Warn("slow chat response", map[string]any{
+					"agent": req.Agent, "tenant": req.Tenant,
+					"duration_ms": chatDuration.Milliseconds(), "turns": turn + 1,
+				})
+			}
 			r.publishActivity(req.Agent, req.Tenant, "chat_complete", "Response sent")
 			return ipc.Message{
 				Type: ipc.MessageTypeResponse,
@@ -308,13 +320,18 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 
 				// Submit to approval queue and notify
 				go func() {
-					r.bus.Request(context.Background(), ipc.Message{
+					_, err := r.bus.Request(context.Background(), ipc.Message{
 						Source: "agent_runtime", Target: "policy", Topic: "policy.approval.submit",
 						Payload: map[string]string{
 							"tenant": req.Tenant, "agent": req.Agent, "user": req.User,
 							"tool": tc.Name, "action": "tool_call",
 						},
 					})
+					if err != nil {
+						logger.Warn("approval submission failed", map[string]any{
+							"tenant": req.Tenant, "agent": req.Agent, "tool": tc.Name, "error": err.Error(),
+						})
+					}
 					r.publishActivity(req.Agent, req.Tenant, "approval_needed", "Tool "+tc.Name+" requires approval")
 				}()
 
@@ -351,7 +368,14 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				isError = true
 			} else {
 				var execErr error
+				toolStart := time.Now()
 				result, execErr = r.toolReg.Execute(context.Background(), tc.Name, tc.Input)
+				toolDuration := time.Since(toolStart)
+				if toolDuration > 2*time.Second {
+					logger.Warn("slow tool execution", map[string]any{
+						"tool": tc.Name, "duration_ms": toolDuration.Milliseconds(),
+					})
+				}
 				if execErr != nil {
 					result = execErr.Error()
 					isError = true

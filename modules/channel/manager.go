@@ -6,11 +6,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 )
+
+var logger = log.Default().WithModule("channel")
 
 // Manager is the Channel Manager kernel module.
 // It manages channel adapters and routes messages between channels and agents.
@@ -108,6 +112,7 @@ func (m *Manager) routeInbound(msg InboundMessage) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*1e9) // 5 minutes — agent may run multiple tool calls
 	defer cancel()
 
+	routeStart := time.Now()
 	resp, err := m.bus.Request(ctx, ipc.Message{
 		Source: "channel",
 		Target: "agent_runtime",
@@ -121,6 +126,12 @@ func (m *Manager) routeInbound(msg InboundMessage) (string, error) {
 			ChannelID: msg.ChannelID,
 		},
 	})
+	routeDuration := time.Since(routeStart)
+	if routeDuration > 5*time.Second {
+		logger.Warn("slow agent response", map[string]any{
+			"agent": msg.Agent, "channel": msg.Channel, "duration_ms": routeDuration.Milliseconds(),
+		})
+	}
 	if err != nil {
 		return "", fmt.Errorf("route to agent: %w", err)
 	}
@@ -194,10 +205,12 @@ func (m *Manager) handleProgress(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, nil
 	}
 
-	adapter.Send(context.Background(), OutboundMessage{
+	if err := adapter.Send(context.Background(), OutboundMessage{
 		Channel:   evt.Channel,
 		ChannelID: evt.ChannelID,
 		Text:      evt.Message,
-	})
+	}); err != nil {
+		logger.Warn("progress message failed", map[string]any{"channel": evt.Channel, "error": err.Error()})
+	}
 	return ipc.Message{}, nil
 }

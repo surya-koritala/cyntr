@@ -10,8 +10,11 @@ import (
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 )
+
+var logger = log.Default().WithModule("workflow")
 
 // Engine is the workflow execution kernel module.
 type Engine struct {
@@ -159,6 +162,8 @@ func (e *Engine) handleListRuns(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (e *Engine) executeWorkflow(wf *Workflow, run *Run) {
+	logger.Info("workflow started", map[string]any{"workflow_id": wf.ID, "run_id": run.ID, "tenant": wf.Tenant})
+
 	stepMap := make(map[string]Step)
 	for _, s := range wf.Steps {
 		stepMap[s.ID] = s
@@ -189,6 +194,7 @@ func (e *Engine) executeWorkflow(wf *Workflow, run *Run) {
 			// Retry logic
 			retried := false
 			for i := 0; i < step.RetryCount; i++ {
+				logger.Warn("step retry", map[string]any{"step_id": step.ID, "attempt": i + 1})
 				time.Sleep(time.Duration(i+1) * time.Second) // backoff
 				retryResult := e.executeStep(step, run)
 				e.mu.Lock()
@@ -336,7 +342,10 @@ func (e *Engine) executeAgentChat(ctx context.Context, step Step, run *Run) (str
 	if err != nil {
 		return "", err
 	}
-	chatResp := resp.Payload.(agent.ChatResponse)
+	chatResp, ok := resp.Payload.(agent.ChatResponse)
+	if !ok {
+		return "", fmt.Errorf("unexpected response type: %T", resp.Payload)
+	}
 	return chatResp.Content, nil
 }
 
@@ -374,6 +383,7 @@ func (e *Engine) executeWebhook(ctx context.Context, step Step) (string, error) 
 }
 
 func (e *Engine) failRun(run *Run, errMsg string) {
+	logger.Error("workflow run failed", map[string]any{"run_id": run.ID, "error": errMsg})
 	e.mu.Lock()
 	run.Status = RunFailed
 	run.Error = errMsg

@@ -8,7 +8,11 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/cyntr-dev/cyntr/kernel/log"
 )
+
+var logger = log.Default().WithModule("notify")
 
 // NotificationType categorizes the notification.
 type NotificationType string
@@ -88,7 +92,7 @@ type LogChannel struct{}
 
 func (l *LogChannel) Name() string { return "log" }
 func (l *LogChannel) Send(ctx context.Context, n Notification) error {
-	fmt.Printf("[NOTIFY] [%s] %s: %s (tenant: %s)\n", n.Type, n.Title, n.Message, n.Tenant)
+	logger.Info("notification", map[string]any{"type": string(n.Type), "title": n.Title, "tenant": n.Tenant})
 	return nil
 }
 
@@ -118,7 +122,11 @@ func (n *Notifier) Send(ctx context.Context, notif Notification) {
 
 	for _, ch := range channels {
 		go func(c Channel) {
-			c.Send(ctx, notif)
+			if err := c.Send(ctx, notif); err != nil {
+				logger.Warn("notification delivery failed", map[string]any{
+					"channel": c.Name(), "type": string(notif.Type), "error": err.Error(),
+				})
+			}
 		}(ch)
 	}
 }

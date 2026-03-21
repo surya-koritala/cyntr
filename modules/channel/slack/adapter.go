@@ -10,8 +10,11 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/channel"
 )
+
+var logger = log.Default().WithModule("channel_slack")
 
 type Adapter struct {
 	listenAddr string
@@ -263,6 +266,9 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 		a.removeReaction(eventChannel, eventTS, "hourglass_flowing_sand")
 
 		if err != nil {
+			logger.Error("slack message handler failed", map[string]any{
+				"channel_id": eventChannel, "user_id": eventUser, "error": err.Error(),
+			})
 			a.Send(context.Background(), channel.OutboundMessage{
 				Channel:   "slack",
 				ChannelID: eventChannel,

@@ -3,10 +3,14 @@ package policy
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/kernel/log"
 )
+
+var logger = log.Default().WithModule("policy")
 
 type Engine struct {
 	policyPath string
@@ -109,6 +113,13 @@ func (e *Engine) handleCheck(msg ipc.Message) (ipc.Message, error) {
 	if !ok {
 		return ipc.Message{}, fmt.Errorf("expected CheckRequest, got %T", msg.Payload)
 	}
+	start := time.Now()
 	resp := e.ruleSet.Evaluate(req)
+	dur := time.Since(start)
+	if dur > 100*time.Millisecond {
+		logger.Warn("slow policy evaluation", map[string]any{
+			"tenant": req.Tenant, "tool": req.Tool, "duration_ms": dur.Milliseconds(),
+		})
+	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: resp}, nil
 }

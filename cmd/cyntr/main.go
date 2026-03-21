@@ -104,7 +104,10 @@ func runStart() {
 	}
 	agentRuntime.SetSessionStore(sessionStore)
 
-	memoryStore, _ := agent.NewMemoryStore("memory.db")
+	memoryStore, err := agent.NewMemoryStore("memory.db")
+	if err != nil {
+		log.Warn("memory store disabled", map[string]any{"error": err.Error()})
+	}
 	agentRuntime.SetMemoryStore(memoryStore)
 
 	agentRuntime.RegisterProvider(agentproviders.NewMock("Default mock response"))
@@ -137,7 +140,7 @@ func runStart() {
 	} else {
 		for _, yt := range yamlTools {
 			toolReg.Register(yt)
-			fmt.Printf("registered YAML tool: %s\n", yt.Name())
+			log.Info("YAML tool registered", map[string]any{"name": yt.Name()})
 		}
 	}
 
@@ -160,7 +163,7 @@ func runStart() {
 			claudeModel = "claude-sonnet-4-20250514"
 		}
 		agentRuntime.RegisterProvider(agentproviders.NewAnthropic(anthropicKey, claudeModel, ""))
-		fmt.Printf("registered Claude provider (model: %s)\n", claudeModel)
+		log.Info("provider registered", map[string]any{"provider": "claude", "model": claudeModel})
 	}
 
 	// Register OpenAI provider if API key is set
@@ -171,7 +174,7 @@ func runStart() {
 			openaiModel = "gpt-4"
 		}
 		agentRuntime.RegisterProvider(agentproviders.NewOpenAI(openaiKey, openaiModel, ""))
-		fmt.Printf("registered GPT provider (model: %s)\n", openaiModel)
+		log.Info("provider registered", map[string]any{"provider": "gpt", "model": openaiModel})
 	}
 
 	// Register Gemini provider if API key is set
@@ -182,7 +185,7 @@ func runStart() {
 			geminiModel = "gemini-pro"
 		}
 		agentRuntime.RegisterProvider(agentproviders.NewGemini(geminiKey, geminiModel, ""))
-		fmt.Printf("registered Gemini provider (model: %s)\n", geminiModel)
+		log.Info("provider registered", map[string]any{"provider": "gemini", "model": geminiModel})
 	}
 
 	// Register Ollama provider if URL is set
@@ -193,7 +196,7 @@ func runStart() {
 			ollamaModel = "llama3"
 		}
 		agentRuntime.RegisterProvider(agentproviders.NewOllama(ollamaModel, ollamaURL))
-		fmt.Printf("registered Ollama provider (model: %s)\n", ollamaModel)
+		log.Info("provider registered", map[string]any{"provider": "ollama", "model": ollamaModel})
 	}
 
 	// Register OpenRouter provider if API key is set
@@ -204,7 +207,7 @@ func runStart() {
 			openrouterModel = "anthropic/claude-3.5-sonnet"
 		}
 		agentRuntime.RegisterProvider(agentproviders.NewOpenRouter(openrouterKey, openrouterModel, ""))
-		fmt.Printf("registered OpenRouter provider (model: %s)\n", openrouterModel)
+		log.Info("provider registered", map[string]any{"provider": "openrouter", "model": openrouterModel})
 	}
 
 	// Register Azure OpenAI provider if configured
@@ -215,7 +218,7 @@ func runStart() {
 		azureAPIVersion := os.Getenv("AZURE_OPENAI_API_VERSION")
 		if azureEndpoint != "" && azureDeployment != "" {
 			agentRuntime.RegisterProvider(agentproviders.NewAzureOpenAI(azureKey, azureEndpoint, azureDeployment, azureAPIVersion))
-			fmt.Printf("registered Azure OpenAI provider (endpoint: %s, deployment: %s)\n", azureEndpoint, azureDeployment)
+			log.Info("provider registered", map[string]any{"provider": "azure-openai", "endpoint": azureEndpoint, "deployment": azureDeployment})
 		}
 	}
 
@@ -250,7 +253,7 @@ func runStart() {
 			slackAdapter.SetRoutes(routes)
 		}
 		channelMgr.AddAdapter(slackAdapter)
-		fmt.Printf("registered Slack adapter (tenant: %s, agent: %s, listen: %s)\n", slackTenant, slackAgent, slackAddr)
+		log.Info("channel adapter registered", map[string]any{"adapter": "slack", "tenant": slackTenant, "agent": slackAgent, "listen": slackAddr})
 	}
 
 	// Register Teams adapter if configured
@@ -271,7 +274,7 @@ func runStart() {
 		}
 		teamsAdapter := teamspkg.New(teamsAddr, teamsAppID, teamsSecret, teamsTenant, teamsAgent)
 		channelMgr.AddAdapter(teamsAdapter)
-		fmt.Printf("registered Teams adapter (tenant: %s, listen: %s)\n", teamsTenant, teamsAddr)
+		log.Info("channel adapter registered", map[string]any{"adapter": "teams", "tenant": teamsTenant, "agent": teamsAgent, "listen": teamsAddr})
 	}
 
 	// Register Email adapter if configured
@@ -299,7 +302,7 @@ func runStart() {
 		}
 		emailAdapter := emailpkg.New(emailAddr, emailSMTP, emailPort, emailFrom, emailTenant, emailAgent)
 		channelMgr.AddAdapter(emailAdapter)
-		fmt.Printf("registered Email adapter (tenant: %s, listen: %s)\n", emailTenant, emailAddr)
+		log.Info("channel adapter registered", map[string]any{"adapter": "email", "tenant": emailTenant, "agent": emailAgent, "listen": emailAddr})
 	}
 
 	// Register WhatsApp adapter if configured
@@ -321,7 +324,7 @@ func runStart() {
 		}
 		waAdapter := whatsapppkg.New(waAddr, waToken, waPhoneNumID, waVerifyToken, waTenant, waAgent)
 		channelMgr.AddAdapter(waAdapter)
-		fmt.Printf("registered WhatsApp adapter (tenant: %s, agent: %s, listen: %s)\n", waTenant, waAgent, waAddr)
+		log.Info("channel adapter registered", map[string]any{"adapter": "whatsapp", "tenant": waTenant, "agent": waAgent, "listen": waAddr})
 	}
 
 	// Register Telegram adapter if configured
@@ -341,7 +344,7 @@ func runStart() {
 		}
 		tgAdapter := telegrampkg.New(tgAddr, tgToken, tgTenant, tgAgent)
 		channelMgr.AddAdapter(tgAdapter)
-		fmt.Printf("registered Telegram adapter (tenant: %s, agent: %s, listen: %s)\n", tgTenant, tgAgent, tgAddr)
+		log.Info("channel adapter registered", map[string]any{"adapter": "telegram", "tenant": tgTenant, "agent": tgAgent, "listen": tgAddr})
 	}
 
 	// Register Discord adapter if configured
@@ -361,7 +364,7 @@ func runStart() {
 		}
 		discordAdapter := discordpkg.New(discordAddr, discordToken, discordTenant, discordAgent)
 		channelMgr.AddAdapter(discordAdapter)
-		fmt.Printf("registered Discord adapter (tenant: %s, agent: %s, listen: %s)\n", discordTenant, discordAgent, discordAddr)
+		log.Info("channel adapter registered", map[string]any{"adapter": "discord", "tenant": discordTenant, "agent": discordAgent, "listen": discordAddr})
 	}
 
 	// Register Google Chat adapter if configured
@@ -381,7 +384,7 @@ func runStart() {
 		}
 		gchatAdapter := googlechatpkg.New(gchatAddr, gchatWebhook, gchatTenant, gchatAgent)
 		channelMgr.AddAdapter(gchatAdapter)
-		fmt.Printf("registered Google Chat adapter (tenant: %s, agent: %s, listen: %s)\n", gchatTenant, gchatAgent, gchatAddr)
+		log.Info("channel adapter registered", map[string]any{"adapter": "google_chat", "tenant": gchatTenant, "agent": gchatAgent, "listen": gchatAddr})
 	}
 
 	proxyGateway := proxy.NewGateway(cfg.Listen.Address)
@@ -444,7 +447,10 @@ func runStart() {
 
 	// Start API + Dashboard server
 	apiServer := webapi.NewServer(k.Bus(), k)
-	tenantMgr, _ := tenant.NewManager(cfg, nil)
+	tenantMgr, err := tenant.NewManager(cfg, nil)
+	if err != nil {
+		log.Warn("tenant manager init failed", map[string]any{"error": err.Error()})
+	}
 	apiServer.SetTenantManager(tenantMgr)
 	dashboard := web.NewDashboardHandler()
 
@@ -469,7 +475,7 @@ func runStart() {
 
 	go func() {
 		if err := http.ListenAndServe(webAddr, mux); err != nil {
-			fmt.Fprintf(os.Stderr, "web server error: %v\n", err)
+			log.Error("web server error", map[string]any{"addr": webAddr, "error": err.Error()})
 		}
 	}()
 
@@ -486,7 +492,7 @@ func runStart() {
 			})
 			regCancel()
 			if regErr == nil {
-				fmt.Printf("registered cloud-ops agent (tenant: %s, name: %s)\n", agentCfg.Tenant, agentCfg.Name)
+				log.Info("cloud-ops agent registered", map[string]any{"tenant": agentCfg.Tenant, "name": agentCfg.Name})
 			}
 		}
 	}

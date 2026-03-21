@@ -56,7 +56,10 @@ func (t *AdvancedBrowserTool) Execute(ctx context.Context, input map[string]stri
 }
 
 func (t *AdvancedBrowserTool) fetchPage(ctx context.Context, rawURL string) (string, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
 	req.Header.Set("User-Agent", "Cyntr/0.3.0")
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -75,7 +78,10 @@ func (t *AdvancedBrowserTool) extractElements(ctx context.Context, rawURL, selec
 	if selector == "" {
 		return "", fmt.Errorf("selector is required for extract action")
 	}
-	req, _ := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
 	req.Header.Set("User-Agent", "Cyntr/0.3.0")
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -126,7 +132,10 @@ func (t *AdvancedBrowserTool) extractElements(ctx context.Context, rawURL, selec
 }
 
 func (t *AdvancedBrowserTool) extractLinks(ctx context.Context, rawURL string) (string, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
 	req.Header.Set("User-Agent", "Cyntr/0.3.0")
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -167,7 +176,10 @@ func (t *AdvancedBrowserTool) extractLinks(ctx context.Context, rawURL string) (
 }
 
 func (t *AdvancedBrowserTool) submitForm(ctx context.Context, rawURL, data string) (string, error) {
-	req, _ := http.NewRequestWithContext(ctx, "POST", rawURL, strings.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", rawURL, strings.NewReader(data))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", "Cyntr/0.3.0")
 	resp, err := t.client.Do(req)

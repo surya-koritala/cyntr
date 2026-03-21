@@ -41,7 +41,10 @@ func NewMarketplace(baseURL string) *Marketplace {
 // Search finds skills matching a query.
 func (m *Marketplace) Search(ctx context.Context, query string) ([]MarketplaceEntry, error) {
 	url := fmt.Sprintf("%s/api/v1/skills/search?q=%s", m.baseURL, query)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("marketplace search: %w", err)
@@ -49,7 +52,10 @@ func (m *Marketplace) Search(ctx context.Context, query string) ([]MarketplaceEn
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
 		return nil, fmt.Errorf("marketplace error %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -64,7 +70,10 @@ func (m *Marketplace) Search(ctx context.Context, query string) ([]MarketplaceEn
 // Get returns details for a specific skill.
 func (m *Marketplace) Get(ctx context.Context, name string) (*MarketplaceEntry, error) {
 	url := fmt.Sprintf("%s/api/v1/skills/%s", m.baseURL, name)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -86,7 +95,10 @@ func (m *Marketplace) Download(ctx context.Context, entry MarketplaceEntry, dest
 		return "", fmt.Errorf("no download URL for %s", entry.Name)
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, "GET", entry.DownloadURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", entry.DownloadURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return "", err
@@ -97,7 +109,10 @@ func (m *Marketplace) Download(ctx context.Context, entry MarketplaceEntry, dest
 	os.MkdirAll(skillDir, 0755)
 
 	// Save the skill manifest
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
 	manifestPath := filepath.Join(skillDir, "skill.yaml")
 	os.WriteFile(manifestPath, data, 0644)
 

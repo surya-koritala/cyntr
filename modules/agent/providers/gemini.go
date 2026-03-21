@@ -57,7 +57,10 @@ func (g *Gemini) Chat(ctx context.Context, messages []agent.Message, tools []age
 	}
 
 	reqBody := map[string]any{"contents": contents}
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return agent.Message{}, fmt.Errorf("marshal request: %w", err)
+	}
 
 	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", g.baseURL, g.model, g.apiKey)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))

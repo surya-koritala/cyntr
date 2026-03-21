@@ -45,7 +45,10 @@ func (a *AzureOpenAI) chatURL() string {
 
 func (a *AzureOpenAI) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef) (agent.Message, error) {
 	reqBody := a.buildRequest(messages, tools)
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return agent.Message{}, fmt.Errorf("marshal request: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", a.chatURL(), bytes.NewReader(body))
 	if err != nil {

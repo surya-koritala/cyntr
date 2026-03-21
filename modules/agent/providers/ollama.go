@@ -38,7 +38,10 @@ func (o *Ollama) Chat(ctx context.Context, messages []agent.Message, tools []age
 	}
 
 	reqBody := map[string]any{"model": o.model, "messages": msgs, "stream": false}
-	body, _ := json.Marshal(reqBody)
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return agent.Message{}, fmt.Errorf("marshal request: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/api/chat", bytes.NewReader(body))
 	if err != nil {
