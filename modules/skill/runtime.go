@@ -47,6 +47,18 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("skill_runtime", "skill.get", r.handleGet)
 	r.bus.Handle("skill_runtime", "skill.instructions", r.handleInstructions)
 	r.bus.Handle("skill_runtime", "skill.import_openclaw", r.handleImportOpenClaw)
+
+	// Load embedded catalog skills
+	for _, catalogSkill := range LoadEmbeddedCatalog() {
+		if catalogSkill.Manifest.Name == "_catalog-readme" || catalogSkill.Manifest.Name == "openclaw-_catalog-readme" {
+			continue // skip placeholder
+		}
+		if err := r.registry.InstallDirect(catalogSkill); err != nil {
+			// Already installed or name conflict — skip silently
+			continue
+		}
+	}
+
 	return nil
 }
 

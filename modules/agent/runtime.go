@@ -299,6 +299,21 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		}
 	}
 
+	// Load skill instructions on-demand
+	if len(inst.config.Skills) > 0 {
+		skillCtx, skillCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		skillResp, skillErr := r.bus.Request(skillCtx, ipc.Message{
+			Source: "agent_runtime", Target: "skill_runtime", Topic: "skill.instructions",
+			Payload: inst.config.Skills,
+		})
+		skillCancel()
+		if skillErr == nil {
+			if instructions, ok := skillResp.Payload.(map[string]string); ok {
+				inst.session.SetSkillInstructions(formatSkillInstructions(instructions))
+			}
+		}
+	}
+
 	// Set last user for template expansion
 	inst.session.SetLastUser(req.User)
 
@@ -728,6 +743,22 @@ func (r *Runtime) executeToolWithRetry(ctx context.Context, toolName string, inp
 		}
 	}
 	return "", lastErr
+}
+
+func formatSkillInstructions(instructions map[string]string) string {
+	if len(instructions) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## Active Skills\n\n")
+	for name, instr := range instructions {
+		sb.WriteString("### Skill: ")
+		sb.WriteString(name)
+		sb.WriteString("\n\n")
+		sb.WriteString(instr)
+		sb.WriteString("\n\n---\n\n")
+	}
+	return sb.String()
 }
 
 func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {

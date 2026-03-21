@@ -183,6 +183,34 @@ func TestSetLastUser(t *testing.T) {
 	}
 }
 
+func TestSkillInstructionsInContext(t *testing.T) {
+	cfg := AgentConfig{Name: "bot", Tenant: "t", SystemPrompt: "You are helpful"}
+	s := NewSession("test", cfg)
+	s.SetSkillInstructions("## Active Skills\n\n### Skill: test-skill\n\nDo the thing.\n")
+
+	ctx := s.AssembleContext()
+	if len(ctx) == 0 {
+		t.Fatal("empty context")
+	}
+	if !strings.Contains(ctx[0].Content, "Active Skills") {
+		t.Fatalf("expected skill instructions in context, got %q", ctx[0].Content)
+	}
+	if !strings.Contains(ctx[0].Content, "Do the thing") {
+		t.Fatalf("expected skill content in context, got %q", ctx[0].Content)
+	}
+}
+
+func TestSkillInstructionsEmpty(t *testing.T) {
+	cfg := AgentConfig{Name: "bot", Tenant: "t", SystemPrompt: "You are helpful"}
+	s := NewSession("test", cfg)
+	// Don't set skill instructions
+
+	ctx := s.AssembleContext()
+	if strings.Contains(ctx[0].Content, "Active Skills") {
+		t.Fatal("should not contain skills when none set")
+	}
+}
+
 // ClearHistory
 func TestClearHistory(t *testing.T) {
 	cfg := AgentConfig{Name: "bot", Tenant: "t"}

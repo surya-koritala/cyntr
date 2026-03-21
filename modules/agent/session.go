@@ -9,13 +9,14 @@ import (
 
 // Session manages conversation history and context for a single agent interaction.
 type Session struct {
-	mu       sync.RWMutex
-	id       string
-	config   AgentConfig
-	history  []Message
-	store    *SessionStore
-	memories string
-	lastUser string
+	mu                sync.RWMutex
+	id                string
+	config            AgentConfig
+	history           []Message
+	store             *SessionStore
+	memories          string
+	skillInstructions string
+	lastUser          string
 }
 
 // SetStore attaches a SessionStore to the session for persistence.
@@ -28,6 +29,13 @@ func (s *Session) SetMemories(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.memories = text
+}
+
+// SetSkillInstructions injects skill instruction text to be included in the agent context.
+func (s *Session) SetSkillInstructions(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.skillInstructions = text
 }
 
 // NewSession creates a new conversation session.
@@ -97,6 +105,10 @@ func (s *Session) AssembleContext() []Message {
 		} else {
 			systemContent = s.memories
 		}
+	}
+
+	if s.skillInstructions != "" {
+		systemContent += "\n\n" + s.skillInstructions
 	}
 
 	if systemContent != "" {
