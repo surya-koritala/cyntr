@@ -5,6 +5,43 @@ import (
 	"testing"
 )
 
+func TestStoreSessionHistoryPersistsAcrossReload(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "sessions.db")
+
+	// Create store, save agent, add messages
+	s1, _ := NewSessionStore(dbPath)
+	s1.SaveAgent(AgentConfig{Name: "bot", Tenant: "t", Model: "mock"})
+	sessID := "sess_t_bot"
+	s1.SaveSession(sessID, AgentConfig{Name: "bot", Tenant: "t", Model: "mock"})
+	s1.AppendMessage(sessID, Message{Role: RoleUser, Content: "Hello"})
+	s1.AppendMessage(sessID, Message{Role: RoleAssistant, Content: "Hi there!"})
+	s1.Close()
+
+	// Reopen store, load agent, load session
+	s2, _ := NewSessionStore(dbPath)
+	defer s2.Close()
+
+	agents, _ := s2.LoadAgents()
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+
+	_, messages, err := s2.LoadSession(sessID)
+	if err != nil {
+		t.Fatalf("load session: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(messages))
+	}
+	if messages[0].Content != "Hello" {
+		t.Fatalf("got %q", messages[0].Content)
+	}
+	if messages[1].Content != "Hi there!" {
+		t.Fatalf("got %q", messages[1].Content)
+	}
+}
+
 func TestStoreCreateAndLoadSession(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewSessionStore(filepath.Join(dir, "sessions.db"))

@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"sort"
 	"sync"
@@ -61,6 +59,17 @@ func (r *Runtime) SetToolRegistry(reg *ToolRegistry) {
 	r.toolReg = reg
 }
 
+// Providers returns the names of all registered model providers.
+func (r *Runtime) Providers() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.providers))
+	for name := range r.providers {
+		names = append(names, name)
+	}
+	return names
+}
+
 func (r *Runtime) Name() string           { return "agent_runtime" }
 func (r *Runtime) Dependencies() []string { return nil }
 
@@ -95,7 +104,7 @@ func (r *Runtime) handleCreate(msg ipc.Message) (ipc.Message, error) {
 	}
 
 	key := cfg.Tenant + "/" + cfg.Name
-	sessID := "sess_" + generateShortID()
+	sessID := "sess_" + cfg.Tenant + "_" + cfg.Name
 
 	session := NewSession(sessID, cfg)
 	if r.store != nil {
@@ -124,20 +133,43 @@ func (r *Runtime) LoadSavedAgents() error {
 	if err != nil {
 		return fmt.Errorf("load saved agents: %w", err)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	for _, cfg := range agents {
 		key := cfg.Tenant + "/" + cfg.Name
-		if _, exists := r.agents[key]; exists {
+		r.mu.RLock()
+		_, exists := r.agents[key]
+		r.mu.RUnlock()
+		if exists {
 			continue
 		}
-		sessID := "sess_" + generateShortID()
+
+		sessID := "sess_" + cfg.Tenant + "_" + cfg.Name
 		session := NewSession(sessID, cfg)
 		session.SetStore(r.store)
+
+		// Try to restore messages from store
+		_, messages, err := r.store.LoadSession(sessID)
+		if err == nil {
+			for _, msg := range messages {
+				session.mu.Lock()
+				session.history = append(session.history, msg)
+				session.mu.Unlock()
+			}
+		}
+
+		// Inject memories if memory store exists
+		if r.memoryStore != nil {
+			memories, _ := r.memoryStore.Recall(cfg.Name, cfg.Tenant)
+			if len(memories) > 0 {
+				session.SetMemories(FormatForContext(memories))
+			}
+		}
+
+		r.mu.Lock()
 		r.agents[key] = &agentInstance{
 			config:  cfg,
 			session: session,
 		}
+		r.mu.Unlock()
 	}
 	return nil
 }
@@ -312,8 +344,3 @@ func (r *Runtime) handleList(msg ipc.Message) (ipc.Message, error) {
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: names}, nil
 }
 
-func generateShortID() string {
-	buf := make([]byte, 4)
-	rand.Read(buf)
-	return hex.EncodeToString(buf)
-}
