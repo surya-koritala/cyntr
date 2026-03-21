@@ -86,7 +86,7 @@ func (m *Manager) Health(ctx context.Context) kernel.HealthStatus {
 
 // routeInbound routes an inbound message to the appropriate agent via IPC.
 func (m *Manager) routeInbound(msg InboundMessage) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*1e9) // 30 seconds
+	ctx, cancel := context.WithTimeout(context.Background(), 300*1e9) // 5 minutes — agent may run multiple tool calls
 	defer cancel()
 
 	resp, err := m.bus.Request(ctx, ipc.Message{
