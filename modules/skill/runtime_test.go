@@ -55,8 +55,15 @@ func TestRuntimeInstallAndListViaIPC(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected []string, got %T", resp.Payload)
 	}
-	if len(names) != 1 || names[0] != "test-skill" {
-		t.Fatalf("expected [test-skill], got %v", names)
+	found := false
+	for _, n := range names {
+		if n == "test-skill" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected test-skill in list, got %v", names)
 	}
 }
 
@@ -131,13 +138,15 @@ func TestRuntimeUninstallViaIPC(t *testing.T) {
 		t.Fatalf("expected ok, got %v", resp.Payload)
 	}
 
-	// Verify removed
+	// Verify removed — test-skill should no longer appear (catalog skills remain)
 	resp, _ = bus.Request(reqCtx, ipc.Message{
 		Source: "cli", Target: "skill_runtime", Topic: "skill.list",
 	})
 	names := resp.Payload.([]string)
-	if len(names) != 0 {
-		t.Fatalf("expected 0 skills, got %d", len(names))
+	for _, n := range names {
+		if n == "test-skill" {
+			t.Fatalf("test-skill should have been uninstalled, but still in list: %v", names)
+		}
 	}
 }
 
