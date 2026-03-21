@@ -1466,10 +1466,27 @@ function onPageEnter(page) {
 
 /* ─────────────── Helpers ─────────────── */
 
-async function apiFetch(path, opts) {
+async function apiFetch(path, opts = {}) {
+  const key = localStorage.getItem('cyntr_api_key') || '';
+  if (key) {
+    if (!opts.headers) opts.headers = {};
+    opts.headers['Authorization'] = 'Bearer ' + key;
+  }
   const r = await fetch(path, opts);
+  if (r.status === 401) {
+    showApiKeyPrompt();
+    return { ok: false, status: 401, data: null, raw: {} };
+  }
   const j = await r.json().catch(() => ({}));
   return { ok: r.ok, status: r.status, data: j.data ?? j, raw: j };
+}
+
+function showApiKeyPrompt() {
+  const key = prompt('Enter your Cyntr API key (from .env file, CYNTR_API_KEY):');
+  if (key && key.trim()) {
+    localStorage.setItem('cyntr_api_key', key.trim());
+    location.reload();
+  }
 }
 
 function fmtTime(ts) {

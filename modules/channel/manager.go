@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/cyntr-dev/cyntr/kernel"
@@ -47,6 +48,9 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.bus.Handle("channel", "channel.list", m.handleList)
 	m.bus.Handle("channel", "channel.details", m.handleDetails)
 
+	// Subscribe to progress events from agent runtime
+	m.bus.Subscribe("channel", "agent.progress", m.handleProgress)
+
 	// Start all adapters with the routing handler
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -86,6 +90,21 @@ func (m *Manager) Health(ctx context.Context) kernel.HealthStatus {
 
 // routeInbound routes an inbound message to the appropriate agent via IPC.
 func (m *Manager) routeInbound(msg InboundMessage) (string, error) {
+	// Check for session control commands
+	cleaned := strings.TrimSpace(strings.ToLower(msg.Text))
+	if cleaned == "clear" || cleaned == "reset" || cleaned == "new conversation" || cleaned == "/clear" || cleaned == "/reset" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*1e9)
+		defer cancel()
+		_, err := m.bus.Request(ctx, ipc.Message{
+			Source: "channel", Target: "agent_runtime", Topic: "agent.session.clear",
+			Payload: map[string]string{"tenant": msg.Tenant, "name": msg.Agent},
+		})
+		if err != nil {
+			return "Failed to clear session: " + err.Error(), nil
+		}
+		return "Session cleared. Starting fresh conversation.", nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 300*1e9) // 5 minutes — agent may run multiple tool calls
 	defer cancel()
 
@@ -94,10 +113,12 @@ func (m *Manager) routeInbound(msg InboundMessage) (string, error) {
 		Target: "agent_runtime",
 		Topic:  "agent.chat",
 		Payload: agent.ChatRequest{
-			Agent:   msg.Agent,
-			Tenant:  msg.Tenant,
-			User:    msg.UserID,
-			Message: msg.Text,
+			Agent:     msg.Agent,
+			Tenant:    msg.Tenant,
+			User:      msg.UserID,
+			Message:   msg.Text,
+			Channel:   msg.Channel,
+			ChannelID: msg.ChannelID,
 		},
 	})
 	if err != nil {
@@ -109,7 +130,7 @@ func (m *Manager) routeInbound(msg InboundMessage) (string, error) {
 		return "", fmt.Errorf("unexpected response type: %T", resp.Payload)
 	}
 
-	return chatResp.Content, nil
+	return agent.MaskSecrets(chatResp.Content), nil
 }
 
 func (m *Manager) handleSend(msg ipc.Message) (ipc.Message, error) {
@@ -154,4 +175,29 @@ func (m *Manager) handleList(msg ipc.Message) (ipc.Message, error) {
 	sort.Strings(names)
 
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: names}, nil
+}
+
+func (m *Manager) handleProgress(msg ipc.Message) (ipc.Message, error) {
+	evt, ok := msg.Payload.(agent.ProgressEvent)
+	if !ok {
+		return ipc.Message{}, nil
+	}
+	if evt.Channel == "" || evt.ChannelID == "" {
+		return ipc.Message{}, nil
+	}
+
+	m.mu.RLock()
+	adapter, ok := m.adapters[evt.Channel]
+	m.mu.RUnlock()
+
+	if !ok {
+		return ipc.Message{}, nil
+	}
+
+	adapter.Send(context.Background(), OutboundMessage{
+		Channel:   evt.Channel,
+		ChannelID: evt.ChannelID,
+		Text:      evt.Message,
+	})
+	return ipc.Message{}, nil
 }

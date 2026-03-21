@@ -389,8 +389,17 @@ func runStart() {
 	apiServer.SetTenantManager(tenantMgr)
 	dashboard := web.NewDashboardHandler()
 
+	// Wrap API with auth if API key is configured
+	var apiHandler http.Handler = apiServer
+	if apiKey := os.Getenv("CYNTR_API_KEY"); apiKey != "" {
+		apiHandler = webapi.NewAuthMiddleware(webapi.AuthConfig{
+			Enabled: true,
+			APIKeys: map[string]string{apiKey: "default"},
+		}).Wrap(apiServer)
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/api/", apiServer)
+	mux.Handle("/api/", apiHandler)
 	mux.Handle("/", dashboard)
 
 	webAddr := cfg.Listen.WebUI

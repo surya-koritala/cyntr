@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	crand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -246,6 +248,12 @@ func runInit() {
 
 	shellPolicy := prompt(scanner, "  Choose", "2")
 
+	// Generate API key for dashboard/API access
+	keyBuf := make([]byte, 32)
+	crand.Read(keyBuf)
+	apiKey := "cyntr_" + hex.EncodeToString(keyBuf)
+	envLines = append(envLines, "CYNTR_API_KEY="+apiKey)
+
 	// Generate files
 	fmt.Println()
 	fmt.Println("  Generating configuration...")
@@ -455,6 +463,8 @@ GCP:
 	fmt.Println("  │     cyntr start                       │")
 	fmt.Println("  │                                       │")
 	fmt.Printf("  │   Dashboard: http://localhost:%-8s│\n", dashboardPort)
+	fmt.Println("  │                                       │")
+	fmt.Printf("  │   API Key: %.28s...  │\n", apiKey)
 	fmt.Println("  │                                       │")
 	fmt.Println("  └───────────────────────────────────────┘")
 

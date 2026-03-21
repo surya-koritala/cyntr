@@ -72,28 +72,30 @@ func (a *Adapter) Stop(ctx context.Context) error {
 }
 
 func (a *Adapter) Send(ctx context.Context, msg channel.OutboundMessage) error {
-	payload := map[string]string{
-		"channel": msg.ChannelID,
-		"text":    msg.Text,
-	}
-	body, _ := json.Marshal(payload)
+	chunks := chunkMessage(msg.Text, 3900)
+	for _, chunk := range chunks {
+		payload := map[string]string{
+			"channel": msg.ChannelID,
+			"text":    chunk,
+		}
+		body, _ := json.Marshal(payload)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", a.slackAPI+"/chat.postMessage", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+a.botToken)
+		req, err := http.NewRequestWithContext(ctx, "POST", a.slackAPI+"/chat.postMessage", bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+a.botToken)
 
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("slack send: %w", err)
-	}
-	defer resp.Body.Close()
+		resp, err := a.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("slack send: %w", err)
+		}
+		resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("slack API error %d: %s", resp.StatusCode, string(b))
+		if resp.StatusCode != 200 {
+			return fmt.Errorf("slack API error %d", resp.StatusCode)
+		}
 	}
 	return nil
 }

@@ -54,6 +54,16 @@ func (s *Session) AddMessage(msg Message) {
 	}
 }
 
+// ClearHistory resets the conversation history and removes persisted messages.
+func (s *Session) ClearHistory() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.history = nil
+	if s.store != nil {
+		s.store.ClearMessages(s.id)
+	}
+}
+
 // History returns a copy of the conversation history.
 func (s *Session) History() []Message {
 	s.mu.RLock()

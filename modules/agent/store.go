@@ -102,6 +102,14 @@ func (s *SessionStore) AppendMessage(sessionID string, msg Message) error {
 	return err
 }
 
+// ClearMessages removes all messages for a session.
+func (s *SessionStore) ClearMessages(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec("DELETE FROM messages WHERE session_id = ?", sessionID)
+	return err
+}
+
 // LoadSession returns the config and message history for a session.
 func (s *SessionStore) LoadSession(id string) (AgentConfig, []Message, error) {
 	s.mu.Lock()

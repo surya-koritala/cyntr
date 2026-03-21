@@ -69,12 +69,25 @@ type AgentConfig struct {
 	Secrets      map[string]string `yaml:"secrets" json:"secrets"`             // per-agent env vars / credentials
 }
 
+// ProgressEvent is published during tool execution to inform channels of agent activity.
+type ProgressEvent struct {
+	Agent     string `json:"agent"`
+	Tenant    string `json:"tenant"`
+	Channel   string `json:"channel"`    // adapter name: "slack", "teams"
+	ChannelID string `json:"channel_id"` // platform channel ID
+	ToolName  string `json:"tool_name"`
+	Status    string `json:"status"`  // "running", "complete", "error"
+	Message   string `json:"message"`
+}
+
 // ChatRequest is the IPC payload for agent.chat requests.
 type ChatRequest struct {
-	Agent   string // agent name
-	Tenant  string // tenant name
-	User    string // user making the request
-	Message string // user's message
+	Agent     string // agent name
+	Tenant    string // tenant name
+	User      string // user making the request
+	Message   string // user's message
+	Channel   string // channel adapter name (for progress routing)
+	ChannelID string // channel-specific ID (for progress routing)
 }
 
 // ChatResponse is the IPC payload for agent.chat responses.

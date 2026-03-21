@@ -88,6 +88,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("agent_runtime", "agent.session.messages", r.handleSessionMessages)
 	r.bus.Handle("agent_runtime", "agent.memories", r.handleMemories)
 	r.bus.Handle("agent_runtime", "agent.memory.delete", r.handleMemoryDelete)
+	r.bus.Handle("agent_runtime", "agent.session.clear", r.handleSessionClear)
 	return r.LoadSavedAgents()
 }
 
@@ -276,7 +277,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				Type: ipc.MessageTypeResponse,
 				Payload: ChatResponse{
 					Agent:     req.Agent,
-					Content:   response.Content,
+					Content:   MaskSecrets(response.Content),
 					ToolsUsed: toolsUsed,
 				},
 			}, nil
@@ -301,6 +302,23 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				})
 				toolsUsed = append(toolsUsed, tc.Name+"(pending)")
 				continue
+			}
+
+			// Publish progress event so the originating channel can show activity
+			if req.Channel != "" && req.ChannelID != "" {
+				r.bus.Publish(ipc.Message{
+					Source: "agent_runtime",
+					Topic:  "agent.progress",
+					Payload: ProgressEvent{
+						Agent:     req.Agent,
+						Tenant:    req.Tenant,
+						Channel:   req.Channel,
+						ChannelID: req.ChannelID,
+						ToolName:  tc.Name,
+						Status:    "running",
+						Message:   fmt.Sprintf("_Running `%s`..._", tc.Name),
+					},
+				})
 			}
 
 			// Execute the tool
@@ -485,6 +503,26 @@ func (r *Runtime) handleMemories(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: memories}, nil
+}
+
+func (r *Runtime) handleSessionClear(msg ipc.Message) (ipc.Message, error) {
+	params, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	tenant, name := params["tenant"], params["name"]
+	key := tenant + "/" + name
+
+	r.mu.RLock()
+	inst, exists := r.agents[key]
+	r.mu.RUnlock()
+
+	if !exists {
+		return ipc.Message{}, fmt.Errorf("agent %q not found in tenant %q", name, tenant)
+	}
+
+	inst.session.ClearHistory()
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "cleared"}, nil
 }
 
 func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {
