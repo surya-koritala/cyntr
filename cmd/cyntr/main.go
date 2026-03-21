@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/cyntr-dev/cyntr/kernel"
+	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 	agentproviders "github.com/cyntr-dev/cyntr/modules/agent/providers"
 	agenttools "github.com/cyntr-dev/cyntr/modules/agent/tools"
@@ -77,6 +78,8 @@ func runStart() {
 		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
 		os.Exit(1)
 	}
+
+	log.Info("config loaded", map[string]any{"path": cfgPath})
 
 	cfg := k.Config().Get()
 
@@ -155,6 +158,8 @@ func runStart() {
 		agentRuntime.RegisterProvider(agentproviders.NewOllama(ollamaModel, ollamaURL))
 		fmt.Printf("registered Ollama provider (model: %s)\n", ollamaModel)
 	}
+
+	log.Info("providers registered", map[string]any{"count": len(agentRuntime.Providers())})
 
 	channelMgr := channel.NewManager()
 
@@ -318,6 +323,8 @@ func runStart() {
 		fmt.Fprintf(os.Stderr, "start error: %v\n", err)
 		os.Exit(1)
 	}
+
+	log.Info("kernel started", map[string]any{"modules": len(k.Modules())})
 
 	// Start API + Dashboard server
 	apiServer := webapi.NewServer(k.Bus(), k)
