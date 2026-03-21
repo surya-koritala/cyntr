@@ -133,6 +133,11 @@ func runStart() {
 	toolReg.Register(agenttools.NewDatabaseTool())
 	toolReg.Register(agenttools.NewImageGenTool())
 	toolReg.Register(agenttools.NewChromiumTool())
+	toolReg.Register(agenttools.NewSendMessageTool(k.Bus()))
+	toolReg.Register(agenttools.NewKubectlTool())
+	toolReg.Register(agenttools.NewJSONQueryTool())
+	toolReg.Register(agenttools.NewCSVQueryTool())
+	toolReg.Register(agenttools.NewSendNotificationTool())
 
 	// Load custom YAML tools from tools/ directory
 	yamlTools, err := agenttools.LoadToolsFromDir("tools")
