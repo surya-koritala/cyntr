@@ -249,9 +249,14 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	inst.session.AddMessage(Message{Role: RoleUser, Content: req.Message})
 
 	// Get tool definitions for this agent
+	// If tools list contains "*", give access to ALL registered tools
 	var toolDefs []ToolDef
 	if r.toolReg != nil && len(inst.config.Tools) > 0 {
-		toolDefs = r.toolReg.ToolDefs(inst.config.Tools)
+		if len(inst.config.Tools) == 1 && inst.config.Tools[0] == "*" {
+			toolDefs = r.toolReg.ToolDefs(r.toolReg.List())
+		} else {
+			toolDefs = r.toolReg.ToolDefs(inst.config.Tools)
+		}
 	}
 
 	var toolsUsed []string
