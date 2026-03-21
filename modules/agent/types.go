@@ -65,8 +65,10 @@ type AgentConfig struct {
 	Model        string            `yaml:"model" json:"model"`                 // provider name: "claude", "gpt", "mock"
 	SystemPrompt string            `yaml:"system_prompt" json:"system_prompt"`
 	Tools        []string          `yaml:"tools" json:"tools"`                 // allowed tool names
-	MaxTurns     int               `yaml:"max_turns" json:"max_turns"`         // max tool-use turns per request (default 10)
-	Secrets      map[string]string `yaml:"secrets" json:"secrets"`             // per-agent env vars / credentials
+	MaxTurns            int               `yaml:"max_turns" json:"max_turns"`                         // max tool-use turns per request (default 10)
+	MaxHistory          int               `yaml:"max_history" json:"max_history"`                     // sliding window: max messages to keep in history (0 = unlimited)
+	SummarizeThreshold  int               `yaml:"summarize_threshold" json:"summarize_threshold"`     // auto-compact history when exceeding this count (0 = disabled)
+	Secrets             map[string]string `yaml:"secrets" json:"secrets"`                             // per-agent env vars / credentials
 }
 
 // ProgressEvent is published during tool execution to inform channels of agent activity.

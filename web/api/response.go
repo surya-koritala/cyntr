@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -59,4 +60,15 @@ func newMeta() Meta {
 		RequestID: hex.EncodeToString(buf),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+// traceID extracts a trace ID from the incoming request's X-Request-ID header.
+// If the header is absent, it generates one from the current nanosecond timestamp.
+// This value is propagated through the IPC bus so that every message in the
+// request chain can be correlated back to the originating HTTP request.
+func traceID(r *http.Request) string {
+	if id := r.Header.Get("X-Request-ID"); id != "" {
+		return id
+	}
+	return fmt.Sprintf("%x", time.Now().UnixNano())
 }

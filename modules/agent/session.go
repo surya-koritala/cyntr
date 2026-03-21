@@ -1,6 +1,11 @@
 package agent
 
-import "sync"
+import (
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+)
 
 // Session manages conversation history and context for a single agent interaction.
 type Session struct {
@@ -10,6 +15,7 @@ type Session struct {
 	history  []Message
 	store    *SessionStore
 	memories string
+	lastUser string
 }
 
 // SetStore attaches a SessionStore to the session for persistence.
@@ -49,6 +55,9 @@ func (s *Session) AddMessage(msg Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.history = append(s.history, msg)
+	if s.config.MaxHistory > 0 && len(s.history) > s.config.MaxHistory {
+		s.history = s.history[len(s.history)-s.config.MaxHistory:]
+	}
 	if s.store != nil {
 		s.store.AppendMessage(s.id, msg)
 	}
@@ -91,6 +100,7 @@ func (s *Session) AssembleContext() []Message {
 	}
 
 	if systemContent != "" {
+		systemContent = expandTemplateVars(systemContent, s.lastUser, s.config.Tenant, s.config.Name)
 		ctx = append(ctx, Message{
 			Role:    RoleSystem,
 			Content: systemContent,
@@ -99,4 +109,41 @@ func (s *Session) AssembleContext() []Message {
 
 	ctx = append(ctx, s.history...)
 	return ctx
+}
+
+// SetLastUser records the most recent user identity for template expansion.
+func (s *Session) SetLastUser(user string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastUser = user
+}
+
+// CompactHistory replaces older messages with a condensed summary placeholder,
+// keeping the last keepRecent messages.
+func (s *Session) CompactHistory(keepRecent int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.history) <= keepRecent {
+		return
+	}
+	// Keep first message (usually system) and last keepRecent messages
+	var compacted []Message
+	compacted = append(compacted, Message{
+		Role:    RoleSystem,
+		Content: fmt.Sprintf("[Earlier conversation: %d messages compacted]", len(s.history)-keepRecent),
+	})
+	compacted = append(compacted, s.history[len(s.history)-keepRecent:]...)
+	s.history = compacted
+}
+
+// expandTemplateVars replaces template placeholders in text with runtime values.
+func expandTemplateVars(text, user, tenant, agentName string) string {
+	now := time.Now()
+	text = strings.ReplaceAll(text, "{{user}}", user)
+	text = strings.ReplaceAll(text, "{{date}}", now.Format("2006-01-02"))
+	text = strings.ReplaceAll(text, "{{time}}", now.Format("15:04:05"))
+	text = strings.ReplaceAll(text, "{{datetime}}", now.Format("2006-01-02 15:04:05"))
+	text = strings.ReplaceAll(text, "{{tenant}}", tenant)
+	text = strings.ReplaceAll(text, "{{agent}}", agentName)
+	return text
 }

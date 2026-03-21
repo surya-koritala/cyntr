@@ -254,8 +254,16 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		}
 	}
 
+	// Set last user for template expansion
+	inst.session.SetLastUser(req.User)
+
 	// Add user message to session
 	inst.session.AddMessage(Message{Role: RoleUser, Content: req.Message})
+
+	// Auto-compact history if it exceeds the summarize threshold
+	if inst.config.SummarizeThreshold > 0 && len(inst.session.History()) > inst.config.SummarizeThreshold {
+		inst.session.CompactHistory(inst.config.SummarizeThreshold / 2)
+	}
 
 	// Get tool definitions for this agent
 	// If tools list contains "*", give access to ALL registered tools
@@ -272,6 +280,13 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 
 	// Agentic loop: call model, execute tools, repeat until no more tool calls
 	for turn := 0; turn < inst.config.MaxTurns; turn++ {
+		if inst.config.MaxTurns > 3 && turn == inst.config.MaxTurns-2 {
+			inst.session.AddMessage(Message{
+				Role:    RoleSystem,
+				Content: "IMPORTANT: You have 2 tool-use turns remaining. Please wrap up your response and provide a final answer.",
+			})
+		}
+
 		response, err := provider.Chat(context.Background(), inst.session.AssembleContext(), toolDefs)
 		if err != nil {
 			return ipc.Message{}, fmt.Errorf("model call failed: %w", err)
@@ -369,7 +384,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 			} else {
 				var execErr error
 				toolStart := time.Now()
-				result, execErr = r.toolReg.Execute(context.Background(), tc.Name, tc.Input)
+				result, execErr = r.executeToolWithRetry(context.Background(), tc.Name, tc.Input)
 				toolDuration := time.Since(toolStart)
 				if toolDuration > 2*time.Second {
 					logger.Warn("slow tool execution", map[string]any{
@@ -615,6 +630,28 @@ func (r *Runtime) publishActivity(agent, tenant, eventType, detail string) {
 			Detail:    detail,
 		},
 	})
+}
+
+// executeToolWithRetry wraps tool execution with exponential backoff retry logic.
+// It retries up to maxRetries times on failure, with exponentially increasing delays.
+func (r *Runtime) executeToolWithRetry(ctx context.Context, toolName string, input map[string]string) (string, error) {
+	maxRetries := 3
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		result, err := r.toolReg.Execute(ctx, toolName, input)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if attempt < maxRetries {
+			backoff := time.Duration(1<<uint(attempt)) * 100 * time.Millisecond
+			logger.Warn("tool execution failed, retrying", map[string]any{
+				"tool": toolName, "attempt": attempt + 1, "backoff_ms": backoff.Milliseconds(), "error": err.Error(),
+			})
+			time.Sleep(backoff)
+		}
+	}
+	return "", lastErr
 }
 
 func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {

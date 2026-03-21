@@ -91,6 +91,7 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 			Tenant:  tid,
 			Message: body.Message,
 		},
+		TraceID: traceID(r),
 	})
 	if err != nil {
 		RespondError(w, 500, "CHAT_FAILED", err.Error())
@@ -274,6 +275,7 @@ func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 			Tenant:  tid,
 			Message: message,
 		},
+		TraceID: traceID(r),
 	})
 	if err != nil {
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())

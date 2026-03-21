@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"sync"
+	"time"
 )
 
 const defaultBufferSize = 1024
@@ -73,6 +75,7 @@ func (b *Bus) Handle(module, topic string, h Handler) {
 				resp.ID = req.msg.ID
 				resp.Source = req.msg.Target
 				resp.Target = req.msg.Source
+				resp.TraceID = req.msg.TraceID // propagate trace ID
 				req.replyCh <- replyEnvelope{msg: resp}
 			}
 		}
@@ -101,6 +104,9 @@ func (b *Bus) Request(ctx context.Context, msg Message) (Message, error) {
 
 	if msg.ID == "" {
 		msg.ID = generateID()
+	}
+	if msg.TraceID == "" {
+		msg.TraceID = fmt.Sprintf("%x", time.Now().UnixNano())
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		msg.Deadline = deadline
