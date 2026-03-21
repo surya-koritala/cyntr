@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"sync"
 	"time"
@@ -111,6 +112,11 @@ func (s *Scheduler) checkAndRun(now time.Time) {
 			continue
 		}
 
+		// Check dependencies before running
+		if !s.checkDependencies(job) {
+			continue
+		}
+
 		// Run the job
 		go s.executeJob(job)
 
@@ -160,6 +166,28 @@ func (s *Scheduler) executeJob(job *Job) {
 		return
 	}
 
+	// Check condition
+	if job.Condition != nil {
+		switch job.Condition.Type {
+		case "output_changed":
+			s.mu.RLock()
+			prevRuns := s.history[job.ID]
+			s.mu.RUnlock()
+			if len(prevRuns) > 0 && prevRuns[len(prevRuns)-1].Output == chatResp.Content {
+				logger.Info("job condition not met: output unchanged", map[string]any{"job_id": job.ID})
+				return
+			}
+		case "output_matches":
+			if job.Condition.Pattern != "" {
+				matched, _ := regexp.MatchString(job.Condition.Pattern, chatResp.Content)
+				if !matched {
+					logger.Info("job condition not met: pattern not matched", map[string]any{"job_id": job.ID})
+					return
+				}
+			}
+		}
+	}
+
 	// Record success
 	s.recordJobRun(job.ID, JobRun{
 		ID: fmt.Sprintf("jr_%d", time.Now().UnixNano()),
@@ -181,6 +209,23 @@ func (s *Scheduler) executeJob(job *Job) {
 			logger.Warn("job delivery failed", map[string]any{"job_id": job.ID, "channel": job.DestChannel, "error": err.Error()})
 		}
 	}
+}
+
+func (s *Scheduler) checkDependencies(job *Job) bool {
+	if len(job.DependsOn) == 0 {
+		return true
+	}
+	for _, depID := range job.DependsOn {
+		dep, ok := s.jobs[depID]
+		if !ok || !dep.Enabled {
+			return false
+		}
+		// Check if dependency ran this cycle (LastRun is recent enough)
+		if dep.LastRun.IsZero() || dep.LastRun.Before(job.LastRun) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Scheduler) recordJobRun(jobID string, run JobRun) {

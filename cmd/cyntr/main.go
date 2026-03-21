@@ -38,7 +38,7 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "0.5.0"
+const version = "0.6.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -149,9 +149,14 @@ func runStart() {
 	if err == nil {
 		toolReg.Register(knowledgeTool)
 		webapi.SetKnowledgeTool(knowledgeTool)
+		toolReg.Register(agenttools.NewRunbookTool(knowledgeTool))
 	} else {
 		fmt.Fprintf(os.Stderr, "warning: knowledge base disabled: %v\n", err)
 	}
+
+	// AWS tools
+	toolReg.Register(agenttools.NewAWSTool())
+	toolReg.Register(agenttools.NewCostExplorerTool())
 
 	agentRuntime.SetToolRegistry(toolReg)
 
@@ -516,12 +521,18 @@ func runStart() {
 				fmt.Println("config reloaded")
 			}
 		case syscall.SIGINT, syscall.SIGTERM:
-			fmt.Printf("\nreceived %s, shutting down...\n", sig)
-			if err := k.Stop(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "stop error: %v\n", err)
+			log.Info("shutdown initiated", map[string]any{"signal": sig.String()})
+
+			// Create shutdown context with 30s deadline
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer shutdownCancel()
+
+			// Stop kernel (stops all modules in reverse order)
+			if err := k.Stop(shutdownCtx); err != nil {
+				log.Error("shutdown error", map[string]any{"error": err.Error()})
 				os.Exit(1)
 			}
-			fmt.Println("cyntr stopped")
+			log.Info("cyntr stopped gracefully", nil)
 			return
 		}
 	}

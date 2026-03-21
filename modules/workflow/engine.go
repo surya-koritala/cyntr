@@ -24,6 +24,7 @@ type Engine struct {
 	workflows     map[string]*Workflow    // workflow ID -> definition
 	runs          map[string]*Run         // run ID -> execution state
 	waitingInputs map[string]chan string   // run_id -> input channel
+	triggers      []Trigger
 	counter       int64
 }
 
@@ -51,6 +52,8 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.bus.Handle("workflow", "workflow.list_runs", e.handleListRuns)
 	e.bus.Handle("workflow", "workflow.get", e.handleGet)
 	e.bus.Handle("workflow", "workflow.submit_input", e.handleSubmitInput)
+	e.bus.Handle("workflow", "workflow.trigger.add", e.handleTriggerAdd)
+	e.bus.Handle("workflow", "workflow.trigger.list", e.handleTriggerList)
 	return nil
 }
 
@@ -574,6 +577,29 @@ func (e *Engine) handleSubmitInput(msg ipc.Message) (ipc.Message, error) {
 
 	ch <- input
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "submitted"}, nil
+}
+
+func (e *Engine) handleTriggerAdd(msg ipc.Message) (ipc.Message, error) {
+	trigger, ok := msg.Payload.(Trigger)
+	if !ok {
+		// Try map
+		if m, ok := msg.Payload.(map[string]string); ok {
+			trigger = Trigger{Type: m["type"], Pattern: m["pattern"], WorkflowID: m["workflow_id"]}
+		} else {
+			return ipc.Message{}, fmt.Errorf("expected Trigger, got %T", msg.Payload)
+		}
+	}
+	e.mu.Lock()
+	e.triggers = append(e.triggers, trigger)
+	e.mu.Unlock()
+	logger.Info("workflow trigger added", map[string]any{"type": trigger.Type, "pattern": trigger.Pattern, "workflow_id": trigger.WorkflowID})
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "added"}, nil
+}
+
+func (e *Engine) handleTriggerList(msg ipc.Message) (ipc.Message, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: e.triggers}, nil
 }
 
 func (e *Engine) failRun(run *Run, errMsg string) {

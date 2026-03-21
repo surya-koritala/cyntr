@@ -75,3 +75,10 @@ type StepResult struct {
 	Duration  time.Duration
 	Timestamp time.Time
 }
+
+// Trigger defines an event that can automatically start a workflow.
+type Trigger struct {
+	Type       string `json:"type"`        // "audit_event", "channel_message", "schedule"
+	Pattern    string `json:"pattern"`     // regex pattern to match
+	WorkflowID string `json:"workflow_id"`
+}
