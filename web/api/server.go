@@ -71,6 +71,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/v1/skills/import/openclaw", s.handleSkillImportOpenClaw)
 	s.mux.HandleFunc("GET /api/v1/skills/marketplace/search", s.handleSkillMarketplaceSearch)
 	s.mux.HandleFunc("GET /api/v1/skills/marketplace", s.handleSkillMarketplaceSearch)
+	s.mux.HandleFunc("POST /api/v1/skills/marketplace/install", s.handleSkillMarketplaceInstall)
 	s.mux.HandleFunc("DELETE /api/v1/skills/{name}", s.handleSkillUninstall)
 
 	// Audit

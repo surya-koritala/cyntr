@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/modules/skill"
 )
 
 func (s *Server) handleSkillList(w http.ResponseWriter, r *http.Request) {
@@ -67,11 +68,78 @@ func (s *Server) handleSkillUninstall(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSkillMarketplaceSearch(w http.ResponseWriter, r *http.Request) {
-	// Marketplace is not yet deployed — return placeholder
-	Respond(w, 200, map[string]any{
-		"message": "Skill marketplace coming soon. Visit https://github.com/surya-koritala/cyntr for available skills.",
-		"results": []any{},
+	query := r.URL.Query().Get("q")
+
+	// Built-in results (always available, instant)
+	builtinResults := skill.SearchBuiltinCatalog(query)
+
+	// GitHub results (best-effort, don't fail if network unavailable)
+	var githubResults []skill.MarketplaceEntry
+	searcher := skill.NewGitHubSearcher()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if results, err := searcher.Search(ctx, query); err == nil {
+		githubResults = results
+	}
+
+	// Merge: built-in first, then GitHub (deduplicate by name)
+	seen := make(map[string]bool)
+	var merged []skill.MarketplaceEntry
+	for _, entry := range builtinResults {
+		entry.Source = "builtin"
+		merged = append(merged, entry)
+		seen[entry.Name] = true
+	}
+	for _, entry := range githubResults {
+		if !seen[entry.Name] {
+			entry.Source = "github"
+			merged = append(merged, entry)
+			seen[entry.Name] = true
+		}
+	}
+
+	Respond(w, 200, merged)
+}
+
+func (s *Server) handleSkillMarketplaceInstall(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name        string `json:"name"`
+		DownloadURL string `json:"download_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON")
+		return
+	}
+	if body.DownloadURL == "" {
+		RespondError(w, 400, "MISSING_URL", "download_url is required")
+		return
+	}
+
+	// Download the skill
+	marketplace := skill.NewMarketplace("")
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	entry := skill.MarketplaceEntry{Name: body.Name, DownloadURL: body.DownloadURL}
+	skillDir, err := marketplace.Download(ctx, entry, "skills")
+	if err != nil {
+		RespondError(w, 500, "DOWNLOAD_FAILED", err.Error())
+		return
+	}
+
+	// Install via IPC
+	installCtx, installCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer installCancel()
+	_, err = s.bus.Request(installCtx, ipc.Message{
+		Source: "api", Target: "skill_runtime", Topic: "skill.install",
+		Payload: skillDir,
 	})
+	if err != nil {
+		RespondError(w, 500, "INSTALL_FAILED", err.Error())
+		return
+	}
+
+	Respond(w, 201, map[string]string{"status": "installed", "name": body.Name, "source": skillDir})
 }
 
 func (s *Server) handleSkillImportOpenClaw(w http.ResponseWriter, r *http.Request) {

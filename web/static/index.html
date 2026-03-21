@@ -1593,7 +1593,7 @@ function onPageEnter(page) {
   if (page === 'agents')     loadAgentsPage();
   if (page === 'audit')      loadAudit();
   if (page === 'federation') loadPeers();
-  if (page === 'skills')     loadSkills();
+  if (page === 'skills')     { loadSkills(); loadMarketplaceCatalog(); }
   if (page === 'workflows')  { loadWorkflows(); loadWorkflowRuns(); }
   if (page === 'scheduler')  loadSchedules();
   if (page === 'approvals')  loadApprovals();
@@ -2340,7 +2340,7 @@ async function searchMarketplace() {
   const query = document.getElementById('skill-search').value.trim();
   const container = document.getElementById('marketplace-results');
 
-  if (!query) { container.innerHTML = ''; return; }
+  if (!query) { loadMarketplaceCatalog(); return; }
 
   container.innerHTML = '<div class="empty-state"><span class="spinner"></span> Searching...</div>';
 
@@ -2351,14 +2351,51 @@ async function searchMarketplace() {
       container.innerHTML = '<div class="empty-state">No skills found for "' + esc(query) + '".</div>';
       return;
     }
-    container.innerHTML = '<table><thead><tr><th>Name</th><th>Description</th><th>Author</th></tr></thead><tbody>' +
-      results.map(s => `<tr>
-        <td>${esc(s.name || '-')}</td>
-        <td>${esc(s.description || '-')}</td>
-        <td class="mono">${esc(s.author || '-')}</td>
-      </tr>`).join('') + '</tbody></table>';
+    renderMarketplaceResults(container, results);
   } catch {
     container.innerHTML = '<div class="empty-state">Search failed.</div>';
+  }
+}
+
+function renderMarketplaceResults(container, results) {
+  container.innerHTML = '<table><thead><tr><th>Name</th><th>Description</th><th>Author</th><th>Source</th><th>Actions</th></tr></thead><tbody>' +
+    results.map(s => `<tr>
+      <td>${esc(s.name || '-')}</td>
+      <td>${esc(s.description || '-')}</td>
+      <td class="mono">${esc(s.author || '-')}</td>
+      <td><span class="badge ${s.source === 'builtin' ? 'badge-ok' : 'badge-info'}">${esc(s.source || 'marketplace')}</span></td>
+      <td><button class="btn btn-sm btn-primary" onclick="installFromMarketplace('${esc(s.name)}','${esc(s.download_url || '')}')">Install</button></td>
+    </tr>`).join('') + '</tbody></table>';
+}
+
+async function installFromMarketplace(name, downloadUrl) {
+  if (!downloadUrl) { alert('No download URL available'); return; }
+  const res = await apiFetch('/api/v1/skills/marketplace/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, download_url: downloadUrl }),
+  });
+  if (res.ok) {
+    alert('Skill "' + name + '" installed!');
+    loadSkills();
+  } else {
+    alert('Install failed: ' + (res.raw?.error?.message || 'unknown error'));
+  }
+}
+
+async function loadMarketplaceCatalog() {
+  const container = document.getElementById('marketplace-results');
+  if (!container) return;
+  try {
+    const res = await apiFetch('/api/v1/skills/marketplace/search?q=');
+    const results = Array.isArray(res.data) ? res.data : [];
+    if (!results.length) {
+      container.innerHTML = '<div class="empty-state">No skills available.</div>';
+      return;
+    }
+    renderMarketplaceResults(container, results);
+  } catch {
+    container.innerHTML = '<div class="empty-state">Could not load marketplace catalog.</div>';
   }
 }
 

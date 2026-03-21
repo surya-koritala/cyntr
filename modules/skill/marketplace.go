@@ -19,6 +19,7 @@ type MarketplaceEntry struct {
 	Description string `json:"description"`
 	DownloadURL string `json:"download_url"`
 	Downloads   int    `json:"downloads"`
+	Source      string `json:"source,omitempty"` // "builtin", "github", or ""
 }
 
 // Marketplace is a client for a remote skill registry.
