@@ -23,7 +23,7 @@ func TestSchedulerAddAndListJobs(t *testing.T) {
 		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: agent.ChatResponse{Content: "done"}}, nil
 	})
 
-	s := New()
+	s := New("")
 	ctx := context.Background()
 	s.Init(ctx, &kernel.Services{Bus: bus})
 	s.Start(ctx)
@@ -52,7 +52,7 @@ func TestSchedulerAddAndListJobs(t *testing.T) {
 func TestSchedulerRemoveJob(t *testing.T) {
 	bus := ipc.NewBus()
 	defer bus.Close()
-	s := New()
+	s := New("")
 	ctx := context.Background()
 	s.Init(ctx, &kernel.Services{Bus: bus})
 	s.Start(ctx)
@@ -90,7 +90,7 @@ func TestSchedulerExecutesJob(t *testing.T) {
 		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: agent.ChatResponse{Content: "ok"}}, nil
 	})
 
-	s := New()
+	s := New("")
 	ctx := context.Background()
 	s.Init(ctx, &kernel.Services{Bus: bus})
 	s.Start(ctx)
@@ -118,7 +118,7 @@ func TestSchedulerExecutesJob(t *testing.T) {
 func TestSchedulerHealthy(t *testing.T) {
 	bus := ipc.NewBus()
 	defer bus.Close()
-	s := New()
+	s := New("")
 	ctx := context.Background()
 	s.Init(ctx, &kernel.Services{Bus: bus})
 	s.Start(ctx)
@@ -132,7 +132,7 @@ func TestSchedulerHealthy(t *testing.T) {
 func TestSchedulerStopClean(t *testing.T) {
 	bus := ipc.NewBus()
 	defer bus.Close()
-	s := New()
+	s := New("")
 	ctx := context.Background()
 	s.Init(ctx, &kernel.Services{Bus: bus})
 	s.Start(ctx)

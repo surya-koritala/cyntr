@@ -6,12 +6,15 @@ import "time"
 type StepType string
 
 const (
-	StepToolCall  StepType = "tool_call"   // execute a tool
-	StepAgentChat StepType = "agent_chat"  // ask an agent
-	StepCondition StepType = "condition"   // branch based on result
-	StepApproval  StepType = "approval"    // wait for human approval
-	StepWebhook   StepType = "webhook"     // fire outbound webhook
-	StepDelay     StepType = "delay"       // wait for duration
+	StepToolCall   StepType = "tool_call"    // execute a tool
+	StepAgentChat  StepType = "agent_chat"   // ask an agent
+	StepCondition  StepType = "condition"    // branch based on result
+	StepApproval   StepType = "approval"     // wait for human approval
+	StepWebhook    StepType = "webhook"      // fire outbound webhook
+	StepDelay      StepType = "delay"        // wait for duration
+	StepParallel   StepType = "parallel"     // run sub-steps in parallel
+	StepLoop       StepType = "loop"         // iterate over items
+	StepHumanInput StepType = "human_input"  // wait for user input
 )
 
 // Step is a single action in a workflow.
@@ -24,6 +27,8 @@ type Step struct {
 	OnFailure  string            `json:"on_failure" yaml:"on_failure"`   // next step ID on failure
 	RetryCount int               `json:"retry_count" yaml:"retry_count"` // max retries (0 = no retry)
 	Timeout    time.Duration     `json:"timeout" yaml:"timeout"`
+	SubSteps   []string          `json:"sub_steps" yaml:"sub_steps"`    // for parallel step type
+	LoopOver   string            `json:"loop_over" yaml:"loop_over"`    // for loop step type: comma-separated items
 }
 
 // Workflow defines a sequence of steps.
@@ -40,11 +45,12 @@ type Workflow struct {
 type RunStatus string
 
 const (
-	RunPending   RunStatus = "pending"
-	RunRunning   RunStatus = "running"
-	RunCompleted RunStatus = "completed"
-	RunFailed    RunStatus = "failed"
-	RunWaiting   RunStatus = "waiting_approval"
+	RunPending      RunStatus = "pending"
+	RunRunning      RunStatus = "running"
+	RunCompleted    RunStatus = "completed"
+	RunFailed       RunStatus = "failed"
+	RunWaiting      RunStatus = "waiting_approval"
+	RunWaitingInput RunStatus = "waiting_input"
 )
 
 // Run is an instance of a workflow execution.

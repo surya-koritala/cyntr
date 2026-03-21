@@ -37,4 +37,5 @@ type OutboundMessage struct {
 	Channel   string // adapter name
 	ChannelID string // platform-specific channel/room ID
 	Text      string // message content
+	ThreadTS  string // optional thread timestamp (Slack thread replies)
 }

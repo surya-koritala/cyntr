@@ -252,6 +252,9 @@ func runStart() {
 			}
 			slackAdapter.SetRoutes(routes)
 		}
+		if os.Getenv("SLACK_USE_THREADS") == "true" {
+			slackAdapter.SetUseThreads(true)
+		}
 		channelMgr.AddAdapter(slackAdapter)
 		log.Info("channel adapter registered", map[string]any{"adapter": "slack", "tenant": slackTenant, "agent": slackAgent, "listen": slackAddr})
 	}
@@ -396,7 +399,7 @@ func runStart() {
 	skillRuntime := skill.NewRuntime()
 	skillRuntime.SetOpenClawLoader(compat.LoadOpenClawSkillFromFile)
 	federationMod := federation.NewModule("cyntr-local")
-	schedulerMod := scheduler.New()
+	schedulerMod := scheduler.New("scheduler_jobs.json")
 	workflowEngine := workflow.New()
 
 	k.Register(policyEngine)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,17 +19,19 @@ var logger = log.Default().WithModule("workflow")
 
 // Engine is the workflow execution kernel module.
 type Engine struct {
-	mu        sync.RWMutex
-	bus       *ipc.Bus
-	workflows map[string]*Workflow // workflow ID -> definition
-	runs      map[string]*Run      // run ID -> execution state
-	counter   int64
+	mu            sync.RWMutex
+	bus           *ipc.Bus
+	workflows     map[string]*Workflow    // workflow ID -> definition
+	runs          map[string]*Run         // run ID -> execution state
+	waitingInputs map[string]chan string   // run_id -> input channel
+	counter       int64
 }
 
 func New() *Engine {
 	return &Engine{
-		workflows: make(map[string]*Workflow),
-		runs:      make(map[string]*Run),
+		workflows:     make(map[string]*Workflow),
+		runs:          make(map[string]*Run),
+		waitingInputs: make(map[string]chan string),
 	}
 }
 
@@ -47,6 +50,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.bus.Handle("workflow", "workflow.list", e.handleList)
 	e.bus.Handle("workflow", "workflow.list_runs", e.handleListRuns)
 	e.bus.Handle("workflow", "workflow.get", e.handleGet)
+	e.bus.Handle("workflow", "workflow.submit_input", e.handleSubmitInput)
 	return nil
 }
 
@@ -285,6 +289,15 @@ func (e *Engine) executeStep(step Step, run *Run) StepResult {
 			result.Status = "failure"
 		}
 
+	case StepParallel:
+		return e.executeParallelStep(step, run)
+
+	case StepLoop:
+		return e.executeLoopStep(step, run)
+
+	case StepHumanInput:
+		return e.executeHumanInputStep(step, run)
+
 	default:
 		result.Status = "failure"
 		result.Error = fmt.Sprintf("unknown step type: %s", step.Type)
@@ -380,6 +393,187 @@ func (e *Engine) executeWebhook(ctx context.Context, step Step) (string, error) 
 		return respBody.String(), fmt.Errorf("webhook returned %d", resp.StatusCode)
 	}
 	return respBody.String(), nil
+}
+
+func (e *Engine) executeParallelStep(step Step, run *Run) StepResult {
+	start := time.Now()
+
+	if len(step.SubSteps) == 0 {
+		return StepResult{StepID: step.ID, Status: "failure", Error: "no sub-steps defined", Duration: time.Since(start), Timestamp: time.Now()}
+	}
+
+	// Find sub-step definitions
+	stepMap := make(map[string]Step)
+	e.mu.RLock()
+	wf := e.workflows[run.WorkflowID]
+	e.mu.RUnlock()
+	if wf != nil {
+		for _, s := range wf.Steps {
+			stepMap[s.ID] = s
+		}
+	}
+
+	type subResult struct {
+		idx    int
+		result StepResult
+	}
+	results := make([]subResult, len(step.SubSteps))
+	var wg sync.WaitGroup
+
+	for i, subID := range step.SubSteps {
+		subStep, ok := stepMap[subID]
+		if !ok {
+			results[i] = subResult{i, StepResult{StepID: subID, Status: "failure", Error: "sub-step not found"}}
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, s Step) {
+			defer wg.Done()
+			result := e.executeStep(s, run)
+			results[idx] = subResult{idx, result}
+		}(i, subStep)
+	}
+	wg.Wait()
+
+	// Check if any failed
+	var outputs []string
+	allSuccess := true
+	for _, r := range results {
+		run.Results[r.result.StepID] = r.result
+		outputs = append(outputs, r.result.Output)
+		if r.result.Status != "success" {
+			allSuccess = false
+		}
+	}
+
+	status := "success"
+	if !allSuccess {
+		status = "failure"
+	}
+
+	return StepResult{
+		StepID: step.ID, Status: status,
+		Output:    strings.Join(outputs, "\n---\n"),
+		Duration:  time.Since(start),
+		Timestamp: time.Now(),
+	}
+}
+
+func (e *Engine) executeLoopStep(step Step, run *Run) StepResult {
+	start := time.Now()
+
+	items := strings.Split(step.LoopOver, ",")
+	if step.LoopOver == "" {
+		// Try to get from a previous step's output
+		if ref, ok := step.Config["loop_source"]; ok {
+			if prev, exists := run.Results[ref]; exists {
+				items = strings.Split(prev.Output, "\n")
+			}
+		}
+	}
+
+	bodyStepID := step.Config["body_step"]
+	if bodyStepID == "" {
+		return StepResult{StepID: step.ID, Status: "failure", Error: "body_step not configured", Duration: time.Since(start), Timestamp: time.Now()}
+	}
+
+	// Find body step definition
+	var bodyStep Step
+	e.mu.RLock()
+	wf := e.workflows[run.WorkflowID]
+	e.mu.RUnlock()
+	if wf != nil {
+		for _, s := range wf.Steps {
+			if s.ID == bodyStepID {
+				bodyStep = s
+				break
+			}
+		}
+	}
+
+	var outputs []string
+	for i, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		// Substitute {{item}} in the body step config
+		iterStep := bodyStep
+		iterStep.ID = fmt.Sprintf("%s_iter_%d", step.ID, i)
+		newConfig := make(map[string]string)
+		for k, v := range iterStep.Config {
+			newConfig[k] = strings.ReplaceAll(v, "{{item}}", item)
+		}
+		iterStep.Config = newConfig
+
+		result := e.executeStep(iterStep, run)
+		run.Results[iterStep.ID] = result
+		outputs = append(outputs, result.Output)
+	}
+
+	return StepResult{
+		StepID: step.ID, Status: "success",
+		Output:    strings.Join(outputs, "\n"),
+		Duration:  time.Since(start),
+		Timestamp: time.Now(),
+	}
+}
+
+func (e *Engine) executeHumanInputStep(step Step, run *Run) StepResult {
+	start := time.Now()
+	prompt := step.Config["prompt"]
+	if prompt == "" {
+		prompt = "Waiting for user input..."
+	}
+
+	run.Status = RunWaitingInput
+	logger.Info("workflow waiting for input", map[string]any{"run_id": run.ID, "prompt": prompt})
+
+	inputCh := make(chan string, 1)
+	e.mu.Lock()
+	e.waitingInputs[run.ID] = inputCh
+	e.mu.Unlock()
+
+	defer func() {
+		e.mu.Lock()
+		delete(e.waitingInputs, run.ID)
+		e.mu.Unlock()
+	}()
+
+	// Wait with timeout
+	timeout := 30 * time.Minute
+	if t, ok := step.Config["timeout"]; ok {
+		if d, err := time.ParseDuration(t); err == nil {
+			timeout = d
+		}
+	}
+
+	select {
+	case input := <-inputCh:
+		return StepResult{StepID: step.ID, Status: "success", Output: input, Duration: time.Since(start), Timestamp: time.Now()}
+	case <-time.After(timeout):
+		return StepResult{StepID: step.ID, Status: "failure", Error: "input timeout", Duration: time.Since(start), Timestamp: time.Now()}
+	}
+}
+
+func (e *Engine) handleSubmitInput(msg ipc.Message) (ipc.Message, error) {
+	params, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	runID := params["run_id"]
+	input := params["input"]
+
+	e.mu.RLock()
+	ch, exists := e.waitingInputs[runID]
+	e.mu.RUnlock()
+
+	if !exists {
+		return ipc.Message{}, fmt.Errorf("no waiting input for run %q", runID)
+	}
+
+	ch <- input
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "submitted"}, nil
 }
 
 func (e *Engine) failRun(run *Run, errMsg string) {

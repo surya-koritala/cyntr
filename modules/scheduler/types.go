@@ -10,9 +10,21 @@ type Job struct {
 	Agent         string        `json:"agent"`
 	Message       string        `json:"message"`         // message to send to the agent
 	Interval      time.Duration `json:"interval"`        // how often to run
+	CronExpr      string        `json:"cron_expr"`       // 5-field cron expression (optional, overrides Interval)
 	LastRun       time.Time     `json:"last_run"`
 	NextRun       time.Time     `json:"next_run"`
 	Enabled       bool          `json:"enabled"`
 	DestChannel   string        `json:"dest_channel"`    // channel adapter name for report delivery
 	DestChannelID string        `json:"dest_channel_id"` // platform channel ID for report delivery
+}
+
+// JobRun records the result of a single job execution.
+type JobRun struct {
+	ID        string        `json:"id"`
+	JobID     string        `json:"job_id"`
+	Status    string        `json:"status"` // "success", "failure"
+	Output    string        `json:"output"`
+	Error     string        `json:"error,omitempty"`
+	Duration  time.Duration `json:"duration"`
+	StartedAt time.Time     `json:"started_at"`
 }
