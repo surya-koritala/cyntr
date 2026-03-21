@@ -60,6 +60,39 @@ var BuiltinCatalog = []MarketplaceEntry{
 		Description: "Test REST APIs automatically. Generate test cases from OpenAPI specs, run requests, validate responses.",
 		DownloadURL: "https://raw.githubusercontent.com/surya-koritala/cyntr-skills/main/api-tester/skill.yaml",
 	},
+	// Verified OpenClaw community skills
+	{
+		Name:        "openclaw-weather-checker",
+		Version:     "2.1.0",
+		Author:      "openclaw-community",
+		Description: "Check weather for any city using wttr.in API. Uses http_request tool to fetch and present weather data in a friendly format.",
+		DownloadURL: "openclaw:weather",
+		Source:      "openclaw",
+	},
+	{
+		Name:        "openclaw-code-reviewer",
+		Version:     "1.5.0",
+		Author:      "dev-tools-org",
+		Description: "Expert code reviewer. Reads files, analyzes for bugs, security issues, and style problems. Integrates with GitHub for PR reviews.",
+		DownloadURL: "openclaw:code-review",
+		Source:      "openclaw",
+	},
+	{
+		Name:        "openclaw-doc-writer",
+		Version:     "1.0.0",
+		Author:      "community",
+		Description: "Generate documentation from source code. Searches for source files, reads them, and writes markdown docs automatically.",
+		DownloadURL: "openclaw:doc-writer",
+		Source:      "openclaw",
+	},
+	{
+		Name:        "openclaw-cyntr-security",
+		Version:     "0.1.0",
+		Author:      "cyntr",
+		Description: "Security and audit layer for AI agents. Routes dangerous actions through Cyntr's permission engine. Logs all actions for audit compliance.",
+		DownloadURL: "openclaw:cyntr",
+		Source:      "openclaw",
+	},
 }
 
 // SearchBuiltinCatalog filters the built-in catalog by query string.

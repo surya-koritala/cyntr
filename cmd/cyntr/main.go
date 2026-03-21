@@ -505,6 +505,38 @@ func runStart() {
 		}
 	}
 
+	// Auto-import local OpenClaw skills
+	openclawDirs := []string{
+		"/private/tmp/openclaw-skills",
+		os.Getenv("HOME") + "/.openclaw/skills",
+	}
+	for _, dir := range openclawDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			skillPath := dir + "/" + entry.Name() + "/SKILL.md"
+			if _, err := os.Stat(skillPath); err != nil {
+				continue
+			}
+			importCtx, importCancel := context.WithTimeout(ctx, 5*time.Second)
+			resp, importErr := k.Bus().Request(importCtx, ipc.Message{
+				Source: "startup", Target: "skill_runtime", Topic: "skill.import_openclaw",
+				Payload: skillPath,
+			})
+			importCancel()
+			if importErr == nil {
+				if name, ok := resp.Payload.(string); ok {
+					log.Info("OpenClaw skill imported", map[string]any{"name": name, "path": skillPath})
+				}
+			}
+		}
+	}
+
 	// Signal handling
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)

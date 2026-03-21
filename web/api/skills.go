@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
@@ -86,7 +88,9 @@ func (s *Server) handleSkillMarketplaceSearch(w http.ResponseWriter, r *http.Req
 	seen := make(map[string]bool)
 	var merged []skill.MarketplaceEntry
 	for _, entry := range builtinResults {
-		entry.Source = "builtin"
+		if entry.Source == "" {
+			entry.Source = "builtin"
+		}
 		merged = append(merged, entry)
 		seen[entry.Name] = true
 	}
@@ -115,7 +119,44 @@ func (s *Server) handleSkillMarketplaceInstall(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Download the skill
+	// Handle openclaw: URL scheme (local OpenClaw skill import)
+	if strings.HasPrefix(body.DownloadURL, "openclaw:") {
+		skillName := strings.TrimPrefix(body.DownloadURL, "openclaw:")
+		// Search common OpenClaw skill locations
+		searchPaths := []string{
+			"/private/tmp/openclaw-skills/" + skillName + "/SKILL.md",
+			os.Getenv("HOME") + "/.openclaw/skills/" + skillName + "/SKILL.md",
+		}
+		var skillPath string
+		for _, p := range searchPaths {
+			if _, err := os.Stat(p); err == nil {
+				skillPath = p
+				break
+			}
+		}
+		if skillPath == "" {
+			RespondError(w, 404, "NOT_FOUND", "OpenClaw skill '"+skillName+"' not found locally")
+			return
+		}
+		importCtx, importCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer importCancel()
+		resp, err := s.bus.Request(importCtx, ipc.Message{
+			Source: "api", Target: "skill_runtime", Topic: "skill.import_openclaw",
+			Payload: skillPath,
+		})
+		if err != nil {
+			RespondError(w, 500, "IMPORT_FAILED", err.Error())
+			return
+		}
+		importedName := ""
+		if name, ok := resp.Payload.(string); ok {
+			importedName = name
+		}
+		Respond(w, 201, map[string]string{"status": "installed", "name": importedName, "source": "openclaw"})
+		return
+	}
+
+	// Download the skill from URL
 	marketplace := skill.NewMarketplace("")
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
