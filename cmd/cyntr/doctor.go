@@ -85,19 +85,29 @@ func runDoctor() {
 		fmt.Println("  ⚠ No messaging channels configured")
 	}
 
-	// Check cloud CLIs
+	// Check cloud CLIs — installed AND authenticated
 	fmt.Println()
 	fmt.Println("  Cloud Infrastructure CLIs:")
-	cloudCLIs := []struct{ cmd, name, help string }{
-		{"aws", "AWS CLI", "Install: https://aws.amazon.com/cli/"},
-		{"az", "Azure CLI", "Install: https://learn.microsoft.com/cli/azure/install-azure-cli"},
-		{"gcloud", "Google Cloud SDK", "Install: https://cloud.google.com/sdk/docs/install"},
+	type cloudCLI struct {
+		cmd, name, authCmd, help string
+	}
+	cloudCLIs := []cloudCLI{
+		{"aws", "AWS CLI", "aws sts get-caller-identity", "Install: https://aws.amazon.com/cli/ → then: aws configure"},
+		{"az", "Azure CLI", "az account show", "Install: https://learn.microsoft.com/cli/azure/install-azure-cli → then: az login"},
+		{"gcloud", "Google Cloud SDK", "gcloud auth list --filter=status:ACTIVE --format=value(account)", "Install: https://cloud.google.com/sdk/docs/install → then: gcloud auth login"},
 	}
 	for _, cli := range cloudCLIs {
-		if _, err := exec.LookPath(cli.cmd); err == nil {
-			fmt.Printf("  ✓ %s found (%s)\n", cli.name, cli.cmd)
+		if _, err := exec.LookPath(cli.cmd); err != nil {
+			fmt.Printf("  - %s not installed — %s\n", cli.name, cli.help)
+			continue
+		}
+		// Check if authenticated
+		_, err := exec.Command("sh", "-c", cli.authCmd+" >/dev/null 2>&1").Output()
+		if err != nil {
+			fmt.Printf("  ⚠ %s installed but NOT authenticated\n", cli.name)
+			fmt.Printf("    → %s\n", cli.help)
 		} else {
-			fmt.Printf("  - %s not found — %s\n", cli.name, cli.help)
+			fmt.Printf("  ✓ %s authenticated\n", cli.name)
 		}
 	}
 
