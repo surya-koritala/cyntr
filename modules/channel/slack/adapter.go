@@ -98,6 +98,44 @@ func (a *Adapter) Send(ctx context.Context, msg channel.OutboundMessage) error {
 	return nil
 }
 
+// addReaction adds an emoji reaction to a message (typing indicator).
+func (a *Adapter) addReaction(channel, timestamp, emoji string) {
+	if timestamp == "" {
+		return
+	}
+	payload := map[string]string{"channel": channel, "timestamp": timestamp, "name": emoji}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", a.slackAPI+"/reactions.add", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+a.botToken)
+	resp, err := a.client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	}
+}
+
+// removeReaction removes an emoji reaction from a message.
+func (a *Adapter) removeReaction(channel, timestamp, emoji string) {
+	if timestamp == "" {
+		return
+	}
+	payload := map[string]string{"channel": channel, "timestamp": timestamp, "name": emoji}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest("POST", a.slackAPI+"/reactions.remove", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+a.botToken)
+	resp, err := a.client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	}
+}
+
 // handleEvents is the Slack Events API handler.
 func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -124,6 +162,7 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 			Channel     string `json:"channel"`
 			BotID       string `json:"bot_id"`
 			ClientMsgID string `json:"client_msg_id"`
+			TS          string `json:"ts"`
 		} `json:"event"`
 	}
 
@@ -188,12 +227,15 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// Process the message asynchronously to avoid duplicate responses.
 	w.WriteHeader(200)
 
-	// Deduplicate: use event_id if available, otherwise use a simple check
 	eventChannel := envelope.Event.Channel
 	eventUser := envelope.Event.User
 	eventText := envelope.Event.Text
+	eventTS := envelope.Event.TS
 
 	go func() {
+		// Show typing indicator — add reaction to the user's message
+		a.addReaction(eventChannel, eventTS, "hourglass_flowing_sand")
+
 		response, err := a.handler(channel.InboundMessage{
 			Channel:   "slack",
 			ChannelID: eventChannel,
@@ -203,7 +245,15 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 			Agent:     a.agent,
 		})
 
+		// Remove typing indicator
+		a.removeReaction(eventChannel, eventTS, "hourglass_flowing_sand")
+
 		if err != nil {
+			a.Send(context.Background(), channel.OutboundMessage{
+				Channel:   "slack",
+				ChannelID: eventChannel,
+				Text:      "Sorry, I encountered an error processing your request.",
+			})
 			return
 		}
 
