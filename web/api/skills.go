@@ -48,6 +48,14 @@ func (s *Server) handleSkillInstall(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 201, map[string]string{"status": "installed"})
 }
 
+func (s *Server) handleSkillMarketplaceSearch(w http.ResponseWriter, r *http.Request) {
+	// Marketplace is not yet deployed — return placeholder
+	Respond(w, 200, map[string]any{
+		"message": "Skill marketplace coming soon. Visit https://github.com/surya-koritala/cyntr for available skills.",
+		"results": []any{},
+	})
+}
+
 func (s *Server) handleSkillImportOpenClaw(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Path string `json:"path"`

@@ -188,6 +188,14 @@ func runCLI(args []string) {
 				os.Exit(1)
 			}
 			apiPost("/api/v1/skills/import/openclaw", map[string]string{"path": args[2]})
+		case "search":
+			if len(args) < 3 {
+				fmt.Fprintln(os.Stderr, "usage: cyntr skill search <query>")
+				os.Exit(1)
+			}
+			apiGet("/api/v1/skills/marketplace/search?q=" + args[2])
+		case "marketplace":
+			apiGet("/api/v1/skills/marketplace")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown skill command: %s\n", args[1])
 			os.Exit(1)
