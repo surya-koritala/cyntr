@@ -1,13 +1,16 @@
-# Binary
-cyntr
+# Binary (root only, not cmd/cyntr/ directory)
+/cyntr
 *.exe
 
 # Runtime data
 *.db
-sessions.db
-memory.db
-audit.db
-audit-*.db
+*.db-shm
+*.db-wal
+
+# Generated config (created by cyntr init)
+cyntr.yaml
+policy.yaml
+cloud-ops-agent.json
 
 # Environment
 .env

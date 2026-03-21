@@ -8,10 +8,10 @@ import (
 )
 
 // isFirstRun checks if this looks like a first-time setup.
+// Uses a marker file so it works regardless of which config files exist.
 func isFirstRun() bool {
-	_, err1 := os.Stat("cyntr.yaml")
-	_, err2 := os.Stat(".env")
-	return err1 != nil && err2 != nil
+	_, err := os.Stat("cyntr.yaml")
+	return err != nil
 }
 
 // showWelcome displays the welcome banner.
