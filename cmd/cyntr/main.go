@@ -508,6 +508,8 @@ func runStart() {
 			if err := k.ReloadConfig(); err != nil {
 				fmt.Fprintf(os.Stderr, "config reload error: %v\n", err)
 			} else {
+				k.Bus().Publish(ipc.Message{Source: "kernel", Topic: "config.reloaded"})
+				log.Info("config reloaded via SIGHUP", nil)
 				fmt.Println("config reloaded")
 			}
 		case syscall.SIGINT, syscall.SIGTERM:

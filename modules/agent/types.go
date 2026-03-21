@@ -69,6 +69,7 @@ type AgentConfig struct {
 	MaxHistory          int               `yaml:"max_history" json:"max_history"`                     // sliding window: max messages to keep in history (0 = unlimited)
 	SummarizeThreshold  int               `yaml:"summarize_threshold" json:"summarize_threshold"`     // auto-compact history when exceeding this count (0 = disabled)
 	Secrets             map[string]string `yaml:"secrets" json:"secrets"`                             // per-agent env vars / credentials
+	RateLimit           int               `yaml:"rate_limit" json:"rate_limit"`                       // max requests per minute (0 = unlimited)
 }
 
 // ProgressEvent is published during tool execution to inform channels of agent activity.

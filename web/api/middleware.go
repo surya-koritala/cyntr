@@ -4,13 +4,36 @@ import (
 	"context"
 	"net/http"
 	"strings"
+
+	"github.com/cyntr-dev/cyntr/auth"
 )
 
 // AuthConfig holds authentication settings for the API.
 type AuthConfig struct {
 	Enabled   bool
-	APIKeys   map[string]string // key -> description
+	APIKeys   map[string]string   // key -> description
+	KeyScopes map[string][]string // key -> scopes (read, agent, admin)
 	JWTSecret string
+}
+
+// routeScopes maps HTTP methods to the minimum required scope.
+var routeScopes = map[string]string{
+	"GET":    auth.ScopeRead,
+	"POST":   auth.ScopeAgent,
+	"PUT":    auth.ScopeAgent,
+	"DELETE": auth.ScopeAdmin,
+}
+
+// hasScope checks whether the given scopes list satisfies the required scope.
+// Admin scope grants access to everything. An empty scopes list grants full
+// access for backward compatibility with keys created before scoping.
+func hasScope(scopes []string, required string) bool {
+	for _, s := range scopes {
+		if s == auth.ScopeAdmin || s == required {
+			return true
+		}
+	}
+	return len(scopes) == 0 // backward compat: no scopes = full access
 }
 
 // AuthMiddleware checks authentication on API requests.
@@ -41,22 +64,33 @@ func (am *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		}
 
 		// Check Authorization header
-		auth := r.Header.Get("Authorization")
-		if auth == "" {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
 			RespondError(w, 401, "UNAUTHORIZED", "Authorization header required")
 			return
 		}
 
-		token := strings.TrimPrefix(auth, "Bearer ")
-		if token == auth {
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if token == authHeader {
 			// No "Bearer " prefix — might be direct API key
-			token = auth
+			token = authHeader
 		}
 
 		// Check API keys
 		for key := range am.config.APIKeys {
 			if token == key {
-				// Valid API key — set context and proceed
+				// Valid API key — check scope before proceeding
+				var scopes []string
+				if am.config.KeyScopes != nil {
+					scopes = am.config.KeyScopes[key]
+				}
+
+				requiredScope := routeScopes[r.Method]
+				if requiredScope != "" && !hasScope(scopes, requiredScope) {
+					RespondError(w, 403, "FORBIDDEN", "insufficient scope")
+					return
+				}
+
 				ctx := context.WithValue(r.Context(), contextKeyAuth, "apikey")
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return

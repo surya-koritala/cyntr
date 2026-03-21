@@ -49,5 +49,6 @@ type PolicyRule struct {
 }
 
 type PolicyConfig struct {
-	Rules []PolicyRule `yaml:"rules"`
+	Rules          []PolicyRule `yaml:"rules"`
+	SecretPatterns []string     `yaml:"secret_patterns"` // additional regex patterns for secret masking
 }

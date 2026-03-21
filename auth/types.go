@@ -8,6 +8,13 @@ const (
 	PrincipalAgent
 )
 
+// Scope constants for API key authorization.
+const (
+	ScopeRead  = "read"
+	ScopeAgent = "agent"
+	ScopeAdmin = "admin"
+)
+
 // Principal represents an authenticated identity in the system.
 type Principal struct {
 	Type        PrincipalType
@@ -15,6 +22,7 @@ type Principal struct {
 	Tenant      string       // which tenant this principal belongs to
 	Roles       []string     // role names assigned to this principal
 	Permissions []Permission // resolved permissions from roles
+	Scopes      []string     // API key scopes (read, agent, admin)
 }
 
 func (p Principal) IsUser() bool  { return p.Type == PrincipalUser }

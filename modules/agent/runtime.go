@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,45 @@ import (
 )
 
 var logger = log.Default().WithModule("agent_runtime")
+
+// agentRateLimiter tracks request counts per minute for a single agent.
+type agentRateLimiter struct {
+	mu      sync.Mutex
+	count   int
+	resetAt time.Time
+}
+
+var rateLimiters = make(map[string]*agentRateLimiter)
+var rateLimiterMu sync.Mutex
+
+// checkAgentRateLimit enforces per-agent request rate limits.
+// Returns an error if the agent has exceeded its configured requests/minute.
+// A limit of 0 or less means unlimited.
+func checkAgentRateLimit(key string, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	rateLimiterMu.Lock()
+	rl, ok := rateLimiters[key]
+	if !ok {
+		rl = &agentRateLimiter{resetAt: time.Now().Add(time.Minute)}
+		rateLimiters[key] = rl
+	}
+	rateLimiterMu.Unlock()
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	if time.Now().After(rl.resetAt) {
+		rl.count = 0
+		rl.resetAt = time.Now().Add(time.Minute)
+	}
+	if rl.count >= limit {
+		return fmt.Errorf("rate limit exceeded: %d requests/minute for agent", limit)
+	}
+	rl.count++
+	return nil
+}
 
 // Runtime is the Agent Runtime kernel module.
 // It manages agent instances and orchestrates model calls + tool execution.
@@ -235,6 +275,11 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("agent %q not found in tenant %q", req.Agent, req.Tenant)
 	}
 
+	// Enforce per-agent rate limit
+	if err := checkAgentRateLimit(key, inst.config.RateLimit); err != nil {
+		return ipc.Message{}, err
+	}
+
 	chatStart := time.Now()
 
 	r.publishActivity(req.Agent, req.Tenant, "chat_start", "User: "+req.Message[:min(80, len(req.Message))])
@@ -327,30 +372,33 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				continue
 			}
 			if decision == "require_approval" {
-				inst.session.AddMessage(Message{
-					Role: RoleTool,
-					ToolResults: []ToolResult{{CallID: tc.ID, Content: "PENDING APPROVAL: " + tc.Name + " requires human approval before execution. The request has been submitted.", IsError: true}},
+				// Submit approval request
+				approvalCtx, approvalCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				approvalResp, submitErr := r.bus.Request(approvalCtx, ipc.Message{
+					Source: "agent_runtime", Target: "policy", Topic: "policy.approval.submit",
+					Payload: map[string]string{"tenant": req.Tenant, "agent": req.Agent, "user": req.User, "tool": tc.Name, "action": "tool_call"},
 				})
-				toolsUsed = append(toolsUsed, tc.Name+"(pending)")
+				approvalCancel()
 
-				// Submit to approval queue and notify
-				go func() {
-					_, err := r.bus.Request(context.Background(), ipc.Message{
-						Source: "agent_runtime", Target: "policy", Topic: "policy.approval.submit",
-						Payload: map[string]string{
-							"tenant": req.Tenant, "agent": req.Agent, "user": req.User,
-							"tool": tc.Name, "action": "tool_call",
-						},
-					})
-					if err != nil {
-						logger.Warn("approval submission failed", map[string]any{
-							"tenant": req.Tenant, "agent": req.Agent, "tool": tc.Name, "error": err.Error(),
-						})
+				approvalID := ""
+				if submitErr == nil {
+					if id, ok := approvalResp.Payload.(string); ok {
+						approvalID = id
 					}
-					r.publishActivity(req.Agent, req.Tenant, "approval_needed", "Tool "+tc.Name+" requires approval")
-				}()
+				}
 
-				continue
+				r.publishActivity(req.Agent, req.Tenant, "approval_needed", "Tool "+tc.Name+" requires approval (ID: "+approvalID+")")
+
+				status := r.waitForApproval(approvalID)
+				if status != "approved" {
+					inst.session.AddMessage(Message{
+						Role: RoleTool,
+						ToolResults: []ToolResult{{CallID: tc.ID, Content: fmt.Sprintf("APPROVAL %s: %s", strings.ToUpper(status), tc.Name), IsError: true}},
+					})
+					toolsUsed = append(toolsUsed, tc.Name+"("+status+")")
+					continue
+				}
+				// Approved — fall through to execute the tool below
 			}
 
 			r.publishActivity(req.Agent, req.Tenant, "tool_exec", "Executing: "+tc.Name)
@@ -630,6 +678,34 @@ func (r *Runtime) publishActivity(agent, tenant, eventType, detail string) {
 			Detail:    detail,
 		},
 	})
+}
+
+// waitForApproval polls the policy engine for approval status until approved,
+// denied, expired, or a 5-minute timeout is reached.
+func (r *Runtime) waitForApproval(approvalID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "timeout"
+		case <-time.After(2 * time.Second):
+			statusCtx, statusCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			resp, err := r.bus.Request(statusCtx, ipc.Message{
+				Source: "agent_runtime", Target: "policy", Topic: "approval.get",
+				Payload: approvalID,
+			})
+			statusCancel()
+			if err == nil {
+				if status, ok := resp.Payload.(string); ok {
+					if status == "approved" || status == "denied" || status == "expired" {
+						return status
+					}
+				}
+			}
+		}
+	}
 }
 
 // executeToolWithRetry wraps tool execution with exponential backoff retry logic.

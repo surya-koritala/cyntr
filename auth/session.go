@@ -106,6 +106,7 @@ func (sm *SessionManager) ValidateToken(token string) (Principal, error) {
 }
 
 // CreateAPIKey generates a random API key and associates it with a principal.
+// If the principal has no scopes set, it defaults to admin scope for backward compatibility.
 func (sm *SessionManager) CreateAPIKey(name string, p Principal) (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
@@ -113,6 +114,11 @@ func (sm *SessionManager) CreateAPIKey(name string, p Principal) (string, error)
 	}
 
 	key := "cyntr_" + hex.EncodeToString(buf)
+
+	// Default to admin scope if no scopes specified
+	if len(p.Scopes) == 0 {
+		p.Scopes = []string{ScopeAdmin}
+	}
 
 	hash := sha256.Sum256([]byte(key))
 	keyHash := hex.EncodeToString(hash[:])

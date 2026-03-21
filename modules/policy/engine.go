@@ -44,6 +44,8 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.bus.Handle("policy", "approval.list", e.handleApprovalList)
 	e.bus.Handle("policy", "approval.approve", e.handleApprovalApprove)
 	e.bus.Handle("policy", "approval.deny", e.handleApprovalDeny)
+	e.bus.Handle("policy", "approval.get", e.handleApprovalGet)
+	e.bus.Subscribe("policy", "config.reloaded", e.handleConfigReload)
 	return nil
 }
 
@@ -106,6 +108,29 @@ func (e *Engine) handleApprovalSubmit(msg ipc.Message) (ipc.Message, error) {
 		Action: params["action"],
 	})
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: id}, nil
+}
+
+func (e *Engine) handleApprovalGet(msg ipc.Message) (ipc.Message, error) {
+	id, ok := msg.Payload.(string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)
+	}
+	req, found := e.approvals.Get(id)
+	if !found {
+		return ipc.Message{}, fmt.Errorf("approval %q not found", id)
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: req.Status.String()}, nil
+}
+
+func (e *Engine) handleConfigReload(msg ipc.Message) (ipc.Message, error) {
+	rs, err := LoadRuleSet(e.policyPath)
+	if err != nil {
+		logger.Error("policy reload failed", map[string]any{"error": err.Error()})
+		return ipc.Message{}, nil
+	}
+	e.ruleSet = rs
+	logger.Info("policy rules reloaded", map[string]any{"count": len(rs.Rules)})
+	return ipc.Message{}, nil
 }
 
 func (e *Engine) handleCheck(msg ipc.Message) (ipc.Message, error) {

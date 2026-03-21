@@ -19,9 +19,26 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(password|secret|token|api_key|apikey|access_key|private_key)\s*[=:]\s*['"]?\S{8,}['"]?`),
 }
 
+// customPatterns holds user-configured secret patterns loaded at runtime.
+var customPatterns []*regexp.Regexp
+
+// LoadSecretPatterns compiles and registers additional secret patterns from configuration.
+// Invalid regex patterns are silently skipped.
+func LoadSecretPatterns(patterns []string) {
+	customPatterns = nil
+	for _, p := range patterns {
+		if re, err := regexp.Compile(p); err == nil {
+			customPatterns = append(customPatterns, re)
+		}
+	}
+}
+
 // MaskSecrets replaces detected secret patterns in text with ***REDACTED***.
 func MaskSecrets(text string) string {
 	for _, pat := range secretPatterns {
+		text = pat.ReplaceAllString(text, "***REDACTED***")
+	}
+	for _, pat := range customPatterns {
 		text = pat.ReplaceAllString(text, "***REDACTED***")
 	}
 	return text
