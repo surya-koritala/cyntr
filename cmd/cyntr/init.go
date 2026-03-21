@@ -81,11 +81,23 @@ func runInit() {
 	case "3":
 		fmt.Println()
 		fmt.Println("    Find these in Azure AI Foundry → your deployment → Consume tab")
+		fmt.Println("    Endpoint should be the BASE URL only, e.g.:")
+		fmt.Println("      https://myresource.openai.azure.com")
+		fmt.Println("      https://myresource.cognitiveservices.azure.com")
+		fmt.Println("    Do NOT include /openai/... path or ?api-version query string.")
 		fmt.Println()
 		key := prompt(scanner, "  Azure API key", "")
 		if key != "" {
 			envLines = append(envLines, "AZURE_OPENAI_API_KEY="+key)
-			endpoint := prompt(scanner, "  Endpoint (https://<resource>.openai.azure.com)", "")
+			endpoint := prompt(scanner, "  Endpoint (base URL only)", "")
+			// Strip any path/query the user may have pasted
+			if idx := strings.Index(endpoint, "/openai"); idx > 0 {
+				endpoint = endpoint[:idx]
+			}
+			if idx := strings.Index(endpoint, "?"); idx > 0 {
+				endpoint = endpoint[:idx]
+			}
+			endpoint = strings.TrimRight(endpoint, "/")
 			envLines = append(envLines, "AZURE_OPENAI_ENDPOINT="+endpoint)
 			deployment := prompt(scanner, "  Deployment name", "gpt-4o")
 			envLines = append(envLines, "AZURE_OPENAI_DEPLOYMENT="+deployment)
