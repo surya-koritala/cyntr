@@ -10,6 +10,7 @@ import (
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/modules/agent"
+	"github.com/cyntr-dev/cyntr/modules/channel"
 )
 
 // Scheduler is a kernel module that runs scheduled agent tasks.
@@ -98,13 +99,33 @@ func (s *Scheduler) executeJob(job *Job) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	s.bus.Request(ctx, ipc.Message{
+	resp, err := s.bus.Request(ctx, ipc.Message{
 		Source: "scheduler", Target: "agent_runtime", Topic: "agent.chat",
 		Payload: agent.ChatRequest{
 			Agent: job.Agent, Tenant: job.Tenant,
 			User: "scheduler", Message: job.Message,
 		},
 	})
+	if err != nil {
+		return
+	}
+
+	chatResp, ok := resp.Payload.(agent.ChatResponse)
+	if !ok {
+		return
+	}
+
+	// Deliver results to configured channel
+	if job.DestChannel != "" && job.DestChannelID != "" {
+		s.bus.Request(ctx, ipc.Message{
+			Source: "scheduler", Target: "channel", Topic: "channel.send",
+			Payload: channel.OutboundMessage{
+				Channel:   job.DestChannel,
+				ChannelID: job.DestChannelID,
+				Text:      chatResp.Content,
+			},
+		})
+	}
 }
 
 func (s *Scheduler) handleAdd(msg ipc.Message) (ipc.Message, error) {

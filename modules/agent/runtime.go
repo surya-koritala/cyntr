@@ -89,6 +89,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("agent_runtime", "agent.memories", r.handleMemories)
 	r.bus.Handle("agent_runtime", "agent.memory.delete", r.handleMemoryDelete)
 	r.bus.Handle("agent_runtime", "agent.session.clear", r.handleSessionClear)
+	r.bus.Handle("agent_runtime", "agent.update", r.handleUpdate)
 	return r.LoadSavedAgents()
 }
 
@@ -231,6 +232,8 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("agent %q not found in tenant %q", req.Agent, req.Tenant)
 	}
 
+	r.publishActivity(req.Agent, req.Tenant, "chat_start", "User: "+req.Message[:min(80, len(req.Message))])
+
 	// Get the model provider
 	r.mu.RLock()
 	provider, ok := r.providers[inst.config.Model]
@@ -273,6 +276,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 
 		// If no tool calls, we're done
 		if len(response.ToolCalls) == 0 {
+			r.publishActivity(req.Agent, req.Tenant, "chat_complete", "Response sent")
 			return ipc.Message{
 				Type: ipc.MessageTypeResponse,
 				Payload: ChatResponse{
@@ -303,6 +307,8 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				toolsUsed = append(toolsUsed, tc.Name+"(pending)")
 				continue
 			}
+
+			r.publishActivity(req.Agent, req.Tenant, "tool_exec", "Executing: "+tc.Name)
 
 			// Publish progress event so the originating channel can show activity
 			if req.Channel != "" && req.ChannelID != "" {
@@ -347,6 +353,8 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 					IsError: isError,
 				}},
 			})
+
+			r.publishActivity(req.Agent, req.Tenant, "tool_result", tc.Name+" completed")
 		}
 	}
 
@@ -523,6 +531,53 @@ func (r *Runtime) handleSessionClear(msg ipc.Message) (ipc.Message, error) {
 
 	inst.session.ClearHistory()
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "cleared"}, nil
+}
+
+func (r *Runtime) handleUpdate(msg ipc.Message) (ipc.Message, error) {
+	cfg, ok := msg.Payload.(AgentConfig)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected AgentConfig, got %T", msg.Payload)
+	}
+	key := cfg.Tenant + "/" + cfg.Name
+
+	r.mu.Lock()
+	inst, exists := r.agents[key]
+	if !exists {
+		r.mu.Unlock()
+		return ipc.Message{}, fmt.Errorf("agent %q not found in tenant %q", cfg.Name, cfg.Tenant)
+	}
+	if cfg.Model != "" {
+		inst.config.Model = cfg.Model
+	}
+	if cfg.SystemPrompt != "" {
+		inst.config.SystemPrompt = cfg.SystemPrompt
+	}
+	if len(cfg.Tools) > 0 {
+		inst.config.Tools = cfg.Tools
+	}
+	if cfg.MaxTurns > 0 {
+		inst.config.MaxTurns = cfg.MaxTurns
+	}
+	r.mu.Unlock()
+
+	if r.store != nil {
+		r.store.SaveAgent(inst.config)
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "updated"}, nil
+}
+
+func (r *Runtime) publishActivity(agent, tenant, eventType, detail string) {
+	r.bus.Publish(ipc.Message{
+		Source: "agent_runtime",
+		Topic:  "agent.activity",
+		Payload: ActivityEvent{
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Agent:     agent,
+			Tenant:    tenant,
+			Type:      eventType,
+			Detail:    detail,
+		},
+	})
 }
 
 func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {

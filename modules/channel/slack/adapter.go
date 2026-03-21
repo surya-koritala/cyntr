@@ -18,6 +18,7 @@ type Adapter struct {
 	botToken   string
 	tenant     string // default tenant for this Slack workspace
 	agent      string // default agent name
+	routes     map[string]string // channel ID -> agent name overrides
 	handler    channel.InboundHandler
 	listener   net.Listener
 	server     *http.Server
@@ -36,6 +37,10 @@ func New(listenAddr, botToken, tenant, agent string) *Adapter {
 		slackAPI:   "https://slack.com/api",
 	}
 }
+
+// SetRoutes configures per-channel agent routing overrides.
+// The map keys are Slack channel IDs and values are agent names.
+func (a *Adapter) SetRoutes(routes map[string]string) { a.routes = routes }
 
 // SetSlackAPI overrides the Slack API URL (for testing with httptest).
 func (a *Adapter) SetSlackAPI(url string) { a.slackAPI = url }
@@ -238,13 +243,20 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 		// Show typing indicator — add reaction to the user's message
 		a.addReaction(eventChannel, eventTS, "hourglass_flowing_sand")
 
+		agentName := a.agent
+		if a.routes != nil {
+			if routed, ok := a.routes[eventChannel]; ok {
+				agentName = routed
+			}
+		}
+
 		response, err := a.handler(channel.InboundMessage{
 			Channel:   "slack",
 			ChannelID: eventChannel,
 			UserID:    eventUser,
 			Text:      eventText,
 			Tenant:    a.tenant,
-			Agent:     a.agent,
+			Agent:     agentName,
 		})
 
 		// Remove typing indicator

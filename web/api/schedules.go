@@ -12,10 +12,12 @@ import (
 
 func (s *Server) handleScheduleAdd(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Tenant   string `json:"tenant"`
-		Agent    string `json:"agent"`
-		Interval string `json:"interval"`
-		Message  string `json:"message"`
+		Tenant    string `json:"tenant"`
+		Agent     string `json:"agent"`
+		Interval  string `json:"interval"`
+		Message   string `json:"message"`
+		Channel   string `json:"channel"`
+		ChannelID string `json:"channel_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON")
@@ -35,6 +37,7 @@ func (s *Server) handleScheduleAdd(w http.ResponseWriter, r *http.Request) {
 			ID: jobID, Name: body.Agent + " schedule",
 			Tenant: body.Tenant, Agent: body.Agent,
 			Message: body.Message, Interval: dur,
+			DestChannel: body.Channel, DestChannelID: body.ChannelID,
 		},
 	})
 	if err != nil {

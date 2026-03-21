@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"os/signal"
 	"syscall"
 	"time"
@@ -216,6 +217,16 @@ func runStart() {
 			slackAddr = "127.0.0.1:3000"
 		}
 		slackAdapter := slackpkg.New(slackAddr, slackToken, slackTenant, slackAgent)
+		if slackRoutes := os.Getenv("SLACK_ROUTES"); slackRoutes != "" {
+			routes := make(map[string]string)
+			for _, pair := range strings.Split(slackRoutes, ",") {
+				parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+				if len(parts) == 2 {
+					routes[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+				}
+			}
+			slackAdapter.SetRoutes(routes)
+		}
 		channelMgr.AddAdapter(slackAdapter)
 		fmt.Printf("registered Slack adapter (tenant: %s, agent: %s, listen: %s)\n", slackTenant, slackAgent, slackAddr)
 	}
@@ -383,6 +394,15 @@ func runStart() {
 
 	log.Info("kernel started", map[string]any{"modules": len(k.Modules())})
 
+	// Real-time event streaming for dashboard
+	eventBroker := web.NewEventBroker()
+	k.Bus().Subscribe("events", "agent.activity", func(msg ipc.Message) (ipc.Message, error) {
+		if evt, ok := msg.Payload.(agent.ActivityEvent); ok {
+			eventBroker.Broadcast("activity", evt)
+		}
+		return ipc.Message{}, nil
+	})
+
 	// Start API + Dashboard server
 	apiServer := webapi.NewServer(k.Bus(), k)
 	tenantMgr, _ := tenant.NewManager(cfg, nil)
@@ -400,6 +420,7 @@ func runStart() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler)
+	mux.Handle("/events", eventBroker)
 	mux.Handle("/", dashboard)
 
 	webAddr := cfg.Listen.WebUI

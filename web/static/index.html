@@ -594,6 +594,9 @@
     <div class="nav-item" data-page="channels">
       <i class="nav-icon">&#9993;</i> Channels
     </div>
+    <div class="nav-item" data-page="logs">
+      <i class="nav-icon">&#9998;</i> Logs
+    </div>
     <div class="nav-item" data-page="federation">
       <i class="nav-icon">&#9670;</i> Federation
     </div>
@@ -1096,6 +1099,16 @@
               <input type="text" id="sched-message" placeholder="Generate daily report">
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="sched-channel">Destination Channel (optional)</label>
+              <input type="text" id="sched-channel" placeholder="slack">
+            </div>
+            <div class="form-group">
+              <label for="sched-channel-id">Destination Channel ID (optional)</label>
+              <input type="text" id="sched-channel-id" placeholder="C1234567890">
+            </div>
+          </div>
           <div style="display:flex;align-items:center;gap:12px;">
             <button class="btn btn-primary" onclick="addSchedule()">Add Schedule</button>
             <span id="sched-msg" style="font-size:13px;color:var(--muted);"></span>
@@ -1341,6 +1354,23 @@
       </div>
     </section>
 
+    <!-- ══ Logs ══ -->
+    <section class="page" id="page-logs">
+      <div class="page-header">
+        <h2>Activity Logs</h2>
+        <p>Real-time agent activity stream.</p>
+      </div>
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Live Activity</span>
+          <button class="btn btn-secondary btn-sm" onclick="clearLogs()">Clear</button>
+        </div>
+        <div id="log-container" style="max-height:600px;overflow-y:auto;padding:16px;background:var(--bg);font-family:monospace;font-size:12px;line-height:1.8;">
+          <div class="empty-state">Connecting to event stream...</div>
+        </div>
+      </div>
+    </section>
+
     <!-- ══ Federation ══ -->
     <section class="page" id="page-federation">
       <div class="page-header">
@@ -1389,6 +1419,28 @@
         </div>
       </div>
     </section>
+
+  <!-- Edit Agent Modal -->
+  <div id="edit-agent-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:24px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;">
+      <h3 style="margin-bottom:16px;">Edit Agent: <span id="edit-agent-title"></span></h3>
+      <input type="hidden" id="edit-agent-tenant">
+      <input type="hidden" id="edit-agent-name">
+      <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--muted);">Model</label>
+      <input id="edit-agent-model" type="text" style="width:100%;padding:6px 10px;margin-bottom:12px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;">
+      <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--muted);">System Prompt</label>
+      <textarea id="edit-agent-sysprompt" rows="4" style="width:100%;padding:6px 10px;margin-bottom:12px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;resize:vertical;"></textarea>
+      <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--muted);">Max Turns</label>
+      <input id="edit-agent-maxturns" type="number" min="1" style="width:100%;padding:6px 10px;margin-bottom:12px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;">
+      <label style="display:block;margin-bottom:4px;font-size:12px;color:var(--muted);">Tools (comma-separated)</label>
+      <input id="edit-agent-tools" type="text" style="width:100%;padding:6px 10px;margin-bottom:16px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;">
+      <div id="edit-agent-msg" style="min-height:20px;font-size:12px;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" onclick="closeEditModal()">Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="submitAgentEdit()">Save</button>
+      </div>
+    </div>
+  </div>
 
   </main>
 </div>
@@ -1462,6 +1514,7 @@ function onPageEnter(page) {
   if (page === 'sessions')   loadSessionsPage();
   if (page === 'memories')   loadMemoriesPage();
   if (page === 'policies')   { loadPolicyRules(); }
+  if (page === 'logs')       startLogStream();
 }
 
 /* ─────────────── Helpers ─────────────── */
@@ -1814,6 +1867,7 @@ async function loadAgentList() {
           <td><span class="badge badge-info" title="${esc(toolsTitle)}">${toolCount} tool${toolCount !== 1 ? 's' : ''}</span></td>
           <td>${esc(ag.max_turns)}</td>
           <td class="inline-actions">
+            <button class="btn btn-sm" onclick="editAgent('${esc(tenant)}','${esc(ag.name)}')" style="background:var(--accent);color:#fff;">Edit</button>
             <button class="btn btn-sm btn-danger" onclick="deleteAgent('${esc(tenant)}','${esc(ag.name)}')">Delete</button>
             <button class="btn btn-sm btn-primary" onclick="document.getElementById('chat-agent').value='${esc(ag.name)}';document.getElementById('chat-tenant').value='${esc(tenant)}';window.scrollTo(0,0);">Chat</button>
           </td>
@@ -1832,6 +1886,71 @@ async function deleteAgent(tenant, name) {
     loadAgentList();
   } catch(e) {
     alert('Error: ' + e.message);
+  }
+}
+
+async function editAgent(tenant, name) {
+  const modal = document.getElementById('edit-agent-modal');
+  document.getElementById('edit-agent-title').textContent = name;
+  document.getElementById('edit-agent-tenant').value = tenant;
+  document.getElementById('edit-agent-name').value = name;
+  document.getElementById('edit-agent-msg').textContent = '';
+
+  // Fetch current agent config
+  try {
+    const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(name)}`);
+    if (res.ok && res.data) {
+      document.getElementById('edit-agent-model').value = res.data.model || res.data.Model || '';
+      document.getElementById('edit-agent-sysprompt').value = res.data.system_prompt || res.data.SystemPrompt || '';
+      document.getElementById('edit-agent-maxturns').value = res.data.max_turns || res.data.MaxTurns || 10;
+      const tools = res.data.tools || res.data.Tools || [];
+      document.getElementById('edit-agent-tools').value = Array.isArray(tools) ? tools.join(', ') : '';
+    }
+  } catch {
+    document.getElementById('edit-agent-model').value = '';
+    document.getElementById('edit-agent-sysprompt').value = '';
+    document.getElementById('edit-agent-maxturns').value = 10;
+    document.getElementById('edit-agent-tools').value = '';
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeEditModal() {
+  document.getElementById('edit-agent-modal').style.display = 'none';
+}
+
+async function submitAgentEdit() {
+  const tenant = document.getElementById('edit-agent-tenant').value;
+  const name = document.getElementById('edit-agent-name').value;
+  const model = document.getElementById('edit-agent-model').value.trim();
+  const sysprompt = document.getElementById('edit-agent-sysprompt').value.trim();
+  const maxTurns = parseInt(document.getElementById('edit-agent-maxturns').value, 10) || 0;
+  const toolsRaw = document.getElementById('edit-agent-tools').value.trim();
+  const tools = toolsRaw ? toolsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+  const msgEl = document.getElementById('edit-agent-msg');
+  msgEl.style.color = 'var(--muted)';
+  msgEl.textContent = 'Saving...';
+
+  try {
+    const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, system_prompt: sysprompt, max_turns: maxTurns, tools }),
+    });
+    if (res.ok) {
+      msgEl.style.color = 'var(--ok)';
+      msgEl.textContent = 'Agent updated successfully.';
+      setTimeout(() => { closeEditModal(); loadAgentList(); }, 800);
+    } else {
+      const errMsg = res.raw?.error?.message || res.raw?.message || 'Update failed';
+      msgEl.style.color = 'var(--err)';
+      msgEl.textContent = errMsg;
+    }
+  } catch(e) {
+    msgEl.style.color = 'var(--err)';
+    msgEl.textContent = 'Network error: ' + e.message;
   }
 }
 
@@ -2307,10 +2426,12 @@ async function loadSchedules() {
 }
 
 async function addSchedule() {
-  const interval = document.getElementById('sched-interval').value.trim();
-  const tenant   = document.getElementById('sched-tenant').value.trim();
-  const agent    = document.getElementById('sched-agent').value.trim();
-  const message  = document.getElementById('sched-message').value.trim();
+  const interval   = document.getElementById('sched-interval').value.trim();
+  const tenant     = document.getElementById('sched-tenant').value.trim();
+  const agent      = document.getElementById('sched-agent').value.trim();
+  const message    = document.getElementById('sched-message').value.trim();
+  const channel    = document.getElementById('sched-channel').value.trim();
+  const channel_id = document.getElementById('sched-channel-id').value.trim();
 
   if (!interval || !tenant || !agent || !message) {
     setMsg('sched-msg', 'All fields are required.', 'var(--warn)'); return;
@@ -2318,11 +2439,15 @@ async function addSchedule() {
 
   setMsg('sched-msg', 'Adding...', 'var(--muted)');
 
+  const payload = { interval, tenant, agent, message };
+  if (channel) payload.channel = channel;
+  if (channel_id) payload.channel_id = channel_id;
+
   try {
     const res = await apiFetch('/api/v1/schedules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ interval, tenant, agent, message }),
+      body: JSON.stringify(payload),
     });
 
     if (res.ok) {
@@ -2804,10 +2929,57 @@ async function joinPeer() {
   }
 }
 
+/* ─────────────── Log Streaming ─────────────── */
+
+let logEventSource;
+function startLogStream() {
+    if (logEventSource) logEventSource.close();
+    logEventSource = new EventSource('/events');
+    logEventSource.addEventListener('activity', (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            appendLogLine(data);
+        } catch {}
+    });
+    logEventSource.onerror = () => {
+        setTimeout(startLogStream, 3000);
+    };
+}
+
+function appendLogLine(evt) {
+    const container = document.getElementById('log-container');
+    if (!container) return;
+    if (container.querySelector('.empty-state')) container.innerHTML = '';
+
+    const colors = {
+        chat_start: 'var(--accent-h)',
+        tool_exec: 'var(--warn)',
+        tool_result: 'var(--ok)',
+        chat_complete: 'var(--ok)',
+        error: 'var(--err)'
+    };
+    const color = colors[evt.type] || 'var(--muted)';
+    const time = evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString() : '';
+
+    const line = document.createElement('div');
+    line.innerHTML = '<span style="color:var(--faint)">' + esc(time) + '</span> ' +
+        '<span style="color:' + color + '">[' + esc(evt.type) + ']</span> ' +
+        '<span style="color:var(--muted)">' + esc(evt.agent) + '</span> ' +
+        esc(evt.detail);
+    container.appendChild(line);
+    container.scrollTop = container.scrollHeight;
+}
+
+function clearLogs() {
+    const container = document.getElementById('log-container');
+    if (container) container.innerHTML = '<div class="empty-state">Logs cleared. Waiting for activity...</div>';
+}
+
 /* ─────────────── Init ─────────────── */
 
 loadDashboard();
 setInterval(loadDashboard, 15000);
+startLogStream();
 </script>
 </body>
 </html>

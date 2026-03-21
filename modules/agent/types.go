@@ -80,6 +80,15 @@ type ProgressEvent struct {
 	Message   string `json:"message"`
 }
 
+// ActivityEvent represents a real-time agent activity for the dashboard log stream.
+type ActivityEvent struct {
+	Timestamp string `json:"timestamp"`
+	Agent     string `json:"agent"`
+	Tenant    string `json:"tenant"`
+	Type      string `json:"type"`   // "chat_start", "tool_exec", "tool_result", "chat_complete", "error"
+	Detail    string `json:"detail"`
+}
+
 // ChatRequest is the IPC payload for agent.chat requests.
 type ChatRequest struct {
 	Agent     string // agent name

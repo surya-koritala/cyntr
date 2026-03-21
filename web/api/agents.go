@@ -204,6 +204,42 @@ func (s *Server) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 200, map[string]string{"status": "deleted", "id": mid})
 }
 
+func (s *Server) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	name := r.PathValue("name")
+
+	var body struct {
+		Model        string   `json:"model"`
+		SystemPrompt string   `json:"system_prompt"`
+		MaxTurns     int      `json:"max_turns"`
+		Tools        []string `json:"tools"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON body")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	_, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.update",
+		Payload: agent.AgentConfig{
+			Name:         name,
+			Tenant:       tid,
+			Model:        body.Model,
+			SystemPrompt: body.SystemPrompt,
+			MaxTurns:     body.MaxTurns,
+			Tools:        body.Tools,
+		},
+	})
+	if err != nil {
+		RespondError(w, 500, "UPDATE_FAILED", err.Error())
+		return
+	}
+	Respond(w, 200, map[string]string{"status": "updated", "agent": name, "tenant": tid})
+}
+
 func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
 	agentName := r.PathValue("name")
