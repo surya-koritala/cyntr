@@ -1,0 +1,9 @@
+{
+  "name": "@cyntr/sdk",
+  "version": "0.5.0",
+  "description": "JavaScript SDK for Cyntr AI Agent Platform",
+  "main": "src/index.js",
+  "repository": "https://github.com/surya-koritala/cyntr",
+  "license": "MIT",
+  "keywords": ["cyntr", "ai", "agent", "sdk"]
+}

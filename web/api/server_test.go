@@ -336,8 +336,8 @@ func TestAgentChatStream_EventFormat(t *testing.T) {
 	if err := json.Unmarshal([]byte(msgEvt["data"]), &payload); err != nil {
 		t.Fatalf("message event data is not valid JSON: %v", err)
 	}
-	if payload["type"] != "text" {
-		t.Fatalf("expected type=text, got %v", payload["type"])
+	if payload["type"] != "thinking" && payload["type"] != "text" {
+		t.Fatalf("expected type=thinking or text, got %v", payload["type"])
 	}
 
 	// Last event should be done

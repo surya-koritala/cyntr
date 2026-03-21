@@ -38,7 +38,7 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -121,6 +121,7 @@ func runStart() {
 	toolReg.Register(agenttools.NewGitHubTool())
 	toolReg.Register(agenttools.NewJiraTool())
 	toolReg.Register(agenttools.NewDelegateTool(k.Bus()))
+	toolReg.Register(agenttools.NewOrchestrateTool(k.Bus()))
 	toolReg.Register(agenttools.NewCodeInterpreterTool())
 	toolReg.Register(agenttools.NewTranscribeTool())
 	toolReg.Register(agenttools.NewWebSearchTool())

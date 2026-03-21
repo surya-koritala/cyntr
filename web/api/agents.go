@@ -250,7 +250,6 @@ func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -261,11 +260,13 @@ func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 300*time.Second)
 	defer cancel()
 
-	// For now, use the non-streaming chat via IPC and send result as a single SSE event.
-	// Full streaming integration (bypassing IPC for direct provider access) can be added later.
+	// Send thinking indicator
+	fmt.Fprintf(w, "event: message\ndata: {\"type\":\"thinking\",\"content\":\"\"}\n\n")
+	flusher.Flush()
+
 	resp, err := s.bus.Request(ctx, ipc.Message{
 		Source: "api", Target: "agent_runtime", Topic: "agent.chat",
 		Payload: agent.ChatRequest{
@@ -287,15 +288,33 @@ func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send the response as SSE events
-	data, _ := json.Marshal(map[string]any{
-		"type":    "text",
-		"content": chatResp.Content,
-	})
-	fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
-	flusher.Flush()
+	// Stream the response content in chunks for a streaming feel
+	content := chatResp.Content
+	chunkSize := 50 // characters per chunk
+	for i := 0; i < len(content); i += chunkSize {
+		end := i + chunkSize
+		if end > len(content) {
+			end = len(content)
+		}
+		chunk := content[i:end]
+		data, _ := json.Marshal(map[string]any{
+			"type":    "text",
+			"content": chunk,
+		})
+		fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
+		flusher.Flush()
+	}
 
-	// Send done event
+	// Send tools used if any
+	if len(chatResp.ToolsUsed) > 0 {
+		data, _ := json.Marshal(map[string]any{
+			"type":       "tools_used",
+			"tools_used": chatResp.ToolsUsed,
+		})
+		fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
+		flusher.Flush()
+	}
+
 	fmt.Fprintf(w, "event: done\ndata: {}\n\n")
 	flusher.Flush()
 }
