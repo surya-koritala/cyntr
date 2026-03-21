@@ -55,6 +55,7 @@ func runInit() {
 	providerChoice := prompt(scanner, "  Choose", "1")
 
 	var envLines []string
+	agentModelName := "mock" // provider name used for agent configs
 
 	switch providerChoice {
 	case "1":
@@ -65,6 +66,7 @@ func runInit() {
 			if model != "" {
 				envLines = append(envLines, "ANTHROPIC_MODEL="+model)
 			}
+			agentModelName = "claude"
 		}
 	case "2":
 		key := prompt(scanner, "  OpenAI API key", "")
@@ -74,6 +76,7 @@ func runInit() {
 			if model != "" {
 				envLines = append(envLines, "OPENAI_MODEL="+model)
 			}
+			agentModelName = "gpt"
 		}
 	case "3":
 		fmt.Println()
@@ -88,6 +91,7 @@ func runInit() {
 			envLines = append(envLines, "AZURE_OPENAI_DEPLOYMENT="+deployment)
 			apiVersion := prompt(scanner, "  API version", "2024-08-01-preview")
 			envLines = append(envLines, "AZURE_OPENAI_API_VERSION="+apiVersion)
+			agentModelName = "azure-openai"
 		}
 	case "4":
 		key := prompt(scanner, "  Gemini API key", "")
@@ -97,6 +101,7 @@ func runInit() {
 			if model != "" {
 				envLines = append(envLines, "GEMINI_MODEL="+model)
 			}
+			agentModelName = "gemini"
 		}
 	case "5":
 		key := prompt(scanner, "  OpenRouter API key", "")
@@ -106,12 +111,14 @@ func runInit() {
 			if model != "" {
 				envLines = append(envLines, "OPENROUTER_MODEL="+model)
 			}
+			agentModelName = "openrouter"
 		}
 	case "6":
 		url := prompt(scanner, "  Ollama URL", "http://localhost:11434")
 		envLines = append(envLines, "OLLAMA_URL="+url)
 		model := prompt(scanner, "  Model", "llama3")
 		envLines = append(envLines, "OLLAMA_MODEL="+model)
+		agentModelName = "ollama"
 	}
 
 	// Step 3
@@ -125,7 +132,13 @@ func runInit() {
 		if token != "" {
 			envLines = append(envLines, "SLACK_BOT_TOKEN="+token)
 			envLines = append(envLines, "SLACK_TENANT="+tenantName)
-			envLines = append(envLines, "SLACK_AGENT=assistant")
+			slackAgent := prompt(scanner, "    Agent to handle Slack messages", "assistant")
+			envLines = append(envLines, "SLACK_AGENT="+slackAgent)
+			fmt.Println()
+			fmt.Println("    Note: Slack must reach your Cyntr instance.")
+			fmt.Println("    For local dev, use ngrok: ngrok http 3000")
+			fmt.Println("    Then set your Slack app's Event Subscription URL to:")
+			fmt.Println("      https://<ngrok-url>/slack/events")
 		}
 	}
 
@@ -404,12 +417,12 @@ GCP:
 		agentJSON := fmt.Sprintf(`{
   "name": "cloud-ops",
   "tenant": "%s",
-  "model": "claude",
+  "model": "%s",
   "system_prompt": %q,
   "tools": ["shell_exec", "http_request", "web_search", "file_read", "file_search"],
   "max_turns": 10
 }
-`, tenantName, sysPrompt)
+`, tenantName, agentModelName, sysPrompt)
 
 		os.WriteFile("cloud-ops-agent.json", []byte(agentJSON), 0644)
 		fmt.Println("  ✓ cloud-ops-agent.json")
