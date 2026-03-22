@@ -2543,7 +2543,7 @@ function renderMarketplaceResults(container, results) {
       <td>${esc(s.description || '-')}</td>
       <td class="mono">${esc(s.author || '-')}</td>
       <td><span class="badge ${s.source === 'builtin' ? 'badge-ok' : 'badge-info'}">${esc(s.source || 'marketplace')}</span></td>
-      <td><button class="btn btn-sm btn-primary" onclick="installFromMarketplace('${esc(s.name)}','${esc(s.download_url || '')}')">Install</button></td>
+      <td>${s.source === 'builtin' ? '<span class="badge badge-ok">Available</span>' : '<button class="btn btn-sm btn-primary" onclick="installFromMarketplace(\'' + esc(s.name) + '\',\'' + esc(s.download_url || '') + '\')">Install</button>'}</td>
     </tr>`).join('') + '</tbody></table>';
 }
 

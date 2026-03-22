@@ -157,6 +157,18 @@ func (s *Server) handleSkillMarketplaceInstall(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Built-in catalog skills are already embedded — no download needed
+	for _, entry := range skill.BuiltinCatalog {
+		if entry.Name == body.Name {
+			Respond(w, 200, map[string]string{
+				"status":  "already_available",
+				"name":    body.Name,
+				"message": "This is a built-in skill — already embedded in Cyntr and available to all agents. No installation needed.",
+			})
+			return
+		}
+	}
+
 	// Handle openclaw: URL scheme (local OpenClaw skill import)
 	if strings.HasPrefix(body.DownloadURL, "openclaw:") {
 		skillName := strings.TrimPrefix(body.DownloadURL, "openclaw:")
