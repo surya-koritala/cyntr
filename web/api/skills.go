@@ -24,7 +24,45 @@ func (s *Server) handleSkillList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Respond(w, 200, resp.Payload)
+	// skill.list returns []string names — enrich with details from skill.get
+	names, ok := resp.Payload.([]string)
+	if !ok {
+		Respond(w, 200, resp.Payload)
+		return
+	}
+
+	type skillInfo struct {
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
+		Author      string `json:"author"`
+		Source      string `json:"source"`
+	}
+
+	var skills []skillInfo
+	for _, name := range names {
+		info := skillInfo{Name: name, Source: "local"}
+		// Try to get full details
+		getCtx, getCancel := context.WithTimeout(r.Context(), 1*time.Second)
+		getResp, getErr := s.bus.Request(getCtx, ipc.Message{
+			Source: "api", Target: "skill_runtime", Topic: "skill.get",
+			Payload: name,
+		})
+		getCancel()
+		if getErr == nil && getResp.Payload != nil {
+			// InstalledSkill has Manifest with Name, Version, Author
+			if sk, ok := getResp.Payload.(*skill.InstalledSkill); ok {
+				info.Version = sk.Manifest.Version
+				info.Author = sk.Manifest.Author
+				if sk.Path == "embedded://catalog" {
+					info.Source = "builtin"
+				}
+			}
+		}
+		skills = append(skills, info)
+	}
+
+	Respond(w, 200, skills)
 }
 
 func (s *Server) handleSkillInstall(w http.ResponseWriter, r *http.Request) {

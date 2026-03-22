@@ -20,7 +20,7 @@ func (s *Server) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // Version is set by the server creator.
-var Version = "0.3.0"
+var Version = "0.8.0"
 
 func (s *Server) handleSystemVersion(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 200, map[string]string{"version": Version})

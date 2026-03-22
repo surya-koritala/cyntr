@@ -685,7 +685,7 @@
     <section class="page active" id="page-dashboard">
       <div class="page-header">
         <h2>Dashboard</h2>
-        <p>System overview and health status.</p>
+        <p>Overview of your Cyntr platform — health status, module metrics, and recent activity.</p>
       </div>
 
       <div class="card-grid" id="d-cards">
@@ -734,7 +734,7 @@
         </div>
         <div class="section-body">
           <div class="health-grid" id="d-health-grid">
-            <div class="empty-state">Loading...</div>
+            <div class="empty-state">Fetching module health status...</div>
           </div>
         </div>
       </div>
@@ -755,7 +755,7 @@
               </tr>
             </thead>
             <tbody id="d-audit-tbody">
-              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="5" class="empty-state">Fetching recent audit events...</td></tr>
             </tbody>
           </table>
         </div>
@@ -766,7 +766,7 @@
     <section class="page" id="page-agents">
       <div class="page-header">
         <h2>Agents</h2>
-        <p>Create, manage, and chat with AI agents.</p>
+        <p>Create AI agents with custom models, tools, and skills. Chat with them, manage their configuration, and monitor their sessions.</p>
       </div>
 
       <!-- Create agent -->
@@ -905,7 +905,7 @@
     <section class="page" id="page-sessions">
       <div class="page-header">
         <h2>Sessions</h2>
-        <p>Browse agent conversation sessions and their messages.</p>
+        <p>Browse past conversations between users and agents. Search across all messages to find specific discussions.</p>
       </div>
 
       <div class="section">
@@ -975,7 +975,7 @@
     <section class="page" id="page-memories">
       <div class="page-header">
         <h2>Memories</h2>
-        <p>Browse and manage agent memory entries.</p>
+        <p>Long-term memories that agents recall across conversations. Agents automatically build memories from interactions — you can view and manage them here.</p>
       </div>
 
       <div class="section">
@@ -1019,7 +1019,7 @@
     <section class="page" id="page-skills">
       <div class="page-header">
         <h2>Skills</h2>
-        <p>Manage reusable agent skills. Import from OpenClaw or install from marketplace.</p>
+        <p>Skills are instruction sets that teach agents how to perform specific tasks — like code review, incident response, or security auditing. Cyntr ships with 25 built-in enterprise skills.</p>
       </div>
 
       <div class="section">
@@ -1031,7 +1031,7 @@
           <table>
             <thead><tr><th>Name</th><th>Version</th><th>Description</th><th>Source</th><th>Actions</th></tr></thead>
             <tbody id="skills-tbody">
-              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="5" class="empty-state">Fetching installed skills...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1085,7 +1085,7 @@
     <section class="page" id="page-knowledge">
       <div class="page-header">
         <h2>Knowledge Base</h2>
-        <p>Manage documents for RAG-powered agent responses.</p>
+        <p>Your organization's knowledge base for RAG (Retrieval-Augmented Generation). Upload documents, and agents will search them automatically when answering questions.</p>
       </div>
 
       <div class="section">
@@ -1097,7 +1097,7 @@
           <table>
             <thead><tr><th>ID</th><th>Title</th><th>Tags</th><th>Source</th><th>Created</th><th>Actions</th></tr></thead>
             <tbody id="knowledge-tbody">
-              <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="6" class="empty-state">Fetching knowledge base documents...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1138,7 +1138,7 @@
     <section class="page" id="page-workflows">
       <div class="page-header">
         <h2>Workflows</h2>
-        <p>Define and run multi-step agent workflows.</p>
+        <p>Multi-step automation workflows that chain agent actions with conditions, loops, and human approvals. Define workflows as JSON, run them manually or trigger them from events.</p>
       </div>
 
       <div class="section">
@@ -1150,7 +1150,7 @@
           <table>
             <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Steps</th><th>Actions</th></tr></thead>
             <tbody id="wf-tbody">
-              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="5" class="empty-state">Fetching registered workflows...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1201,7 +1201,7 @@
           <table>
             <thead><tr><th>Run ID</th><th>Workflow ID</th><th>Status</th><th>Started</th><th>Error</th></tr></thead>
             <tbody id="wf-runs-tbody">
-              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="5" class="empty-state">Fetching workflow run history...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1212,7 +1212,7 @@
     <section class="page" id="page-scheduler">
       <div class="page-header">
         <h2>Scheduler</h2>
-        <p>Manage cron-based scheduled jobs for agents.</p>
+        <p>Schedule recurring agent tasks using intervals or cron expressions. Results can be delivered to Slack, email, or other channels automatically.</p>
       </div>
 
       <div class="section">
@@ -1224,7 +1224,7 @@
           <table>
             <thead><tr><th>ID</th><th>Interval</th><th>Tenant</th><th>Agent</th><th>Message</th><th>Last Run</th><th>Next Run</th><th>Enabled</th><th>Actions</th></tr></thead>
             <tbody id="sched-tbody">
-              <tr><td colspan="9" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="9" class="empty-state">Fetching scheduled jobs...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1277,7 +1277,7 @@
     <section class="page" id="page-tenants">
       <div class="page-header">
         <h2>Tenants</h2>
-        <p>Manage multi-tenant isolation and policies.</p>
+        <p>Tenants provide isolated environments for different teams or projects. Each tenant has its own agents, policies, audit logs, and data.</p>
       </div>
 
       <div class="section">
@@ -1318,7 +1318,7 @@
           <table>
             <thead><tr><th>Name</th><th>Isolation</th><th>Policy</th><th>Actions</th></tr></thead>
             <tbody id="tenants-tbody">
-              <tr><td colspan="4" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="4" class="empty-state">Fetching tenants...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1329,7 +1329,7 @@
     <section class="page" id="page-audit">
       <div class="page-header">
         <h2>Audit Log</h2>
-        <p>Searchable audit trail for all policy decisions and actions.</p>
+        <p>Tamper-evident audit trail of every action in the platform — tool executions, policy decisions, agent chats, and approvals. Filter by tenant, user, agent, or date range.</p>
       </div>
 
       <div class="filter-bar">
@@ -1404,7 +1404,7 @@
     <section class="page" id="page-policies">
       <div class="page-header">
         <h2>Policies</h2>
-        <p>View loaded rules and test policy decisions against tenant rules.</p>
+        <p>Security policy rules that control what agents can do. Every tool call is checked against these rules before execution. Rules support allow, deny, and require_approval decisions.</p>
       </div>
 
       <div class="section">
@@ -1416,7 +1416,7 @@
           <table>
             <thead><tr><th>Name</th><th>Tenant</th><th>Action</th><th>Tool</th><th>Agent</th><th>Decision</th><th>Priority</th></tr></thead>
             <tbody id="policy-rules-tbody">
-              <tr><td colspan="7" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="7" class="empty-state">Fetching policy rules...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1460,7 +1460,7 @@
     <section class="page" id="page-approvals">
       <div class="page-header">
         <h2>Approvals</h2>
-        <p>Review and approve or deny pending tool execution requests.</p>
+        <p>When a policy rule requires human approval before executing a tool, the request appears here. Review the context and approve or deny each request.</p>
       </div>
 
       <div class="section">
@@ -1472,7 +1472,7 @@
           <table>
             <thead><tr><th>ID</th><th>Tenant</th><th>Agent</th><th>User</th><th>Tool</th><th>Rule</th><th>Created</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody id="approvals-tbody">
-              <tr><td colspan="10" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="10" class="empty-state">Fetching pending approvals...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1483,7 +1483,7 @@
     <section class="page" id="page-channels">
       <div class="page-header">
         <h2>Channels</h2>
-        <p>Active messaging platform integrations.</p>
+        <p>Messaging platform integrations that connect agents to Slack, Teams, Discord, and more. Channels are configured via environment variables.</p>
       </div>
 
       <div class="section">
@@ -1492,7 +1492,7 @@
           <button class="btn btn-secondary btn-sm" onclick="loadChannels()">Refresh</button>
         </div>
         <div id="channels-body">
-          <div class="empty-state">Loading...</div>
+          <div class="empty-state">Fetching channel integrations...</div>
         </div>
       </div>
 
@@ -1514,7 +1514,7 @@
     <section class="page" id="page-logs">
       <div class="page-header">
         <h2>Activity Logs</h2>
-        <p>Real-time agent activity stream.</p>
+        <p>Live stream of agent activity — see tool executions, chat starts/completions, and errors in real-time as they happen.</p>
       </div>
       <div class="section">
         <div class="section-header">
@@ -1533,7 +1533,7 @@
           </select>
         </div>
         <div id="log-container" style="max-height:600px;overflow-y:auto;padding:16px;background:var(--bg);font-family:monospace;font-size:12px;line-height:1.8;">
-          <div class="empty-state">Connecting to event stream...</div>
+          <div class="empty-state">Connecting to live activity stream... Events will appear here as agents execute tools and process messages.</div>
         </div>
       </div>
     </section>
@@ -1542,7 +1542,7 @@
     <section class="page" id="page-federation">
       <div class="page-header">
         <h2>Federation</h2>
-        <p>Manage peer Cyntr nodes for cross-instance agent communication.</p>
+        <p>Connect multiple Cyntr instances for cross-site agent communication, policy synchronization, and federated audit queries.</p>
       </div>
 
       <div class="section">
@@ -1580,7 +1580,7 @@
           <table>
             <thead><tr><th>Name</th><th>Address</th><th>Status</th><th>Last Seen</th><th>Actions</th></tr></thead>
             <tbody id="peers-tbody">
-              <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+              <tr><td colspan="5" class="empty-state">Fetching federation peers...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1591,7 +1591,7 @@
     <section class="page" id="page-users">
       <div class="page-header">
         <h2>Users</h2>
-        <p>Manage user accounts and API keys.</p>
+        <p>Manage user accounts and API keys. Each user gets a unique API key for authentication. Assign roles (admin, team_lead, user, auditor) to control access.</p>
       </div>
       <div class="section">
         <div class="section-header">
@@ -1640,7 +1640,7 @@
           <table>
             <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Tenant</th><th>Created</th><th>Actions</th></tr></thead>
             <tbody id="users-tbody">
-              <tr><td colspan="6" class="empty-state">Select a tenant to view users.</td></tr>
+              <tr><td colspan="6" class="empty-state">Select a tenant above to view and manage its users.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1766,7 +1766,8 @@ async function apiFetch(path, opts = {}) {
     opts.headers['Authorization'] = 'Bearer ' + key;
   }
   const r = await fetch(path, opts);
-  if (r.status === 401) {
+  if (r.status === 401 && key) {
+    // Only prompt if user had a key that was rejected (not if no key is configured)
     showApiKeyPrompt();
     return { ok: false, status: 401, data: null, raw: {} };
   }
@@ -2098,7 +2099,7 @@ async function loadAgentList() {
     }
     const agents = Array.isArray(res.data) ? res.data : [];
     if (!agents.length) {
-      body.innerHTML = '<div class="empty-state">No agents for this tenant yet.</div>';
+      body.innerHTML = '<div class="empty-state">No agents in this tenant yet. Create one above — pick a model, assign tools, and start chatting.</div>';
       return;
     }
 
@@ -2337,7 +2338,7 @@ async function loadSessions() {
     const res = await apiFetch(`/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(agent)}/sessions`);
     const sessions = Array.isArray(res.data) ? res.data : [];
     if (!sessions.length) {
-      tbody.innerHTML = '<tr><td colspan="2" class="empty-state">No sessions found for this agent.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="2" class="empty-state">No sessions yet. Sessions are created automatically when you chat with an agent.</td></tr>';
       return;
     }
     tbody.innerHTML = sessions.map(s => {
@@ -2414,7 +2415,7 @@ async function loadMemoriesList() {
     if (countEl) countEl.textContent = memories.length + ' memor' + (memories.length !== 1 ? 'ies' : 'y');
 
     if (!memories.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No memories found for this agent.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No memories stored for this agent. Memories are created during conversations when the agent learns important facts.</td></tr>';
       return;
     }
     tbody.innerHTML = memories.map(m => {
@@ -2457,7 +2458,7 @@ async function loadSkills() {
     const res = await apiFetch('/api/v1/skills');
     const skills = Array.isArray(res.data) ? res.data : [];
     if (!skills.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No skills installed. Install one below or search the marketplace.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No additional skills installed. Browse the marketplace below to find and install skills, or the 25 built-in skills are already available to all agents.</td></tr>';
       return;
     }
     tbody.innerHTML = skills.map(s => {
@@ -2585,7 +2586,7 @@ async function loadKnowledge() {
     const res = await apiFetch('/api/v1/knowledge');
     const docs = Array.isArray(res.data) ? res.data : [];
     if (!docs.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No documents in the knowledge base. Ingest one below.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No documents in the knowledge base yet. Upload documents below — agents will search them using the knowledge_search tool.</td></tr>';
       return;
     }
     tbody.innerHTML = docs.map(d => `<tr>
@@ -2651,7 +2652,7 @@ async function loadWorkflows() {
     const res = await apiFetch('/api/v1/workflows');
     const wfs = Array.isArray(res.data) ? res.data : (res.data ? [res.data] : []);
     if (!wfs.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No workflows registered. Define one below.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No workflows registered. Define a workflow with steps (agent_chat, tool_call, webhook, condition, loop, parallel) and register it below.</td></tr>';
       return;
     }
 
@@ -2798,7 +2799,7 @@ async function loadSchedules() {
     const res = await apiFetch('/api/v1/schedules');
     const jobs = Array.isArray(res.data) ? res.data : [];
     if (!jobs.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No scheduled jobs. Add one below.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No scheduled jobs. Create a job below to run agent tasks on a recurring schedule.</td></tr>';
       return;
     }
     tbody.innerHTML = jobs.map(j => `
@@ -2975,7 +2976,7 @@ async function loadAudit() {
     if (countEl) countEl.textContent = events.length + ' event' + (events.length !== 1 ? 's' : '');
 
     if (!events.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No matching events.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No audit events match your filters. Try broadening your search criteria.</td></tr>';
       return;
     }
 
@@ -3137,7 +3138,7 @@ async function loadApprovals() {
     const res = await apiFetch('/api/v1/approvals');
     const items = Array.isArray(res.data) ? res.data : [];
     if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No pending approvals.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No pending approvals. Approvals appear when an agent tries to use a tool that requires human authorization (policy decision: require_approval).</td></tr>';
       return;
     }
     tbody.innerHTML = items.map(a => {
@@ -3230,7 +3231,7 @@ async function loadChannels() {
       const count = match ? parseInt(match[1]) : 0;
 
       if (count === 0) {
-        body.innerHTML = '<div class="empty-state">No channels currently active. Configure channels via environment variables and restart Cyntr.</div>';
+        body.innerHTML = '<div class="empty-state">No channels currently active. Channels are configured via environment variables — set the required env var for Slack, Teams, Discord, or other platforms and restart Cyntr.</div>';
       } else {
         body.innerHTML = `<div style="padding:20px;">
           <div style="font-size:16px;font-weight:600;margin-bottom:8px;">${count} channel adapter${count !== 1 ? 's' : ''} active</div>
@@ -3261,7 +3262,7 @@ async function loadPeers() {
       (res.data && typeof res.data === 'object' ? Object.values(res.data) : []);
 
     if (!peers.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No peers configured.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No federation peers configured. Add a peer by entering its name and address above.</td></tr>';
       return;
     }
     tbody.innerHTML = peers.map(p => {
