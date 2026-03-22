@@ -2543,22 +2543,40 @@ function renderMarketplaceResults(container, results) {
       <td>${esc(s.description || '-')}</td>
       <td class="mono">${esc(s.author || '-')}</td>
       <td><span class="badge ${s.source === 'builtin' ? 'badge-ok' : 'badge-info'}">${esc(s.source || 'marketplace')}</span></td>
-      <td>${s.source === 'builtin' ? '<span class="badge badge-ok">Available</span>' : '<button class="btn btn-sm btn-primary" onclick="installFromMarketplace(\'' + esc(s.name) + '\',\'' + esc(s.download_url || '') + '\')">Install</button>'}</td>
+      <td>${s.source === 'builtin' ? '<span class="badge badge-ok">Available</span>' : '<button class="btn btn-sm btn-primary" onclick="installFromMarketplace(\'' + esc(s.name) + '\',\'' + esc(s.download_url || '') + '\', event)">Install</button>'}</td>
     </tr>`).join('') + '</tbody></table>';
 }
 
-async function installFromMarketplace(name, downloadUrl) {
+async function installFromMarketplace(name, downloadUrl, btn) {
   if (!downloadUrl) { alert('No download URL available'); return; }
+
+  // Find the button that was clicked and show loading
+  const buttons = document.querySelectorAll('.btn-primary');
+  let clickedBtn = null;
+  buttons.forEach(b => { if (b.textContent === 'Install' && b.onclick && b.onclick.toString().includes(name)) clickedBtn = b; });
+  if (btn && btn.target) clickedBtn = btn.target;
+  if (clickedBtn) { clickedBtn.textContent = 'Installing...'; clickedBtn.disabled = true; }
+
   const res = await apiFetch('/api/v1/skills/marketplace/install', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, download_url: downloadUrl }),
   });
   if (res.ok) {
-    alert('Skill "' + name + '" installed!');
-    loadSkills();
+    if (clickedBtn) {
+      clickedBtn.textContent = 'Installed';
+      clickedBtn.className = 'btn btn-sm badge badge-ok';
+      clickedBtn.disabled = true;
+    }
+    loadSkills(); // Refresh installed skills list
   } else {
-    alert('Install failed: ' + (res.raw?.error?.message || 'unknown error'));
+    const msg = res.data?.message || res.raw?.error?.message || 'unknown error';
+    if (msg.includes('already')) {
+      if (clickedBtn) { clickedBtn.textContent = 'Available'; clickedBtn.className = 'btn btn-sm badge badge-ok'; clickedBtn.disabled = true; }
+    } else {
+      alert('Install failed: ' + msg);
+      if (clickedBtn) { clickedBtn.textContent = 'Install'; clickedBtn.disabled = false; }
+    }
   }
 }
 
