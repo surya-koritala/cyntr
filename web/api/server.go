@@ -61,6 +61,15 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/memories", s.handleAgentMemories)
 	s.mux.HandleFunc("DELETE /api/v1/tenants/{tid}/agents/{name}/memories/{mid}", s.handleMemoryDelete)
 
+	// Users
+	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/users", s.handleUserCreate)
+	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/users", s.handleUserList)
+	s.mux.HandleFunc("DELETE /api/v1/tenants/{tid}/users/{uid}", s.handleUserDelete)
+	s.mux.HandleFunc("GET /api/v1/auth/me", s.handleAuthMe)
+
+	// Search
+	s.mux.HandleFunc("GET /api/v1/search", s.handleAgentSearch)
+
 	// Policies
 	s.mux.HandleFunc("POST /api/v1/policies/test", s.handlePolicyTest)
 	s.mux.HandleFunc("GET /api/v1/policies/rules", s.handlePolicyRulesList)

@@ -543,6 +543,62 @@
     /* ── Markdown code blocks ── */
     pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow-x: auto; margin: 8px 0; }
     code { font-family: monospace; font-size: 12px; }
+
+    /* ── Streaming cursor ── */
+    .streaming-cursor {
+        animation: blink 0.7s infinite;
+        color: var(--accent);
+        font-weight: bold;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    /* ── Mobile responsive ── */
+    .mobile-menu-btn {
+        display: none;
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 4px 10px;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 18px;
+    }
+
+    @media (max-width: 768px) {
+        .mobile-menu-btn { display: block; }
+        .sidebar {
+            position: fixed;
+            left: -260px;
+            top: 52px;
+            bottom: 0;
+            z-index: 100;
+            transition: left 0.2s;
+            width: 260px;
+        }
+        .sidebar.sidebar-open { left: 0; }
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 52px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 99;
+        }
+        .sidebar-overlay.active { display: block; }
+        .main { padding: 16px; }
+        .page-header h2 { font-size: 17px; }
+        .topbar-sub { display: none; }
+        .card-grid { grid-template-columns: 1fr; }
+        .form-row { grid-template-columns: 1fr; }
+        .tool-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+        .chat-messages { max-height: calc(100vh - 300px); }
+        .filter-bar { flex-direction: column; }
+        .filter-bar .form-group { max-width: 100%; }
+        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .btn { min-height: 40px; }
+    }
   </style>
 </head>
 <body>
@@ -551,8 +607,10 @@
 <div class="topbar">
   <span class="topbar-logo">Cyntr</span>
   <span class="topbar-sub">Agent OS</span>
+  <button class="mobile-menu-btn" onclick="toggleSidebar()">&#9776;</button>
   <div class="topbar-spacer"></div>
   <button onclick="toggleTheme()" style="background:none;border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--muted);cursor:pointer;font-size:12px;" id="theme-btn">Light</button>
+  <span id="user-indicator" style="font-size:12px;color:var(--muted);"></span>
   <div class="topbar-status">
     <span class="dot" id="health-dot"></span>
     <span id="health-label">Connecting...</span>
@@ -604,6 +662,9 @@
     <div class="nav-item" data-page="approvals">
       <i class="nav-icon">&#10003;</i> Approvals
     </div>
+    <div class="nav-item" data-page="users">
+      <i class="nav-icon">&#9998;</i> Users
+    </div>
     <div class="sidebar-section">Infrastructure</div>
     <div class="nav-item" data-page="channels">
       <i class="nav-icon">&#9993;</i> Channels
@@ -615,6 +676,7 @@
       <i class="nav-icon">&#9670;</i> Federation
     </div>
   </nav>
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
   <!-- Content -->
   <main class="main">
@@ -844,6 +906,23 @@
       <div class="page-header">
         <h2>Sessions</h2>
         <p>Browse agent conversation sessions and their messages.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Search Conversations</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <input type="text" id="conv-search" placeholder="Search across all conversations..." onkeydown="if(event.key==='Enter')searchConversations()">
+            </div>
+            <div class="form-group" style="align-self:flex-end;">
+              <button class="btn btn-primary" onclick="searchConversations()">Search</button>
+            </div>
+          </div>
+          <div id="search-results"></div>
+        </div>
       </div>
 
       <div class="section">
@@ -1508,6 +1587,66 @@
       </div>
     </section>
 
+    <!-- ══ Users ══ -->
+    <section class="page" id="page-users">
+      <div class="page-header">
+        <h2>Users</h2>
+        <p>Manage user accounts and API keys.</p>
+      </div>
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Create User</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tenant</label>
+              <select id="user-tenant"><option value="">Select...</option></select>
+            </div>
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" id="user-name" placeholder="John Doe">
+            </div>
+            <div class="form-group">
+              <label>Email</label>
+              <input type="text" id="user-email" placeholder="john@example.com">
+            </div>
+            <div class="form-group">
+              <label>Role</label>
+              <select id="user-role">
+                <option value="user">User</option>
+                <option value="team_lead">Team Lead</option>
+                <option value="admin">Admin</option>
+                <option value="auditor">Auditor</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="createUser()">Create User</button>
+            <span id="user-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+          <div id="user-key-display" style="display:none;margin-top:12px;padding:12px;background:var(--bg);border:1px solid var(--warn);border-radius:6px;">
+            <strong style="color:var(--warn);">Save this API key -- it cannot be retrieved again:</strong>
+            <pre id="user-api-key" style="margin:8px 0;color:var(--ok);font-size:14px;"></pre>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">User List</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadUsers()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Tenant</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody id="users-tbody">
+              <tr><td colspan="6" class="empty-state">Select a tenant to view users.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
   <!-- Edit Agent Modal -->
   <div id="edit-agent-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
     <div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:24px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;">
@@ -1588,7 +1727,15 @@ function navigate(page) {
     el.classList.toggle('active', el.dataset.page === page));
   document.querySelectorAll('.page').forEach(el =>
     el.classList.toggle('active', el.id === 'page-' + page));
+  // Close mobile sidebar
+  document.querySelector('.sidebar').classList.remove('sidebar-open');
+  document.getElementById('sidebar-overlay').classList.remove('active');
   onPageEnter(page);
+}
+
+function toggleSidebar() {
+    document.querySelector('.sidebar').classList.toggle('sidebar-open');
+    document.getElementById('sidebar-overlay').classList.toggle('active');
 }
 
 function onPageEnter(page) {
@@ -1606,6 +1753,7 @@ function onPageEnter(page) {
   if (page === 'memories')   loadMemoriesPage();
   if (page === 'policies')   { loadPolicyRules(); }
   if (page === 'knowledge')  loadKnowledge();
+  if (page === 'users')      loadUsersPage();
   if (page === 'logs')       startLogStream();
 }
 
@@ -2086,8 +2234,9 @@ function renderChat() {
   }
   container.innerHTML = chatHistory.map(m => {
     const isUser = m.role === 'user';
+    const streamIndicator = m.streaming ? '<span class="streaming-cursor">|</span>' : '';
     return `<div class="msg ${isUser ? 'msg-user' : 'msg-agent'}">
-      <div class="msg-bubble">${isUser ? esc(m.content) : renderMarkdown(m.content)}</div>
+      <div class="msg-bubble">${isUser ? esc(m.content) : renderMarkdown(m.content)}${streamIndicator}</div>
       <div class="msg-meta">${isUser ? 'You' : (m.agent || 'Agent')} &bull; ${fmtTime(m.ts)}</div>
     </div>`;
   }).join('');
@@ -2095,48 +2244,74 @@ function renderChat() {
 }
 
 async function sendChat() {
-  const tenant = document.getElementById('chat-tenant').value.trim();
-  const agentName = document.getElementById('chat-agent').value.trim();
-  const input = document.getElementById('chat-input');
-  const message = input.value.trim();
+    const tenant = document.getElementById('chat-tenant').value.trim();
+    const agentName = document.getElementById('chat-agent').value.trim();
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
 
-  if (!tenant)     { alert('Select a tenant.'); return; }
-  if (!agentName)  { alert('Enter an agent name.'); return; }
-  if (!message)    return;
+    if (!tenant) { alert('Select a tenant.'); return; }
+    if (!agentName) { alert('Enter an agent name.'); return; }
+    if (!message) return;
 
-  input.value = '';
-  chatHistory.push({ role: 'user', content: message, ts: new Date().toISOString() });
-  renderChat();
-
-  const btn = document.getElementById('chat-send-btn');
-  btn.disabled = true;
-
-  try {
-    const res = await apiFetch(
-      `/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(agentName)}/chat`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
-      }
-    );
-
-    if (res.ok) {
-      const d = res.data;
-      const content = d.content || d.message || JSON.stringify(d);
-      const toolsUsed = (d.tools_used || []).length ? '\n\n[Tools used: ' + d.tools_used.join(', ') + ']' : '';
-      chatHistory.push({ role: 'agent', agent: d.agent || agentName, content: content + toolsUsed, ts: new Date().toISOString() });
-    } else {
-      const errMsg = res.raw?.error?.message || res.raw?.message || `Error ${res.status}`;
-      chatHistory.push({ role: 'agent', agent: 'System', content: '[Error] ' + errMsg, ts: new Date().toISOString() });
-    }
-  } catch(e) {
-    chatHistory.push({ role: 'agent', agent: 'System', content: '[Network error] ' + e.message, ts: new Date().toISOString() });
-  } finally {
-    btn.disabled = false;
+    input.value = '';
+    chatHistory.push({ role: 'user', content: message, ts: new Date().toISOString() });
     renderChat();
-    input.focus();
-  }
+
+    const btn = document.getElementById('chat-send-btn');
+    btn.disabled = true;
+
+    // Add empty agent bubble for streaming
+    const streamMsg = { role: 'agent', agent: agentName, content: '', ts: new Date().toISOString(), streaming: true };
+    chatHistory.push(streamMsg);
+    renderChat();
+
+    const key = localStorage.getItem('cyntr_api_key') || '';
+    let url = `/api/v1/tenants/${encodeURIComponent(tenant)}/agents/${encodeURIComponent(agentName)}/stream?message=${encodeURIComponent(message)}`;
+    if (key) url += `&key=${encodeURIComponent(key)}`;
+
+    try {
+        const source = new EventSource(url);
+
+        source.addEventListener('message', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.type === 'thinking') {
+                    streamMsg.content = 'Thinking...';
+                    renderChat();
+                } else if (data.type === 'text') {
+                    if (streamMsg.content === 'Thinking...') streamMsg.content = '';
+                    streamMsg.content += data.content;
+                    renderChat();
+                } else if (data.type === 'tools_used' && data.tools_used) {
+                    streamMsg.content += '\n\n[Tools used: ' + data.tools_used.join(', ') + ']';
+                    renderChat();
+                }
+            } catch {}
+        });
+
+        source.addEventListener('done', () => {
+            streamMsg.streaming = false;
+            source.close();
+            btn.disabled = false;
+            renderChat();
+            input.focus();
+        });
+
+        source.addEventListener('error', () => {
+            if (streamMsg.content === '' || streamMsg.content === 'Thinking...') {
+                streamMsg.content = '[Error connecting to stream. Falling back...]';
+            }
+            streamMsg.streaming = false;
+            source.close();
+            btn.disabled = false;
+            renderChat();
+        });
+    } catch(e) {
+        streamMsg.content = '[Stream error] ' + e.message;
+        streamMsg.streaming = false;
+        btn.disabled = false;
+        renderChat();
+    }
 }
 
 /* ─────────────── Sessions ─────────────── */
@@ -3271,11 +3446,115 @@ function toggleTheme() {
 /* Session "View" buttons are already wired via loadSessionMessages calls in the sessions table.
    The session messages section (sess-messages-body) already renders messages inline. */
 
+/* ─────────────── Conversation Search ─────────────── */
+
+async function searchConversations() {
+    const query = document.getElementById('conv-search').value.trim();
+    const container = document.getElementById('search-results');
+    if (!query) { container.innerHTML = ''; return; }
+
+    container.innerHTML = '<div class="empty-state"><span class="spinner"></span> Searching...</div>';
+
+    const res = await apiFetch('/api/v1/search?q=' + encodeURIComponent(query));
+    const results = Array.isArray(res.data) ? res.data : [];
+
+    if (!results.length) {
+        container.innerHTML = '<div class="empty-state">No results for "' + esc(query) + '"</div>';
+        return;
+    }
+
+    const roleNames = {0: 'user', 1: 'assistant', 2: 'system', 3: 'tool'};
+    container.innerHTML = '<table><thead><tr><th>Session</th><th>Role</th><th>Content</th></tr></thead><tbody>' +
+        results.map(r => {
+            const content = r.content.length > 200 ? r.content.substring(0, 200) + '...' : r.content;
+            const highlighted = content.replace(new RegExp(esc(query), 'gi'), '<mark>$&</mark>');
+            return '<tr><td class="mono">' + esc(r.session_id) + '</td>' +
+                '<td><span class="badge badge-info">' + (roleNames[r.role] || 'unknown') + '</span></td>' +
+                '<td>' + highlighted + '</td></tr>';
+        }).join('') + '</tbody></table>';
+}
+
+/* ─────────────── Users ─────────────── */
+
+async function loadCurrentUser() {
+    const res = await apiFetch('/api/v1/auth/me');
+    if (res.ok && res.data) {
+        const name = res.data.name || res.data.user || 'admin';
+        const el = document.getElementById('user-indicator');
+        if (el) el.textContent = name;
+    }
+}
+
+async function createUser() {
+    const tenant = document.getElementById('user-tenant').value;
+    const name = document.getElementById('user-name').value.trim();
+    const email = document.getElementById('user-email').value.trim();
+    const role = document.getElementById('user-role').value;
+    if (!tenant || !name) { setMsg('user-msg', 'Tenant and name required', 'var(--warn)'); return; }
+
+    const res = await apiFetch('/api/v1/tenants/' + encodeURIComponent(tenant) + '/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, role }),
+    });
+    if (res.ok) {
+        setMsg('user-msg', 'User created!', 'var(--ok)');
+        document.getElementById('user-key-display').style.display = 'block';
+        document.getElementById('user-api-key').textContent = res.data.api_key;
+        document.getElementById('user-name').value = '';
+        document.getElementById('user-email').value = '';
+        loadUsers();
+    } else {
+        setMsg('user-msg', res.raw?.error?.message || 'Failed', 'var(--err)');
+    }
+}
+
+async function loadUsers() {
+    const tenant = document.getElementById('user-tenant')?.value;
+    const tbody = document.getElementById('users-tbody');
+    if (!tenant) { tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Select a tenant.</td></tr>'; return; }
+
+    const res = await apiFetch('/api/v1/tenants/' + encodeURIComponent(tenant) + '/users');
+    const users = Array.isArray(res.data) ? res.data : [];
+    if (!users.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No users yet.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = users.map(u => '<tr>' +
+        '<td>' + esc(u.name) + '</td>' +
+        '<td class="mono">' + esc(u.email || '-') + '</td>' +
+        '<td><span class="badge badge-info">' + esc(u.role) + '</span></td>' +
+        '<td>' + esc(u.tenant) + '</td>' +
+        '<td class="mono">' + fmtTime(u.created_at) + '</td>' +
+        '<td><button class="btn btn-sm btn-danger" onclick="deleteUser(\'' + esc(u.id) + '\')">Delete</button></td>' +
+    '</tr>').join('');
+}
+
+async function deleteUser(id) {
+    if (!confirm('Delete this user?')) return;
+    await apiFetch('/api/v1/tenants/_/users/' + encodeURIComponent(id), { method: 'DELETE' });
+    loadUsers();
+}
+
+async function loadUsersPage() {
+    const tenants = await loadTenants();
+    const sel = document.getElementById('user-tenant');
+    if (sel) {
+        sel.innerHTML = '<option value="">Select tenant...</option>';
+        tenants.forEach(t => {
+            const name = typeof t === 'string' ? t : t.name;
+            sel.innerHTML += '<option value="' + esc(name) + '">' + esc(name) + '</option>';
+        });
+        sel.onchange = loadUsers;
+    }
+}
+
 /* ─────────────── Init ─────────────── */
 
 loadDashboard();
 setInterval(loadDashboard, 15000);
 startLogStream();
+loadCurrentUser();
 </script>
 </body>
 </html>

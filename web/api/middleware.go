@@ -65,15 +65,25 @@ func (am *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 
 		// Check Authorization header
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			RespondError(w, 401, "UNAUTHORIZED", "Authorization header required")
-			return
+		var token string
+		if authHeader != "" {
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+			if token == authHeader {
+				// No "Bearer " prefix — might be direct API key
+				token = authHeader
+			}
 		}
 
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token == authHeader {
-			// No "Bearer " prefix — might be direct API key
-			token = authHeader
+		// Support API key via query param (for EventSource/SSE)
+		if token == "" {
+			if qkey := r.URL.Query().Get("key"); qkey != "" {
+				token = qkey
+			}
+		}
+
+		if token == "" {
+			RespondError(w, 401, "UNAUTHORIZED", "Authorization header required")
+			return
 		}
 
 		// Check API keys

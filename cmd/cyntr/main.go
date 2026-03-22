@@ -38,7 +38,7 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "0.7.1"
+const version = "0.8.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -466,6 +466,7 @@ func runStart() {
 		log.Warn("tenant manager init failed", map[string]any{"error": err.Error()})
 	}
 	apiServer.SetTenantManager(tenantMgr)
+	webapi.SetSessionStore(sessionStore)
 	dashboard := web.NewDashboardHandler()
 
 	// Wrap API with auth if API key is configured
@@ -498,8 +499,16 @@ func runStart() {
 
 	showPostStartBanner("http://localhost"+webAddr, "http://"+cfg.Listen.Address+"/api/v1/")
 
-	// Auto-register cloud-ops agent if config file exists
-	if agentData, err := os.ReadFile("cloud-ops-agent.json"); err == nil {
+	// Auto-register agents from *-agent.json files
+	entries, _ := os.ReadDir(".")
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "-agent.json") {
+			continue
+		}
+		agentData, err := os.ReadFile(entry.Name())
+		if err != nil {
+			continue
+		}
 		var agentCfg agent.AgentConfig
 		if json.Unmarshal(agentData, &agentCfg) == nil && agentCfg.Name != "" {
 			regCtx, regCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -509,7 +518,7 @@ func runStart() {
 			})
 			regCancel()
 			if regErr == nil {
-				log.Info("cloud-ops agent registered", map[string]any{"tenant": agentCfg.Tenant, "name": agentCfg.Name})
+				log.Info("agent registered from file", map[string]any{"name": agentCfg.Name, "file": entry.Name()})
 			}
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	crand "crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -33,7 +34,7 @@ func runInit() {
 	}
 
 	// Step 1
-	fmt.Println("  Step 1 of 5: Basic Configuration")
+	fmt.Println("  Step 1 of 6: Basic Configuration")
 	fmt.Println("  ─────────────────────────────────")
 	fmt.Println()
 	tenantName := prompt(scanner, "  Organization/team name", "default")
@@ -42,7 +43,7 @@ func runInit() {
 
 	// Step 2
 	fmt.Println()
-	fmt.Println("  Step 2 of 5: AI Model Provider")
+	fmt.Println("  Step 2 of 6: AI Model Provider")
 	fmt.Println("  ──────────────────────────────")
 	fmt.Println()
 	fmt.Println("  1) Anthropic (Claude)  — recommended")
@@ -137,7 +138,7 @@ func runInit() {
 
 	// Step 3
 	fmt.Println()
-	fmt.Println("  Step 3 of 5: Messaging Channels (optional)")
+	fmt.Println("  Step 3 of 6: Messaging Channels (optional)")
 	fmt.Println("  ───────────────────────────────────────────")
 	fmt.Println()
 
@@ -204,7 +205,7 @@ func runInit() {
 
 	// Step 4
 	fmt.Println()
-	fmt.Println("  Step 4 of 5: Cloud Infrastructure Access (optional)")
+	fmt.Println("  Step 4 of 6: Cloud Infrastructure Access (optional)")
 	fmt.Println("  ───────────────────────────────────────────────────")
 	fmt.Println()
 	fmt.Println("  Cyntr agents can use CLI tools to troubleshoot cloud infrastructure.")
@@ -235,7 +236,7 @@ func runInit() {
 
 	// Step 5
 	fmt.Println()
-	fmt.Println("  Step 5 of 5: Security Policy")
+	fmt.Println("  Step 5 of 6: Security Policy")
 	fmt.Println("  ────────────────────────────")
 	fmt.Println()
 	fmt.Println("  Shell access policy for agents:")
@@ -247,6 +248,83 @@ func runInit() {
 	fmt.Println()
 
 	shellPolicy := prompt(scanner, "  Choose", "2")
+
+	// Step 6 of 6: Agent Templates
+	fmt.Println()
+	fmt.Println("  Step 6 of 6: Agent Templates (optional)")
+	fmt.Println("  ─────────────────────────────────────────")
+	fmt.Println()
+	fmt.Println("  Pre-configured agents ready to deploy:")
+	fmt.Println()
+	fmt.Println("  1) Cloud Ops         — AWS/Azure/GCP infrastructure troubleshooting")
+	fmt.Println("  2) Code Reviewer     — PR review, bug detection, best practices")
+	fmt.Println("  3) Security Scanner  — vulnerability scanning, secret detection")
+	fmt.Println("  4) General Assistant — all-purpose with all tools and skills")
+	fmt.Println("  5) All of the above")
+	fmt.Println("  6) Skip for now")
+	fmt.Println()
+
+	templateChoice := prompt(scanner, "  Choose", "4")
+
+	type agentTemplate struct {
+		Name         string   `json:"name"`
+		Tenant       string   `json:"tenant"`
+		Model        string   `json:"model"`
+		SystemPrompt string   `json:"system_prompt"`
+		Tools        []string `json:"tools"`
+		Skills       []string `json:"skills"`
+		MaxTurns     int      `json:"max_turns"`
+	}
+
+	templates := map[string]agentTemplate{
+		"cloud-ops": {
+			Name: "cloud-ops", Model: agentModelName, MaxTurns: 20,
+			Tools:        []string{"shell_exec", "http_request", "web_search", "file_read", "aws_cross_account", "aws_cost_explorer", "kubectl", "send_notification"},
+			Skills:       []string{"aws-infrastructure-audit", "incident-commander", "cost-optimizer", "log-analyzer", "deployment-checker"},
+			SystemPrompt: "You are a cloud infrastructure agent with direct CLI access. Run commands immediately, don't ask for permission. ONLY use read-only commands. Never modify resources.",
+		},
+		"code-reviewer": {
+			Name: "code-reviewer", Model: agentModelName, MaxTurns: 15,
+			Tools:        []string{"file_read", "file_search", "shell_exec", "github"},
+			Skills:       []string{"code-reviewer-pro", "test-generator", "documentation-generator", "git-analyst"},
+			SystemPrompt: "You are an expert code reviewer. Analyze code for bugs, security issues, performance problems, and style. Provide specific, actionable feedback with line numbers.",
+		},
+		"security-scanner": {
+			Name: "security-scanner", Model: agentModelName, MaxTurns: 15,
+			Tools:        []string{"shell_exec", "file_read", "file_search", "http_request"},
+			Skills:       []string{"security-audit", "dependency-scanner", "secret-detector", "access-reviewer", "compliance-checker"},
+			SystemPrompt: "You are a security auditing agent. Scan infrastructure and code for vulnerabilities. Generate severity-classified findings reports.",
+		},
+		"assistant": {
+			Name: "assistant", Model: agentModelName, MaxTurns: 20,
+			Tools:        []string{"*"},
+			Skills:       []string{},
+			SystemPrompt: "You are a helpful AI assistant with access to all tools. Execute commands directly when asked. Be concise and actionable.",
+		},
+	}
+
+	var selectedTemplates []string
+	switch templateChoice {
+	case "1":
+		selectedTemplates = []string{"cloud-ops"}
+	case "2":
+		selectedTemplates = []string{"code-reviewer"}
+	case "3":
+		selectedTemplates = []string{"security-scanner"}
+	case "4":
+		selectedTemplates = []string{"assistant"}
+	case "5":
+		selectedTemplates = []string{"cloud-ops", "code-reviewer", "security-scanner", "assistant"}
+	}
+
+	for _, name := range selectedTemplates {
+		tmpl := templates[name]
+		tmpl.Tenant = tenantName
+		data, _ := json.Marshal(tmpl)
+		filename := name + "-agent.json"
+		os.WriteFile(filename, data, 0644)
+		fmt.Printf("  ✓ %s\n", filename)
+	}
 
 	// Generate API key for dashboard/API access
 	keyBuf := make([]byte, 32)

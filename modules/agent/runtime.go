@@ -133,6 +133,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("agent_runtime", "agent.memory.delete", r.handleMemoryDelete)
 	r.bus.Handle("agent_runtime", "agent.session.clear", r.handleSessionClear)
 	r.bus.Handle("agent_runtime", "agent.update", r.handleUpdate)
+	r.bus.Handle("agent_runtime", "agent.search", r.handleSearch)
 	return r.LoadSavedAgents()
 }
 
@@ -773,5 +774,20 @@ func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "deleted"}, nil
+}
+
+func (r *Runtime) handleSearch(msg ipc.Message) (ipc.Message, error) {
+	query, ok := msg.Payload.(string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected string query, got %T", msg.Payload)
+	}
+	if r.store == nil {
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: []SearchResult{}}, nil
+	}
+	results, err := r.store.SearchMessages(query)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: results}, nil
 }
 

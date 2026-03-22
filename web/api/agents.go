@@ -241,6 +241,25 @@ func (s *Server) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 200, map[string]string{"status": "updated", "agent": name, "tenant": tid})
 }
 
+func (s *Server) handleAgentSearch(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		RespondError(w, 400, "MISSING_QUERY", "q parameter is required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.search",
+		Payload: query,
+	})
+	if err != nil {
+		RespondError(w, 500, "SEARCH_ERROR", err.Error())
+		return
+	}
+	Respond(w, 200, resp.Payload)
+}
+
 func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
 	agentName := r.PathValue("name")

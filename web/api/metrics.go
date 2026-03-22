@@ -44,6 +44,13 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Flush implements http.Flusher so SSE streaming works through the middleware.
+func (w *statusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	reqs := metrics.requestCount.Load()
 	errs := metrics.errorCount.Load()

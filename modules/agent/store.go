@@ -64,6 +64,24 @@ func NewSessionStore(dbPath string) (*SessionStore, error) {
 		return nil, fmt.Errorf("create agents table: %w", err)
 	}
 
+	// Full-text search index for messages
+	db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content)`)
+
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id TEXT PRIMARY KEY,
+			tenant TEXT NOT NULL,
+			name TEXT NOT NULL,
+			email TEXT DEFAULT '',
+			role TEXT DEFAULT 'user',
+			api_key_hash TEXT DEFAULT '',
+			created_at TEXT NOT NULL
+		)
+	`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create users table: %w", err)
+	}
+
 	// Enable foreign keys for CASCADE delete
 	db.Exec("PRAGMA foreign_keys=ON")
 
@@ -95,11 +113,20 @@ func (s *SessionStore) AppendMessage(sessionID string, msg Message) error {
 	toolCallsJSON, _ := json.Marshal(msg.ToolCalls)
 	toolResultsJSON, _ := json.Marshal(msg.ToolResults)
 
-	_, err := s.db.Exec(
+	result, err := s.db.Exec(
 		"INSERT INTO messages (session_id, role, content, tool_calls, tool_results) VALUES (?, ?, ?, ?, ?)",
 		sessionID, int(msg.Role), msg.Content, string(toolCallsJSON), string(toolResultsJSON),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	// Index in FTS for search
+	if msg.Content != "" {
+		if rowid, rerr := result.LastInsertId(); rerr == nil {
+			s.db.Exec("INSERT INTO messages_fts(rowid, content) VALUES (?, ?)", rowid, msg.Content)
+		}
+	}
+	return nil
 }
 
 // ClearMessages removes all messages for a session.
@@ -244,6 +271,106 @@ func (s *SessionStore) DeleteAgent(tenant, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.db.Exec("DELETE FROM agents WHERE tenant=? AND name=?", tenant, name)
+	return err
+}
+
+// SearchResult represents a single full-text search match from the messages table.
+type SearchResult struct {
+	SessionID string `json:"session_id"`
+	Content   string `json:"content"`
+	Role      int    `json:"role"`
+}
+
+// SearchMessages performs a full-text search across all message content.
+func (s *SessionStore) SearchMessages(query string) ([]SearchResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.Query(`
+		SELECT m.session_id, m.content, m.role
+		FROM messages m
+		JOIN messages_fts f ON m.id = f.rowid
+		WHERE messages_fts MATCH ?
+		ORDER BY m.id DESC
+		LIMIT 50
+	`, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		rows.Scan(&r.SessionID, &r.Content, &r.Role)
+		results = append(results, r)
+	}
+	if results == nil {
+		results = []SearchResult{}
+	}
+	return results, rows.Err()
+}
+
+// User represents a user account within a tenant.
+type User struct {
+	ID        string `json:"id"`
+	Tenant    string `json:"tenant"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	CreatedAt string `json:"created_at"`
+}
+
+// CreateUser inserts a new user record.
+func (s *SessionStore) CreateUser(user User, apiKeyHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(
+		"INSERT INTO users (id, tenant, name, email, role, api_key_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		user.ID, user.Tenant, user.Name, user.Email, user.Role, apiKeyHash, user.CreatedAt,
+	)
+	return err
+}
+
+// ListUsers returns all users belonging to a tenant.
+func (s *SessionStore) ListUsers(tenant string) ([]User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.Query("SELECT id, tenant, name, email, role, created_at FROM users WHERE tenant = ? ORDER BY name", tenant)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []User
+	for rows.Next() {
+		var u User
+		rows.Scan(&u.ID, &u.Tenant, &u.Name, &u.Email, &u.Role, &u.CreatedAt)
+		users = append(users, u)
+	}
+	if users == nil {
+		users = []User{}
+	}
+	return users, rows.Err()
+}
+
+// GetUserByKeyHash looks up a user by the SHA-256 hash of their API key.
+func (s *SessionStore) GetUserByKeyHash(hash string) (*User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var u User
+	err := s.db.QueryRow("SELECT id, tenant, name, email, role, created_at FROM users WHERE api_key_hash = ?", hash).
+		Scan(&u.ID, &u.Tenant, &u.Name, &u.Email, &u.Role, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// DeleteUser removes a user by ID.
+func (s *SessionStore) DeleteUser(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec("DELETE FROM users WHERE id = ?", id)
 	return err
 }
 
