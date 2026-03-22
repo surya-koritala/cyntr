@@ -1,13 +1,14 @@
 <p align="center">
   <h1 align="center">Cyntr</h1>
   <p align="center"><strong>Open-Source AI Agent Platform for Enterprise</strong></p>
-  <p align="center">Deploy AI agents that run shell commands, browse the web, query databases, manage cloud infrastructure, and automate workflows — all behind policy-enforced security with full audit trails.</p>
+  <p align="center">Deploy AI agents that run shell commands, browse the web, query databases, manage Kubernetes clusters, analyze cloud costs, enforce security policies, and automate workflows — with 25 built-in enterprise skills, a skill marketplace, and full audit trails.</p>
   <p align="center">
-    <a href="https://github.com/surya-koritala/cyntr/releases"><img src="https://img.shields.io/github/v/release/surya-koritala/cyntr" alt="Release"></a>
+    <a href="https://github.com/surya-koritala/cyntr/releases"><img src="https://img.shields.io/badge/release-v0.7.0-green" alt="Release"></a>
     <a href="https://github.com/surya-koritala/cyntr/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
     <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go" alt="Go">
     <img src="https://img.shields.io/badge/tests-passing-brightgreen" alt="Tests">
-    <img src="https://img.shields.io/badge/tools-20-orange" alt="Tools">
+    <img src="https://img.shields.io/badge/tools-28-orange" alt="Tools">
+    <img src="https://img.shields.io/badge/skills-25-red" alt="Skills">
     <img src="https://img.shields.io/badge/providers-8-purple" alt="Providers">
     <img src="https://img.shields.io/badge/channels-9-blue" alt="Channels">
   </p>
@@ -19,10 +20,11 @@
 
 Most AI agent frameworks are libraries — you build around them. Cyntr is a **platform** — you deploy it and it runs your agents. Single Go binary. Zero external dependencies. Self-hosted.
 
-- **One agent, all tools** — use `["*"]` to give an agent access to every tool. New tools automatically available.
-- **Slack-native** — agents respond in Slack with typing indicators, progress messages, and auto-chunked responses.
-- **Cloud infrastructure ops** — agents run AWS/Azure/GCP CLI commands with read-only policy enforcement.
-- **Enterprise security** — every tool call checked against policy rules. Deny by default. Full audit trail.
+- **28 tools, 25 skills** — agents get shell, web, cloud, Kubernetes, data analysis, and enterprise skills out of the box.
+- **Skill marketplace** — browse a built-in catalog, search GitHub, or import OpenClaw skills. Agents load skills on demand mid-conversation.
+- **Slack-native** — agents respond in Slack threads with slash commands, Block Kit formatting, typing indicators, progress messages, and reaction-based approvals.
+- **Cloud & Kubernetes ops** — agents run AWS/Azure/GCP CLI commands and read-only `kubectl` operations with policy enforcement. Cross-account AWS via STS AssumeRole.
+- **Enterprise security** — multi-API key scopes, RBAC per HTTP method, OIDC/SSO with PKCE, blocking approval mode, configurable secret masking, and SHA-256 audit hash chains.
 - **No vendor lock-in** — 8 LLM providers. Switch models without changing agent code.
 
 ---
@@ -62,23 +64,65 @@ The setup wizard configures your AI provider, messaging channels, cloud CLI acce
 | **Ollama** | Llama, Mistral, CodeLlama (local) | `OLLAMA_URL` |
 | **Mock** | Testing and development | Always available |
 
-### 20 Agent Tools
+### 28 Agent Tools
 
 | Category | Tools |
 |----------|-------|
 | **System** | `shell_exec` (bash, 120s timeout), `code_interpreter` (Python/JS) |
 | **Files** | `file_read`, `file_write`, `file_search` |
 | **Web** | `browse_web`, `advanced_browse`, `chromium_browser` (headless Chrome), `web_search` (Google), `http_request` |
-| **Data** | `database_query` (SQLite + PostgreSQL, read-only), `pdf_reader`, `knowledge_search` (RAG with FTS5) |
+| **Data** | `database_query` (SQLite + PostgreSQL, read-only), `pdf_reader`, `knowledge_search` (RAG with FTS5), `json_query` (dot-notation paths), `csv_query` (stats, filter, sort) |
+| **Cloud** | `aws_cross_account` (STS AssumeRole for multi-account), `aws_cost_explorer` (spend analysis), `kubectl` (read-only Kubernetes operations) |
 | **Integrations** | `github` (PRs/issues), `jira` (tickets), `generate_image` (DALL-E), `transcribe_audio` (Whisper) |
-| **Orchestration** | `delegate_agent`, `orchestrate_agents` (parallel multi-agent) |
+| **Messaging** | `send_message` (Slack/Teams/email proactively), `send_notification` (webhook with severity levels) |
+| **Knowledge** | `runbook_search` (search runbooks from knowledge base) |
+| **Orchestration** | `delegate_agent`, `orchestrate_agents` (parallel multi-agent), `skill_router` (dynamically load skills mid-conversation) |
 | **Custom** | Define tools in `tools/*.yaml` — no Go code required |
+
+### 25 Enterprise Skills
+
+Cyntr ships with 25 embedded enterprise skills across 6 categories. Skills are loaded on demand — agents only load what they need, when they need it.
+
+| Category | Skills |
+|----------|--------|
+| **DevOps & SRE** (5) | `aws-infrastructure-audit`, `incident-commander`, `deployment-checker`, `cost-optimizer`, `log-analyzer` |
+| **Security** (4) | `security-audit`, `dependency-scanner`, `secret-detector`, `access-reviewer` |
+| **Engineering** (5) | `code-reviewer-pro`, `test-generator`, `documentation-generator`, `refactoring-assistant`, `git-analyst` |
+| **Data & Analytics** (4) | `database-analyst`, `csv-analyzer`, `api-monitor`, `report-generator` |
+| **Management** (4) | `standup-reporter`, `meeting-summarizer`, `status-dashboard`, `onboarding-guide` |
+| **Compliance** (3) | `compliance-checker`, `change-tracker`, `data-classifier` |
+
+Each skill bundles a system prompt, tool permissions, and configuration. Agents activate skills via the `skill_router` tool or through the dashboard.
+
+### Skill Marketplace
+
+Browse, search, and install skills from multiple sources:
+
+- **Built-in catalog** — 25 enterprise skills ready to activate
+- **GitHub search** — discover community skills from public repositories
+- **OpenClaw import** — install skills from the OpenClaw ecosystem
+- **Dashboard UI** — install, uninstall, and configure skills from the Skills page
+- **CLI** — `cyntr skill list`, `cyntr skill install`, `cyntr skill import-openclaw`
+
+```bash
+# List available skills
+cyntr skill list
+
+# Install from built-in catalog
+cyntr skill install incident-commander
+
+# Import from OpenClaw
+cyntr skill import-openclaw ./path/to/skill
+
+# Search GitHub for community skills
+# (also available in the dashboard)
+```
 
 ### 9 Messaging Channels
 
 | Channel | Integration |
 |---------|------------|
-| **Slack** | Events API + typing indicator + progress messages + response chunking |
+| **Slack** | Events API + threads + slash commands + Block Kit + reactions + file uploads + progress messages + chunking |
 | **Microsoft Teams** | Bot Framework + Adaptive Cards |
 | **Discord** | Bot API |
 | **Telegram** | Bot API webhook |
@@ -89,10 +133,14 @@ The setup wizard configures your AI provider, messaging channels, cloud CLI acce
 
 ### Slack-Native Experience
 
+- **Thread replies** — `SLACK_USE_THREADS=true` keeps conversations in threads
+- **Slash commands** — `/cyntr status`, `/cyntr switch <agent>`, `/cyntr clear`
+- **Rich Block Kit formatting** — structured responses with sections, fields, and actions
+- **Reaction commands** — approve or deny pending actions with emoji reactions
+- **File upload detection** — agents can process uploaded files
 - **Typing indicator** — hourglass emoji while agent works
 - **Progress messages** — "Running `shell_exec`..." sent during tool execution
 - **Response chunking** — auto-splits messages over 4000 chars with `[1/N]` indicators
-- **Session management** — type `clear` or `reset` to start a fresh conversation
 - **Multi-channel routing** — different Slack channels route to different agents
 - **Approval notifications** — `require_approval` policy sends to designated channel
 - **Scheduled reports** — cron job results delivered to Slack
@@ -112,6 +160,9 @@ Want me to list the services and tasks inside this cluster?
 ```
 
 - **Read-only by default** — system prompt + policy rules prevent modifications
+- **Kubernetes support** — `kubectl` tool for read-only cluster operations (get, describe, logs)
+- **Cross-account AWS** — `aws_cross_account` uses STS AssumeRole for multi-account management
+- **Cost analysis** — `aws_cost_explorer` provides spend breakdowns by service, account, and time period
 - **CLI auth check** — `cyntr doctor` verifies AWS/Azure/GCP CLIs are installed and authenticated
 - **Configurable security** — deny all / require approval / cloud-ops only / allow all
 
@@ -140,23 +191,41 @@ rules:
 | Feature | Description |
 |---------|-------------|
 | **Policy engine** | YAML rules — allow / deny / require_approval per tenant, agent, tool |
-| **Secret masking** | AWS keys, Slack tokens, GitHub tokens, JWTs, passwords auto-redacted |
-| **API authentication** | API key generated during init, Bearer token auth |
-| **RBAC** | 4 built-in roles (admin, team_lead, user, auditor) with 11 permissions |
+| **Multi-API key with scopes** | Separate keys for read, agent, and admin access |
+| **RBAC enforcement** | 4 built-in roles (admin, team_lead, user, auditor) with 11 permissions, enforced per HTTP method |
+| **OIDC/SSO** | OpenID Connect with PKCE for enterprise single sign-on |
+| **Blocking approval mode** | Human-in-the-loop with 5-minute timeout for critical operations |
+| **Secret masking** | Configurable patterns — AWS keys, Slack tokens, GitHub tokens, JWTs, passwords auto-redacted |
 | **Audit logging** | SHA-256 hash chains for tamper-evident logs |
-| **Approval queue** | Human-in-the-loop with approve/deny via dashboard or Slack |
-| **Rate limiting** | Per-tenant token bucket on proxy gateway |
+| **Rate limiting** | Per-tenant token bucket on proxy gateway + per-agent rate limits |
+| **Config hot-reload** | Send SIGHUP to reload configuration without restart |
+
+### Agent Runtime
+
+The agent runtime manages the full lifecycle of AI conversations with enterprise-grade reliability:
+
+| Feature | Description |
+|---------|-------------|
+| **Session auto-summarization** | Long conversations are summarized to stay within context limits |
+| **Sliding window** | Older messages are pruned while preserving conversation coherence |
+| **System prompt templates** | Use `{{user}}`, `{{date}}`, `{{tenant}}`, `{{agent}}` variables in prompts |
+| **Tool retry** | Exponential backoff on transient tool failures |
+| **Max turns warning** | Configurable turn limit prevents runaway conversations |
+| **On-demand skill loading** | Agents load skills dynamically via `skill_router` |
+| **Per-agent rate limits** | Throttle individual agents independently |
+| **Parallel tool execution** | Multiple tool calls execute concurrently when safe |
+| **Request ID propagation** | Every request carries a trace ID through all tool calls and logs |
 
 ### 15-Page Dashboard
 
 | Page | What it does |
 |------|-------------|
 | **Dashboard** | Health cards, module status, recent audit, job/skill/agent counts |
-| **Agents** | Create, edit (model/prompt/tools), delete, chat interface |
+| **Agents** | Create, edit (model/prompt/tools/skills), delete, chat interface |
 | **Sessions** | Browse conversation history per agent, view message details |
 | **Memories** | View/delete agent long-term memories |
 | **Knowledge** | Upload documents for RAG search, manage knowledge base |
-| **Skills** | Install, uninstall, OpenClaw import, marketplace search |
+| **Skills** | Browse catalog, install/uninstall, GitHub search, OpenClaw import, marketplace |
 | **Workflows** | Register multi-step workflows, run, view step-by-step progress |
 | **Scheduler** | Create cron jobs with channel delivery, view LastRun/NextRun |
 | **Audit** | Filter by tenant/user/action/agent/date range, CSV export |
@@ -180,6 +249,12 @@ curl -X POST localhost:7700/api/v1/knowledge \
 You: How do we deploy to production?
 Cyntr: According to the Deploy Guide: ...
 ```
+
+- **Smart document chunking** with configurable overlap for large documents
+- **File type support** — `.txt`, `.md`, `.pdf` ingestion
+- **Source URL tracking** — documents link back to their origin
+- **Tag-based filtering** — organize and query documents by tags
+- **Runbook search** — dedicated `runbook_search` tool for operations teams
 
 ### Custom YAML Tools
 
@@ -215,7 +290,7 @@ You: Compare our AWS costs across all three environments
 
 ### Workflow Engine
 
-Chain agent actions with conditions, retries, webhooks, and delays:
+Chain agent actions with conditions, retries, webhooks, delays, parallel steps, loops, and human input:
 
 ```json
 {
@@ -223,12 +298,19 @@ Chain agent actions with conditions, retries, webhooks, and delays:
   "steps": [
     {"id": "detect", "type": "agent_chat", "config": {"agent": "monitor", "message": "Check error rates"}},
     {"id": "diagnose", "type": "agent_chat", "config": {"agent": "cloud-ops", "message": "Investigate: {{detect.output}}"}},
+    {"id": "approve", "type": "human_input", "config": {"prompt": "Proceed with remediation?", "timeout": "10m"}},
+    {"id": "remediate", "type": "parallel", "config": {"steps": ["restart-service", "clear-cache"]}},
     {"id": "notify", "type": "webhook", "config": {"url": "https://hooks.slack.com/...", "method": "POST"}}
   ]
 }
 ```
 
-Step types: `agent_chat`, `tool_call`, `condition`, `webhook`, `delay`, `approval`
+Step types: `agent_chat`, `tool_call`, `condition`, `webhook`, `delay`, `approval`, `parallel`, `loop`, `human_input`
+
+- **Event triggers** — workflows can be triggered by external events
+- **Cron expressions** — pure Go cron parser, no external dependencies
+- **Job persistence** — workflow runs and history stored in SQLite
+- **Job history** — view past runs, durations, and step-by-step output
 
 ### Federation
 
@@ -258,12 +340,16 @@ Connect multiple Cyntr instances for cross-site agent communication:
  Engine   Logger  Runtime  Manager  Gateway  Runtime  Module  Module  Engine
 ```
 
-Every component is a **kernel module** communicating via an in-process IPC bus. Modules boot in dependency order and shut down in reverse.
+Every component is a **kernel module** communicating via an in-process IPC bus. Modules boot in dependency order and shut down gracefully in reverse.
 
-- **No external databases** — SQLite for sessions, memory, audit, knowledge
+- **No external databases** — SQLite for sessions, memory, audit, knowledge, workflow history
 - **No message queues** — IPC bus with backpressure
 - **No container runtime** — single binary deployment
 - **No configuration service** — YAML files + environment variables
+- **Comprehensive error logging** — 13 modules with structured log output
+- **Metrics endpoint** — `/api/v1/metrics` for monitoring integration
+- **Graceful shutdown** — clean resource release on SIGTERM/SIGINT
+- **Duration/timing logs** — slow operation detection across all modules
 
 ---
 
@@ -274,17 +360,21 @@ Every component is a **kernel module** communicating via an in-process IPC bus. 
 ```python
 from cyntr import CyntrClient
 
+# Async client with retry logic
 client = CyntrClient("http://localhost:7700", api_key="cyntr_...")
 
 # Chat with an agent
-response = client.chat("my-org", "assistant", "What's running in us-east-1?")
+response = await client.chat("my-org", "assistant", "What's running in us-east-1?")
 print(response["content"])
 
 # Manage knowledge base
-client.ingest_knowledge("Runbook", "Steps to restart the service...", "ops")
+await client.ingest_knowledge("Runbook", "Steps to restart the service...", "ops")
+
+# List skills
+skills = await client.list_skills()
 ```
 
-Install: `pip install ./sdk/python`
+Full type hints and async/await support. Install: `pip install ./sdk/python`
 
 ### JavaScript
 
@@ -299,9 +389,12 @@ console.log(response.content);
 // Stream responses
 const stream = client.chatStream('my-org', 'assistant', 'Analyze logs');
 stream.addEventListener('message', (e) => console.log(JSON.parse(e.data)));
+
+// Manage skills
+const skills = await client.listSkills();
 ```
 
-Install: `npm install ./sdk/js`
+TypeScript type declarations included. Install: `npm install ./sdk/js`
 
 ---
 
@@ -309,11 +402,14 @@ Install: `npm install ./sdk/js`
 
 All endpoints return: `{"data": ..., "meta": {"request_id", "timestamp"}, "error": null}`
 
+50+ endpoints across 11 resource groups.
+
 ### System
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/system/health` | Module health status |
 | GET | `/api/v1/system/version` | Version info |
+| GET | `/api/v1/metrics` | Prometheus-compatible metrics |
 
 ### Tenants
 | Method | Endpoint | Description |
@@ -351,9 +447,11 @@ All endpoints return: `{"data": ..., "meta": {"request_id", "timestamp"}, "error
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/skills` | List installed skills |
-| POST | `/api/v1/skills` | Install skill from path |
+| GET | `/api/v1/skills/catalog` | Browse built-in skill catalog |
+| POST | `/api/v1/skills` | Install skill from path or catalog |
 | DELETE | `/api/v1/skills/{name}` | Uninstall skill |
 | POST | `/api/v1/skills/import/openclaw` | Import OpenClaw skill |
+| GET | `/api/v1/skills/search` | Search GitHub for community skills |
 
 ### Knowledge Base
 | Method | Endpoint | Description |
@@ -424,6 +522,7 @@ OLLAMA_URL=http://localhost:11434     # Local models
 SLACK_BOT_TOKEN=xoxb-...             # Slack
 SLACK_ROUTES=C123=cloud-ops,C456=bot # Per-channel agent routing
 SLACK_APPROVAL_CHANNEL=C789          # Approval notifications
+SLACK_USE_THREADS=true               # Reply in threads
 TEAMS_APP_ID=...                     # Microsoft Teams
 TELEGRAM_BOT_TOKEN=...               # Telegram
 DISCORD_BOT_TOKEN=...                # Discord
@@ -434,7 +533,10 @@ GOOGLE_CHAT_WEBHOOK_URL=...          # Google Chat
 
 **Security**:
 ```bash
-CYNTR_API_KEY=cyntr_...              # API authentication (auto-generated by init)
+CYNTR_API_KEY=cyntr_...              # Primary API key (auto-generated by init)
+CYNTR_API_KEYS=cyntr_read:read,cyntr_agent:agent,cyntr_admin:admin  # Multi-key with scopes
+CYNTR_OIDC_ISSUER=https://...        # OIDC/SSO issuer URL
+CYNTR_OIDC_CLIENT_ID=...             # OIDC client ID
 ```
 
 ---
@@ -453,9 +555,13 @@ cyntr agent chat <tenant> <name> "message"
 
 cyntr tenant list
 cyntr audit query --tenant finance
+
 cyntr policy test --tenant demo --action tool_call --tool shell_exec
+
 cyntr skill list
+cyntr skill install <name>
 cyntr skill import-openclaw ./path/to/skill
+
 cyntr federation peers
 ```
 
@@ -482,13 +588,18 @@ go test ./... -count=1 -race
 |---------|-------|-----------|--------|---------|
 | Self-hosted platform | Yes | Library | Library | Library |
 | Single binary | Yes | No | No | No |
+| Enterprise skills (25) | Built-in | No | No | No |
+| Skill marketplace | Built-in | No | No | No |
 | Policy engine | Yes | No | No | No |
-| Audit logging | Yes | No | No | No |
+| Audit logging (hash chain) | Yes | No | No | No |
 | Multi-tenant | Yes | No | No | No |
-| Slack/Teams/Discord | Built-in | Plugin | No | No |
-| Dashboard | Built-in | No | No | No |
-| Cloud ops (AWS/Azure/GCP) | Built-in | Plugin | No | No |
+| RBAC + OIDC/SSO | Yes | No | No | No |
+| Slack/Teams/Discord (9 channels) | Built-in | Plugin | No | No |
+| Dashboard (15 pages) | Built-in | No | No | No |
+| Cloud ops (AWS/Azure/GCP/K8s) | Built-in | Plugin | No | No |
+| Workflow engine | Built-in | Chain | No | No |
 | Federation | Yes | No | No | No |
+| SDKs (Python + JS) | Yes | Python | Python | Python |
 | Zero dependencies | Yes | Many | Many | Many |
 
 ---
