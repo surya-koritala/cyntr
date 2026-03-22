@@ -38,7 +38,7 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "0.7.0"
+const version = "0.7.1"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -482,13 +482,16 @@ func runStart() {
 	mux.Handle("/events", eventBroker)
 	mux.Handle("/", dashboard)
 
+	// Wrap with metrics middleware to count requests/latency/errors
+	metricsHandler := webapi.MetricsMiddleware(mux)
+
 	webAddr := cfg.Listen.WebUI
 	if webAddr == "" {
 		webAddr = ":7700"
 	}
 
 	go func() {
-		if err := http.ListenAndServe(webAddr, mux); err != nil {
+		if err := http.ListenAndServe(webAddr, metricsHandler); err != nil {
 			log.Error("web server error", map[string]any{"addr": webAddr, "error": err.Error()})
 		}
 	}()

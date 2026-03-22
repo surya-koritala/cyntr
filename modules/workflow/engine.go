@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -54,7 +55,57 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.bus.Handle("workflow", "workflow.submit_input", e.handleSubmitInput)
 	e.bus.Handle("workflow", "workflow.trigger.add", e.handleTriggerAdd)
 	e.bus.Handle("workflow", "workflow.trigger.list", e.handleTriggerList)
+
+	// Subscribe to activity events to match triggers
+	e.bus.Subscribe("workflow", "agent.activity", e.handleActivityEvent)
+
 	return nil
+}
+
+func (e *Engine) handleActivityEvent(msg ipc.Message) (ipc.Message, error) {
+	e.mu.RLock()
+	triggers := make([]Trigger, len(e.triggers))
+	copy(triggers, e.triggers)
+	e.mu.RUnlock()
+
+	if len(triggers) == 0 {
+		return ipc.Message{}, nil
+	}
+
+	// Extract event detail for matching
+	var eventType, eventDetail string
+	if evt, ok := msg.Payload.(agent.ActivityEvent); ok {
+		eventType = evt.Type
+		eventDetail = evt.Detail
+	} else {
+		return ipc.Message{}, nil
+	}
+
+	for _, trigger := range triggers {
+		if trigger.Type != "audit_event" {
+			continue
+		}
+		// Match pattern against event type or detail
+		matched, _ := regexp.MatchString(trigger.Pattern, eventType)
+		if !matched {
+			matched, _ = regexp.MatchString(trigger.Pattern, eventDetail)
+		}
+		if matched {
+			logger.Info("trigger matched, starting workflow", map[string]any{
+				"trigger_pattern": trigger.Pattern, "workflow_id": trigger.WorkflowID, "event_type": eventType,
+			})
+			// Start the workflow
+			go func(wfID string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				e.bus.Request(ctx, ipc.Message{
+					Source: "workflow_trigger", Target: "workflow", Topic: "workflow.run",
+					Payload: map[string]string{"workflow_id": wfID},
+				})
+			}(trigger.WorkflowID)
+		}
+	}
+	return ipc.Message{}, nil
 }
 
 func (e *Engine) Stop(ctx context.Context) error { return nil }
