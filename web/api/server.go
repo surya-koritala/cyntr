@@ -60,6 +60,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/sessions/{sid}/messages", s.handleSessionMessages)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/memories", s.handleAgentMemories)
 	s.mux.HandleFunc("DELETE /api/v1/tenants/{tid}/agents/{name}/memories/{mid}", s.handleMemoryDelete)
+	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/versions", s.handleAgentVersions)
+	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/agents/{name}/rollback/{version}", s.handleAgentRollback)
 
 	// Users
 	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/users", s.handleUserCreate)
@@ -123,6 +125,7 @@ func (s *Server) registerRoutes() {
 
 	// Webhooks
 	s.mux.HandleFunc("POST /api/v1/webhooks/trigger/{workflow_id}", s.handleWebhookTrigger)
+	s.mux.HandleFunc("POST /api/v1/webhooks/agent/{tenant}/{agent}", s.handleWebhookAgent)
 
 	// Metrics
 	s.mux.HandleFunc("GET /api/v1/metrics", s.handleMetrics)

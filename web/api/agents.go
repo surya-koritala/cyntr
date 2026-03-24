@@ -260,6 +260,39 @@ func (s *Server) handleAgentSearch(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 200, resp.Payload)
 }
 
+func (s *Server) handleAgentVersions(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	name := r.PathValue("name")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.versions",
+		Payload: map[string]string{"tenant": tid, "name": name},
+	})
+	if err != nil {
+		Respond(w, 200, []any{})
+		return
+	}
+	Respond(w, 200, resp.Payload)
+}
+
+func (s *Server) handleAgentRollback(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	name := r.PathValue("name")
+	version := r.PathValue("version")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.rollback",
+		Payload: map[string]string{"tenant": tid, "name": name, "version": version},
+	})
+	if err != nil {
+		RespondError(w, 500, "ROLLBACK_FAILED", err.Error())
+		return
+	}
+	Respond(w, 200, map[string]string{"status": "rolled_back", "message": resp.Payload.(string)})
+}
+
 func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
 	agentName := r.PathValue("name")

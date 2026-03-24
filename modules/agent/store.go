@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -378,6 +379,78 @@ func (s *SessionStore) DeleteUser(id string) error {
 	defer s.mu.Unlock()
 	_, err := s.db.Exec("DELETE FROM users WHERE id = ?", id)
 	return err
+}
+
+// SaveAgentVersion saves a snapshot of the agent config as a new version.
+func (s *SessionStore) SaveAgentVersion(cfg AgentConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Get next version number
+	var maxVersion int
+	s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM agent_versions WHERE tenant=? AND name=?",
+		cfg.Tenant, cfg.Name).Scan(&maxVersion)
+
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(
+		"INSERT INTO agent_versions (tenant, name, version, config, created_at) VALUES (?, ?, ?, ?, ?)",
+		cfg.Tenant, cfg.Name, maxVersion+1, string(cfgJSON), time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// ListAgentVersions returns all versions of an agent config.
+func (s *SessionStore) ListAgentVersions(tenant, name string) ([]map[string]any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.Query(
+		"SELECT version, config, created_at FROM agent_versions WHERE tenant=? AND name=? ORDER BY version DESC",
+		tenant, name,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var versions []map[string]any
+	for rows.Next() {
+		var version int
+		var configJSON, createdAt string
+		rows.Scan(&version, &configJSON, &createdAt)
+		versions = append(versions, map[string]any{
+			"version":    version,
+			"config":     json.RawMessage(configJSON),
+			"created_at": createdAt,
+		})
+	}
+	if versions == nil {
+		versions = []map[string]any{}
+	}
+	return versions, rows.Err()
+}
+
+// GetAgentVersion returns a specific version of an agent config.
+func (s *SessionStore) GetAgentVersion(tenant, name string, version int) (*AgentConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var configJSON string
+	err := s.db.QueryRow(
+		"SELECT config FROM agent_versions WHERE tenant=? AND name=? AND version=?",
+		tenant, name, version,
+	).Scan(&configJSON)
+	if err != nil {
+		return nil, fmt.Errorf("version %d not found", version)
+	}
+
+	var cfg AgentConfig
+	json.Unmarshal([]byte(configJSON), &cfg)
+	return &cfg, nil
 }
 
 // Close closes the database.

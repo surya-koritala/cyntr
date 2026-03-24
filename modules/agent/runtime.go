@@ -140,6 +140,8 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("agent_runtime", "agent.session.clear", r.handleSessionClear)
 	r.bus.Handle("agent_runtime", "agent.update", r.handleUpdate)
 	r.bus.Handle("agent_runtime", "agent.search", r.handleSearch)
+	r.bus.Handle("agent_runtime", "agent.versions", r.handleVersions)
+	r.bus.Handle("agent_runtime", "agent.rollback", r.handleRollback)
 	return r.LoadSavedAgents()
 }
 
@@ -169,6 +171,7 @@ func (r *Runtime) handleCreate(msg ipc.Message) (ipc.Message, error) {
 		r.store.SaveSession(sessID, cfg)
 		session.SetStore(r.store)
 		r.store.SaveAgent(cfg)
+		r.store.SaveAgentVersion(cfg)
 	}
 
 	r.mu.Lock()
@@ -701,6 +704,7 @@ func (r *Runtime) handleUpdate(msg ipc.Message) (ipc.Message, error) {
 
 	if r.store != nil {
 		r.store.SaveAgent(inst.config)
+		r.store.SaveAgentVersion(inst.config)
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "updated"}, nil
 }
@@ -812,6 +816,46 @@ func (r *Runtime) handleSearch(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: results}, nil
+}
+
+func (r *Runtime) handleVersions(msg ipc.Message) (ipc.Message, error) {
+	params, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	if r.store == nil {
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: []any{}}, nil
+	}
+	versions, err := r.store.ListAgentVersions(params["tenant"], params["name"])
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: versions}, nil
+}
+
+func (r *Runtime) handleRollback(msg ipc.Message) (ipc.Message, error) {
+	params, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	if r.store == nil {
+		return ipc.Message{}, fmt.Errorf("store not configured")
+	}
+	version := 0
+	fmt.Sscanf(params["version"], "%d", &version)
+	cfg, err := r.store.GetAgentVersion(params["tenant"], params["name"], version)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	// Apply the old config
+	key := cfg.Tenant + "/" + cfg.Name
+	r.mu.Lock()
+	if inst, exists := r.agents[key]; exists {
+		inst.config = *cfg
+	}
+	r.mu.Unlock()
+	r.store.SaveAgent(*cfg)
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "rolled back to version " + params["version"]}, nil
 }
 
 func (r *Runtime) extractMemories(req ChatRequest, inst *agentInstance, lastResponse string, toolsUsed []string) {

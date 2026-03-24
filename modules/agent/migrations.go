@@ -38,6 +38,18 @@ var Migrations = []Migration{
 			total_tokens INTEGER DEFAULT 0, duration_ms INTEGER DEFAULT 0
 		)`,
 	},
+	{
+		Version:     4,
+		Description: "Add agent_versions table",
+		SQL: `CREATE TABLE IF NOT EXISTS agent_versions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant TEXT NOT NULL,
+			name TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			config TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		)`,
+	},
 }
 
 // RunMigrations executes pending migrations on the given database.
