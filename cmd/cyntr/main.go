@@ -26,6 +26,7 @@ import (
 	teamspkg "github.com/cyntr-dev/cyntr/modules/channel/teams"
 	telegrampkg "github.com/cyntr-dev/cyntr/modules/channel/telegram"
 	whatsapppkg "github.com/cyntr-dev/cyntr/modules/channel/whatsapp"
+	"github.com/cyntr-dev/cyntr/modules/eval"
 	"github.com/cyntr-dev/cyntr/modules/federation"
 	"github.com/cyntr-dev/cyntr/modules/crew"
 	"github.com/cyntr-dev/cyntr/modules/mcp"
@@ -441,6 +442,10 @@ func runStart() {
 	// Crew engine
 	crewEngine := crew.New()
 	k.Register(crewEngine)
+
+	// Eval runner
+	evalRunner := eval.New()
+	k.Register(evalRunner)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

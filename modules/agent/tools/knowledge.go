@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,8 +14,9 @@ import (
 )
 
 type KnowledgeTool struct {
-	mu sync.Mutex
-	db *sql.DB
+	mu       sync.Mutex
+	db       *sql.DB
+	embedder *SimpleEmbedding
 }
 
 func NewKnowledgeTool(dbPath string) (*KnowledgeTool, error) {
@@ -42,7 +44,12 @@ func NewKnowledgeTool(dbPath string) (*KnowledgeTool, error) {
 		return nil, fmt.Errorf("create knowledge_meta table: %w", err)
 	}
 
-	return &KnowledgeTool{db: db}, nil
+	tool := &KnowledgeTool{db: db, embedder: NewSimpleEmbedding()}
+
+	// Build initial embeddings from existing data
+	go tool.rebuildEmbeddings()
+
+	return tool, nil
 }
 
 func (t *KnowledgeTool) Name() string { return "knowledge_search" }
@@ -53,6 +60,7 @@ func (t *KnowledgeTool) Parameters() map[string]agent.ToolParam {
 	return map[string]agent.ToolParam{
 		"query": {Type: "string", Description: "Search query", Required: true},
 		"tags":  {Type: "string", Description: "Comma-separated tags to filter results", Required: false},
+		"mode":  {Type: "string", Description: "Search mode: keyword (default) or semantic", Required: false},
 	}
 }
 
@@ -60,6 +68,13 @@ func (t *KnowledgeTool) Execute(ctx context.Context, input map[string]string) (s
 	query := input["query"]
 	if query == "" {
 		return "", fmt.Errorf("query is required")
+	}
+
+	// Semantic search mode
+	mode := input["mode"]
+	filterTags := input["tags"]
+	if mode == "semantic" && t.embedder != nil && len(t.embedder.vocabulary) > 0 {
+		return t.semanticSearch(query, filterTags)
 	}
 
 	t.mu.Lock()
@@ -88,7 +103,6 @@ func (t *KnowledgeTool) Execute(ctx context.Context, input map[string]string) (s
 	}
 
 	// F4: Tag-based filtering
-	filterTags := input["tags"]
 	if filterTags != "" {
 		tagList := strings.Split(filterTags, ",")
 		var filtered []result
@@ -165,7 +179,103 @@ func (t *KnowledgeTool) Ingest(id, title, content, tags string) error {
 	t.db.Exec(`INSERT OR REPLACE INTO knowledge_meta(doc_id, title, source_url, tags, created_at) VALUES (?, ?, ?, ?, ?)`,
 		id, title, "", tags, time.Now().UTC().Format(time.RFC3339))
 
+	// Rebuild embeddings for semantic search
+	go t.rebuildEmbeddings()
+
 	return nil
+}
+
+func (t *KnowledgeTool) rebuildEmbeddings() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	rows, err := t.db.Query("SELECT content FROM knowledge")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	var docs []string
+	for rows.Next() {
+		var content string
+		rows.Scan(&content)
+		docs = append(docs, content)
+	}
+	if len(docs) > 0 {
+		t.embedder.BuildVocabulary(docs)
+	}
+}
+
+func (t *KnowledgeTool) semanticSearch(query string, filterTags string) (string, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	queryVec := t.embedder.Embed(query)
+	if queryVec == nil {
+		return "Semantic search not available (no documents indexed).", nil
+	}
+
+	rows, err := t.db.Query("SELECT id, title, content, tags FROM knowledge")
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	type scored struct {
+		title, content, tags string
+		score                float64
+	}
+	var results []scored
+
+	for rows.Next() {
+		var id, title, content, tags string
+		rows.Scan(&id, &title, &content, &tags)
+
+		// Filter by tags if provided
+		if filterTags != "" {
+			matched := false
+			for _, tag := range strings.Split(filterTags, ",") {
+				if strings.Contains(strings.ToLower(tags), strings.TrimSpace(strings.ToLower(tag))) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+
+		docVec := t.embedder.Embed(content)
+		sim := CosineSimilarity(queryVec, docVec)
+		if sim > 0.01 { // minimum relevance threshold
+			results = append(results, scored{title: title, content: content, tags: tags, score: sim})
+		}
+	}
+
+	// Sort by score descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].score > results[j].score
+	})
+
+	if len(results) == 0 {
+		return "No semantically similar documents found for: " + query, nil
+	}
+
+	// Return top 5
+	if len(results) > 5 {
+		results = results[:5]
+	}
+
+	var output []string
+	for _, r := range results {
+		content := r.content
+		if len(content) > 500 {
+			content = content[:500] + "..."
+		}
+		output = append(output, fmt.Sprintf("**%s** (relevance: %.0f%%)\n%s\nTags: %s", r.title, r.score*100, content, r.tags))
+	}
+
+	return strings.Join(output, "\n\n---\n\n"), nil
 }
 
 // Delete removes a document and all its chunks from the knowledge base.
