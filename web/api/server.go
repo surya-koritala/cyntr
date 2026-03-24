@@ -127,6 +127,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/v1/webhooks/trigger/{workflow_id}", s.handleWebhookTrigger)
 	s.mux.HandleFunc("POST /api/v1/webhooks/agent/{tenant}/{agent}", s.handleWebhookAgent)
 
+	// Branding
+	s.mux.HandleFunc("GET /api/v1/branding", s.handleBranding)
+
 	// Metrics
 	s.mux.HandleFunc("GET /api/v1/metrics", s.handleMetrics)
 

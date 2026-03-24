@@ -41,7 +41,7 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "0.9.1"
+const version = "1.0.0"
 
 func main() {
 	if len(os.Args) < 2 {
