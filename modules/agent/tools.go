@@ -33,6 +33,13 @@ func (r *ToolRegistry) Register(tool Tool) {
 	r.tools[tool.Name()] = tool
 }
 
+// Unregister removes a tool from the registry by name.
+func (r *ToolRegistry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
+}
+
 // Get returns a tool by name.
 func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	r.mu.RLock()

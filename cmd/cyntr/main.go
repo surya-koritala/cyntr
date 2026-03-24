@@ -27,6 +27,7 @@ import (
 	telegrampkg "github.com/cyntr-dev/cyntr/modules/channel/telegram"
 	whatsapppkg "github.com/cyntr-dev/cyntr/modules/channel/whatsapp"
 	"github.com/cyntr-dev/cyntr/modules/federation"
+	"github.com/cyntr-dev/cyntr/modules/mcp"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
 	"github.com/cyntr-dev/cyntr/modules/scheduler"
@@ -38,7 +39,7 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "0.8.0"
+const version = "0.9.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -413,6 +414,16 @@ func runStart() {
 	schedulerMod := scheduler.New("scheduler_jobs.json")
 	workflowEngine := workflow.New()
 
+	// MCP module
+	mcpManager := mcp.NewManager(toolReg)
+	// Parse MCP config from env or yaml
+	if mcpJSON := os.Getenv("MCP_SERVERS"); mcpJSON != "" {
+		var mcpConfigs []mcp.ServerConfig
+		if json.Unmarshal([]byte(mcpJSON), &mcpConfigs) == nil {
+			mcpManager.SetConfigs(mcpConfigs)
+		}
+	}
+
 	k.Register(policyEngine)
 	k.Register(auditLogger)
 	k.Register(agentRuntime)
@@ -422,6 +433,7 @@ func runStart() {
 	k.Register(federationMod)
 	k.Register(schedulerMod)
 	k.Register(workflowEngine)
+	k.Register(mcpManager)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

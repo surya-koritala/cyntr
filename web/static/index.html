@@ -666,6 +666,9 @@
       <i class="nav-icon">&#9998;</i> Users
     </div>
     <div class="sidebar-section">Infrastructure</div>
+    <div class="nav-item" data-page="mcp">
+        <i class="nav-icon">&#9881;</i> MCP Servers
+    </div>
     <div class="nav-item" data-page="channels">
       <i class="nav-icon">&#9993;</i> Channels
     </div>
@@ -1647,6 +1650,54 @@
       </div>
     </section>
 
+    <!-- ══ MCP Servers ══ -->
+    <section class="page" id="page-mcp">
+        <div class="page-header">
+            <h2>MCP Servers</h2>
+            <p>Model Context Protocol servers provide external tools to agents. Connect to filesystem, GitHub, Postgres, Slack, and more via the MCP protocol.</p>
+        </div>
+        <div class="section">
+            <div class="section-header">
+                <span class="section-title">Connected Servers</span>
+                <button class="btn btn-secondary btn-sm" onclick="loadMCPServers()">Refresh</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Name</th><th>Transport</th><th>Status</th><th>Tools</th><th>Actions</th></tr></thead>
+                    <tbody id="mcp-servers-tbody">
+                        <tr><td colspan="5" class="empty-state">No MCP servers connected. Add one below or install from the marketplace.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="section">
+            <div class="section-header"><span class="section-title">Add MCP Server</span></div>
+            <div class="section-body">
+                <div class="form-row">
+                    <div class="form-group"><label>Name</label><input type="text" id="mcp-name" placeholder="github"></div>
+                    <div class="form-group"><label>Transport</label><select id="mcp-transport"><option value="stdio">stdio (subprocess)</option><option value="http">HTTP</option></select></div>
+                    <div class="form-group"><label>Command (stdio)</label><input type="text" id="mcp-command" placeholder="npx"></div>
+                    <div class="form-group"><label>Args (comma-separated)</label><input type="text" id="mcp-args" placeholder="-y,@modelcontextprotocol/server-github"></div>
+                </div>
+                <div class="form-row"><div class="form-group"><label>URL (HTTP)</label><input type="text" id="mcp-url" placeholder="http://localhost:9000/mcp"></div></div>
+                <div style="display:flex;gap:12px;align-items:center;">
+                    <button class="btn btn-primary" onclick="addMCPServer()">Connect</button>
+                    <span id="mcp-msg" style="font-size:13px;color:var(--muted);"></span>
+                </div>
+            </div>
+        </div>
+        <div class="section">
+            <div class="section-header"><span class="section-title">MCP Marketplace</span></div>
+            <div class="section-body">
+                <div class="form-row">
+                    <div class="form-group" style="flex:2;"><input type="text" id="mcp-search" placeholder="Search MCP servers..." onkeydown="if(event.key==='Enter')searchMCPMarketplace()"></div>
+                    <div class="form-group" style="align-self:flex-end;"><button class="btn btn-primary" onclick="searchMCPMarketplace()">Search</button></div>
+                </div>
+                <div id="mcp-marketplace-results"></div>
+            </div>
+        </div>
+    </section>
+
   <!-- Edit Agent Modal -->
   <div id="edit-agent-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
     <div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:24px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;">
@@ -1747,6 +1798,7 @@ function onPageEnter(page) {
   if (page === 'workflows')  { loadWorkflows(); loadWorkflowRuns(); }
   if (page === 'scheduler')  loadSchedules();
   if (page === 'approvals')  loadApprovals();
+  if (page === 'mcp')        { loadMCPServers(); loadMCPMarketplace(); }
   if (page === 'channels')   loadChannels();
   if (page === 'tenants')    loadTenantsList();
   if (page === 'sessions')   loadSessionsPage();
@@ -3567,6 +3619,92 @@ async function loadUsersPage() {
         sel.onchange = loadUsers;
     }
 }
+
+/* ─────────────── MCP Servers ─────────────── */
+
+async function loadMCPServers() {
+    const tbody = document.getElementById('mcp-servers-tbody');
+    const res = await apiFetch('/api/v1/mcp/servers');
+    const servers = Array.isArray(res.data) ? res.data : [];
+    if (!servers.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No MCP servers connected.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = servers.map(s => `<tr>
+        <td>${esc(s.name)}</td>
+        <td><span class="badge badge-info">${esc(s.transport)}</span></td>
+        <td><span class="badge ${s.status==='connected'?'badge-ok':'badge-err'}">${esc(s.status)}</span></td>
+        <td>${s.tool_count} tools</td>
+        <td><button class="btn btn-sm btn-danger" onclick="removeMCPServer('${esc(s.name)}')">Disconnect</button></td>
+    </tr>`).join('');
+}
+
+async function addMCPServer() {
+    const name = document.getElementById('mcp-name').value.trim();
+    const transport = document.getElementById('mcp-transport').value;
+    const command = document.getElementById('mcp-command').value.trim();
+    const argsStr = document.getElementById('mcp-args').value.trim();
+    const url = document.getElementById('mcp-url').value.trim();
+    if (!name) { setMsg('mcp-msg','Name required','var(--warn)'); return; }
+
+    const body = { name, transport };
+    if (transport === 'stdio') {
+        body.command = command;
+        body.args = argsStr ? argsStr.split(',').map(s => s.trim()) : [];
+    } else {
+        body.url = url;
+    }
+
+    setMsg('mcp-msg','Connecting...','var(--muted)');
+    const res = await apiFetch('/api/v1/mcp/servers', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+    });
+    if (res.ok) {
+        setMsg('mcp-msg','Connected!','var(--ok)');
+        document.getElementById('mcp-name').value = '';
+        loadMCPServers();
+    } else {
+        setMsg('mcp-msg', res.raw?.error?.message || 'Connection failed','var(--err)');
+    }
+}
+
+async function removeMCPServer(name) {
+    if (!confirm('Disconnect MCP server "'+name+'"?')) return;
+    await apiFetch('/api/v1/mcp/servers/'+encodeURIComponent(name), { method: 'DELETE' });
+    loadMCPServers();
+}
+
+async function searchMCPMarketplace() {
+    const query = document.getElementById('mcp-search').value.trim();
+    const container = document.getElementById('mcp-marketplace-results');
+    const res = await apiFetch('/api/v1/mcp/marketplace?q='+encodeURIComponent(query));
+    const results = Array.isArray(res.data) ? res.data : [];
+    if (!results.length) {
+        container.innerHTML = '<div class="empty-state">No MCP servers found.</div>';
+        return;
+    }
+    container.innerHTML = '<table><thead><tr><th>Name</th><th>Description</th><th>Transport</th><th>Source</th><th>Actions</th></tr></thead><tbody>' +
+        results.map(s => `<tr>
+            <td>${esc(s.name)}</td>
+            <td>${esc(s.description)}</td>
+            <td><span class="badge badge-info">${esc(s.transport)}</span></td>
+            <td><span class="badge badge-ok">${esc(s.source)}</span></td>
+            <td><button class="btn btn-sm btn-primary" onclick="installMCPFromMarketplace('${esc(s.name)}','${esc(s.command||'')}','${esc((s.args||[]).join(','))}','${esc(s.transport)}','${esc(s.url||'')}')">Install</button></td>
+        </tr>`).join('') + '</tbody></table>';
+}
+
+async function installMCPFromMarketplace(name, command, args, transport, url) {
+    const body = { name, transport };
+    if (transport === 'stdio') { body.command = command; body.args = args ? args.split(',') : []; }
+    else { body.url = url; }
+    const res = await apiFetch('/api/v1/mcp/marketplace/install', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+    });
+    if (res.ok) { alert('MCP server "'+name+'" installed!'); loadMCPServers(); }
+    else { alert('Install failed: '+(res.raw?.error?.message||'unknown')); }
+}
+
+function loadMCPMarketplace() { searchMCPMarketplace(); }
 
 /* ─────────────── Init ─────────────── */
 

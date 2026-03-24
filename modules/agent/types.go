@@ -71,6 +71,7 @@ type AgentConfig struct {
 	Secrets             map[string]string `yaml:"secrets" json:"secrets"`                             // per-agent env vars / credentials
 	RateLimit           int               `yaml:"rate_limit" json:"rate_limit"`                       // max requests per minute (0 = unlimited)
 	Skills              []string          `yaml:"skills" json:"skills"`
+	MCPServers          []string          `yaml:"mcp_servers" json:"mcp_servers"`
 }
 
 // ProgressEvent is published during tool execution to inform channels of agent activity.
