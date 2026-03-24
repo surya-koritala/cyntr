@@ -134,4 +134,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/mcp/servers/{name}/tools", s.handleMCPServerTools)
 	s.mux.HandleFunc("GET /api/v1/mcp/marketplace", s.handleMCPMarketplaceSearch)
 	s.mux.HandleFunc("POST /api/v1/mcp/marketplace/install", s.handleMCPMarketplaceInstall)
+
+	// Crews
+	s.mux.HandleFunc("POST /api/v1/crews", s.handleCrewCreate)
+	s.mux.HandleFunc("GET /api/v1/crews", s.handleCrewList)
+	s.mux.HandleFunc("POST /api/v1/crews/{id}/run", s.handleCrewRun)
+	s.mux.HandleFunc("GET /api/v1/crews/runs/{run_id}", s.handleCrewRunStatus)
+	s.mux.HandleFunc("GET /api/v1/crews/runs", s.handleCrewListRuns)
 }

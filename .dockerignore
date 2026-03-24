@@ -1,0 +1,12 @@
+*.db
+*.db-shm
+*.db-wal
+.env
+.git
+.gitignore
+*.test
+*.out
+coverage.txt
+cyntr
+*.exe
+node_modules

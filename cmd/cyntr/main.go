@@ -27,6 +27,7 @@ import (
 	telegrampkg "github.com/cyntr-dev/cyntr/modules/channel/telegram"
 	whatsapppkg "github.com/cyntr-dev/cyntr/modules/channel/whatsapp"
 	"github.com/cyntr-dev/cyntr/modules/federation"
+	"github.com/cyntr-dev/cyntr/modules/crew"
 	"github.com/cyntr-dev/cyntr/modules/mcp"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
@@ -39,7 +40,7 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "0.9.0"
+const version = "0.9.1"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -62,6 +63,8 @@ func main() {
 		runStart()
 	case "status":
 		apiGet("/api/v1/system/health")
+	case "chat":
+		runChat(os.Args[2:])
 	case "help", "--help", "-h":
 		showHelp()
 	default:
@@ -434,6 +437,10 @@ func runStart() {
 	k.Register(schedulerMod)
 	k.Register(workflowEngine)
 	k.Register(mcpManager)
+
+	// Crew engine
+	crewEngine := crew.New()
+	k.Register(crewEngine)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

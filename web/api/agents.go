@@ -81,7 +81,7 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 300*time.Second) // 5 min for multi-tool chains
 	defer cancel()
 
 	resp, err := s.bus.Request(ctx, ipc.Message{

@@ -642,6 +642,9 @@
     <div class="nav-item" data-page="knowledge">
       <i class="nav-icon">&#128218;</i> Knowledge
     </div>
+    <div class="nav-item" data-page="crews">
+      <i class="nav-icon">&#9733;</i> Crews
+    </div>
     <div class="sidebar-section">Automation</div>
     <div class="nav-item" data-page="workflows">
       <i class="nav-icon">&#8634;</i> Workflows
@@ -1698,6 +1701,103 @@
         </div>
     </section>
 
+    <!-- Crews Page -->
+    <section class="page" id="page-crews">
+      <div class="page-header">
+        <h2>Crews</h2>
+        <p>Multi-agent crews collaborate on tasks with defined roles and execution modes. Create a crew, assign agents, and run complex tasks.</p>
+      </div>
+
+      <!-- Create Crew -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Create Crew</span></div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group"><label>Crew Name</label><input type="text" id="crew-name" placeholder="blog-writer"></div>
+            <div class="form-group"><label>Mode</label>
+              <select id="crew-mode">
+                <option value="pipeline">Pipeline (sequential, output chaining)</option>
+                <option value="parallel">Parallel (all agents at once)</option>
+                <option value="sequential">Sequential (one at a time, independent)</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Tenant</label><input type="text" id="crew-tenant" placeholder="default" value="default"></div>
+          </div>
+          <div style="margin-bottom:12px;">
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px;">Members</label>
+            <div id="crew-members-list"></div>
+            <button class="btn btn-secondary btn-sm" onclick="addCrewMemberRow()" style="margin-top:8px;">+ Add Member</button>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;">
+            <button class="btn btn-primary" onclick="createCrew()">Create Crew</button>
+            <span id="crew-create-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Crew List -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Your Crews</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadCrews()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Name</th><th>Mode</th><th>Members</th><th>Tenant</th><th>Actions</th></tr></thead>
+            <tbody id="crews-tbody">
+              <tr><td colspan="6" class="empty-state">No crews created yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Run Crew -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Run Crew</span></div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group"><label>Crew ID</label><input type="text" id="crew-run-id" placeholder="crew_1"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:3;"><label>Task Input</label><textarea id="crew-run-input" rows="3" placeholder="Write a blog post about AI agents..." style="width:100%;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;resize:vertical;"></textarea></div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;">
+            <button class="btn btn-primary" onclick="runCrew()">Run Crew</button>
+            <span id="crew-run-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Crew Runs -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Crew Runs</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadCrewRuns()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Run ID</th><th>Crew ID</th><th>Status</th><th>Started</th><th>Actions</th></tr></thead>
+            <tbody id="crew-runs-tbody">
+              <tr><td colspan="5" class="empty-state">No crew runs yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Run Result Viewer -->
+      <div class="section" id="crew-result-section" style="display:none;">
+        <div class="section-header"><span class="section-title">Run Result</span></div>
+        <div class="section-body">
+          <div id="crew-result-meta" style="font-size:13px;color:var(--muted);margin-bottom:12px;"></div>
+          <div id="crew-result-agents" style="margin-bottom:12px;"></div>
+          <div style="margin-top:12px;">
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Final Output</label>
+            <pre id="crew-result-output" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px;white-space:pre-wrap;font-size:13px;max-height:400px;overflow-y:auto;"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
   <!-- Edit Agent Modal -->
   <div id="edit-agent-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
     <div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:24px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;">
@@ -1806,6 +1906,7 @@ function onPageEnter(page) {
   if (page === 'policies')   { loadPolicyRules(); }
   if (page === 'knowledge')  loadKnowledge();
   if (page === 'users')      loadUsersPage();
+  if (page === 'crews')      { loadCrews(); loadCrewRuns(); }
   if (page === 'logs')       startLogStream();
 }
 
@@ -3705,6 +3806,173 @@ async function installMCPFromMarketplace(name, command, args, transport, url) {
 }
 
 function loadMCPMarketplace() { searchMCPMarketplace(); }
+
+/* ─────────────── Crews ─────────────── */
+
+function addCrewMemberRow() {
+  const list = document.getElementById('crew-members-list');
+  const row = document.createElement('div');
+  row.className = 'form-row';
+  row.style.marginBottom = '6px';
+  row.innerHTML = `
+    <div class="form-group"><label>Agent</label><input type="text" class="crew-member-agent" placeholder="researcher"></div>
+    <div class="form-group"><label>Role</label><input type="text" class="crew-member-role" placeholder="Research specialist"></div>
+    <div class="form-group" style="flex:2;"><label>Goal</label><input type="text" class="crew-member-goal" placeholder="Find and summarize relevant information"></div>
+    <div class="form-group" style="align-self:flex-end;"><button class="btn btn-secondary btn-sm" onclick="this.closest('.form-row').remove()">Remove</button></div>
+  `;
+  list.appendChild(row);
+}
+
+function getCrewMembers() {
+  const agents = document.querySelectorAll('.crew-member-agent');
+  const roles = document.querySelectorAll('.crew-member-role');
+  const goals = document.querySelectorAll('.crew-member-goal');
+  const members = [];
+  for (let i = 0; i < agents.length; i++) {
+    const a = agents[i].value.trim();
+    const r = roles[i].value.trim();
+    const g = goals[i].value.trim();
+    if (a) members.push({ agent: a, role: r, goal: g });
+  }
+  return members;
+}
+
+async function createCrew() {
+  const name = document.getElementById('crew-name').value.trim();
+  const mode = document.getElementById('crew-mode').value;
+  const tenant = document.getElementById('crew-tenant').value.trim() || 'default';
+  const members = getCrewMembers();
+  const msg = document.getElementById('crew-create-msg');
+
+  if (!name) { msg.textContent = 'Name is required.'; msg.style.color = 'var(--err)'; return; }
+  if (!members.length) { msg.textContent = 'Add at least one member.'; msg.style.color = 'var(--err)'; return; }
+
+  msg.textContent = 'Creating...'; msg.style.color = 'var(--muted)';
+  const res = await apiFetch('/api/v1/crews', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mode, tenant, members }),
+  });
+
+  if (res.ok) {
+    msg.textContent = 'Crew created: ' + (res.data.crew_id || ''); msg.style.color = 'var(--ok)';
+    document.getElementById('crew-name').value = '';
+    document.getElementById('crew-members-list').innerHTML = '';
+    loadCrews();
+  } else {
+    msg.textContent = 'Error: ' + (res.raw?.error?.message || 'unknown'); msg.style.color = 'var(--err)';
+  }
+}
+
+async function loadCrews() {
+  const tbody = document.getElementById('crews-tbody');
+  const res = await apiFetch('/api/v1/crews');
+  const crews = Array.isArray(res.data) ? res.data : [];
+  if (!crews.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No crews created yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = crews.map(c => `<tr>
+    <td><code>${esc(c.id)}</code></td>
+    <td>${esc(c.name)}</td>
+    <td><span class="badge badge-info">${esc(c.mode)}</span></td>
+    <td>${(c.members||[]).map(m => esc(m.agent) + ' (' + esc(m.role) + ')').join(', ')}</td>
+    <td>${esc(c.tenant||'default')}</td>
+    <td>
+      <button class="btn btn-sm btn-primary" onclick="document.getElementById('crew-run-id').value='${esc(c.id)}'; document.getElementById('crew-run-id').scrollIntoView({behavior:'smooth'});">Run</button>
+    </td>
+  </tr>`).join('');
+}
+
+async function runCrew() {
+  const crewID = document.getElementById('crew-run-id').value.trim();
+  const input = document.getElementById('crew-run-input').value.trim();
+  const msg = document.getElementById('crew-run-msg');
+
+  if (!crewID) { msg.textContent = 'Crew ID is required.'; msg.style.color = 'var(--err)'; return; }
+  if (!input) { msg.textContent = 'Task input is required.'; msg.style.color = 'var(--err)'; return; }
+
+  msg.textContent = 'Starting crew run...'; msg.style.color = 'var(--muted)';
+  const res = await apiFetch('/api/v1/crews/' + encodeURIComponent(crewID) + '/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ input }),
+  });
+
+  if (res.ok) {
+    const runID = res.data.run_id || '';
+    msg.textContent = 'Run started: ' + runID; msg.style.color = 'var(--ok)';
+    loadCrewRuns();
+    if (runID) setTimeout(() => checkCrewRun(runID), 2000);
+  } else {
+    msg.textContent = 'Error: ' + (res.raw?.error?.message || 'unknown'); msg.style.color = 'var(--err)';
+  }
+}
+
+async function loadCrewRuns() {
+  const tbody = document.getElementById('crew-runs-tbody');
+  const res = await apiFetch('/api/v1/crews/runs');
+  const runs = Array.isArray(res.data) ? res.data : [];
+  if (!runs.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No crew runs yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = runs.map(r => {
+    const statusBadge = r.status === 'completed' ? 'badge-ok' : r.status === 'failed' ? 'badge-err' : 'badge-info';
+    const started = r.started_at ? new Date(r.started_at).toLocaleString() : '-';
+    return `<tr>
+      <td><code>${esc(r.id)}</code></td>
+      <td>${esc(r.crew_id)}</td>
+      <td><span class="badge ${statusBadge}">${esc(r.status)}</span></td>
+      <td>${started}</td>
+      <td><button class="btn btn-sm btn-secondary" onclick="checkCrewRun('${esc(r.id)}')">View</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function checkCrewRun(runId) {
+  const res = await apiFetch('/api/v1/crews/runs/' + encodeURIComponent(runId));
+  if (!res.ok) return;
+
+  const run = res.data;
+  const section = document.getElementById('crew-result-section');
+  section.style.display = 'block';
+
+  const statusBadge = run.status === 'completed' ? 'badge-ok' : run.status === 'failed' ? 'badge-err' : 'badge-info';
+  document.getElementById('crew-result-meta').innerHTML =
+    `<strong>Run:</strong> ${esc(run.id)} &nbsp; <span class="badge ${statusBadge}">${esc(run.status)}</span>` +
+    (run.error ? ` &nbsp; <span style="color:var(--err);">${esc(run.error)}</span>` : '') +
+    `<br><strong>Crew:</strong> ${esc(run.crew_id)} &nbsp; <strong>Input:</strong> ${esc((run.input||'').substring(0,200))}`;
+
+  const agentsDiv = document.getElementById('crew-result-agents');
+  const results = run.results || {};
+  const agentKeys = Object.keys(results);
+  if (agentKeys.length) {
+    agentsDiv.innerHTML = '<label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Agent Results</label>' +
+      agentKeys.map(a => `<div style="margin-bottom:8px;">
+        <strong style="color:var(--accent-h);">${esc(a)}</strong>
+        <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:8px;white-space:pre-wrap;font-size:12px;margin-top:4px;max-height:200px;overflow-y:auto;">${esc(results[a])}</pre>
+      </div>`).join('');
+  } else {
+    agentsDiv.innerHTML = '';
+  }
+
+  document.getElementById('crew-result-output').textContent = run.output || '(no output yet)';
+  section.scrollIntoView({ behavior: 'smooth' });
+
+  // If still running, poll again
+  if (run.status === 'running' || run.status === 'pending') {
+    setTimeout(() => checkCrewRun(runId), 3000);
+  } else {
+    loadCrewRuns();
+  }
+}
+
+// Initialize crew member form with one empty row
+(function() {
+  const list = document.getElementById('crew-members-list');
+  if (list && !list.children.length) addCrewMemberRow();
+})();
 
 /* ─────────────── Init ─────────────── */
 
