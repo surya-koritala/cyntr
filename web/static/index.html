@@ -645,6 +645,9 @@
     <div class="nav-item" data-page="crews">
       <i class="nav-icon">&#9733;</i> Crews
     </div>
+    <div class="nav-item" data-page="playground">
+        <i class="nav-icon">&#9654;</i> Playground
+    </div>
     <div class="sidebar-section">Automation</div>
     <div class="nav-item" data-page="workflows">
       <i class="nav-icon">&#8634;</i> Workflows
@@ -1798,6 +1801,78 @@
       </div>
     </section>
 
+    <!-- Playground Page -->
+    <section class="page" id="page-playground">
+        <div class="page-header">
+            <h2>Playground</h2>
+            <p>Test system prompts, tools, and skills in a sandbox. Each test creates a temporary agent — no persistent sessions.</p>
+        </div>
+        <div class="section">
+            <div class="section-header"><span class="section-title">Configuration</span></div>
+            <div class="section-body">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Tenant</label>
+                        <select id="pg-tenant"><option value="">Select...</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Model</label>
+                        <select id="pg-model">
+                            <optgroup label="Anthropic"><option value="claude" selected>Claude</option></optgroup>
+                            <optgroup label="OpenAI"><option value="gpt">GPT</option></optgroup>
+                            <optgroup label="Azure"><option value="azure-openai">Azure OpenAI</option></optgroup>
+                            <optgroup label="Other">
+                                <option value="gemini">Gemini</option>
+                                <option value="openrouter">OpenRouter</option>
+                                <option value="ollama">Ollama</option>
+                                <option value="mock">Mock (testing)</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Max Turns</label>
+                        <input type="number" id="pg-turns" value="5" min="1" max="20">
+                    </div>
+                </div>
+                <div class="form-row single">
+                    <div class="form-group">
+                        <label>System Prompt</label>
+                        <textarea id="pg-prompt" placeholder="You are a helpful assistant..." style="min-height:100px;"></textarea>
+                    </div>
+                </div>
+                <div class="form-row single">
+                    <div class="form-group">
+                        <label>Tools</label>
+                        <div style="display:flex;gap:8px;margin-bottom:8px;">
+                            <button class="btn btn-sm btn-secondary" onclick="pgSelectAllTools(true)">All</button>
+                            <button class="btn btn-sm btn-secondary" onclick="pgSelectAllTools(false)">None</button>
+                        </div>
+                        <div id="pg-tools" class="tool-grid"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="section">
+            <div class="section-header"><span class="section-title">Test</span></div>
+            <div class="section-body">
+                <div class="form-row">
+                    <div class="form-group" style="flex:3;">
+                        <input type="text" id="pg-input" placeholder="Type a message to test..." onkeydown="if(event.key==='Enter')runPlayground()">
+                    </div>
+                    <div class="form-group" style="align-self:flex-end;">
+                        <button class="btn btn-primary" id="pg-send" onclick="runPlayground()">Send</button>
+                    </div>
+                </div>
+                <div id="pg-result" style="display:none;margin-top:16px;">
+                    <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">
+                        <span id="pg-meta"></span>
+                    </div>
+                    <div id="pg-response" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;white-space:pre-wrap;font-size:13px;line-height:1.6;max-height:500px;overflow-y:auto;"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
   <!-- Edit Agent Modal -->
   <div id="edit-agent-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
     <div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:24px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;">
@@ -1907,6 +1982,7 @@ function onPageEnter(page) {
   if (page === 'knowledge')  loadKnowledge();
   if (page === 'users')      loadUsersPage();
   if (page === 'crews')      { loadCrews(); loadCrewRuns(); }
+  if (page === 'playground') loadPlayground();
   if (page === 'logs')       startLogStream();
 }
 
@@ -3973,6 +4049,93 @@ async function checkCrewRun(runId) {
   const list = document.getElementById('crew-members-list');
   if (list && !list.children.length) addCrewMemberRow();
 })();
+
+/* ─────────────── Playground ─────────────── */
+
+function pgSelectAllTools(on) {
+    document.querySelectorAll('#pg-tools input[type="checkbox"]').forEach(cb => cb.checked = on);
+}
+
+async function loadPlayground() {
+    // Populate tenant dropdown
+    const tenants = await loadTenants();
+    const sel = document.getElementById('pg-tenant');
+    if (sel) {
+        sel.innerHTML = '<option value="">Select tenant...</option>';
+        tenants.forEach(t => {
+            const name = typeof t === 'string' ? t : t.name;
+            sel.innerHTML += '<option value="' + esc(name) + '">' + esc(name) + '</option>';
+        });
+    }
+    // Populate tool checkboxes
+    const toolsDiv = document.getElementById('pg-tools');
+    if (toolsDiv) {
+        toolsDiv.innerHTML = ALL_TOOLS.map(t =>
+            '<label><input type="checkbox" value="' + t + '" checked> ' + t + '</label>'
+        ).join('');
+    }
+}
+
+async function runPlayground() {
+    const tenant = document.getElementById('pg-tenant').value;
+    const model = document.getElementById('pg-model').value;
+    const turns = parseInt(document.getElementById('pg-turns').value) || 5;
+    const prompt = document.getElementById('pg-prompt').value.trim();
+    const message = document.getElementById('pg-input').value.trim();
+
+    if (!tenant) { alert('Select a tenant'); return; }
+    if (!message) return;
+
+    const tools = Array.from(document.querySelectorAll('#pg-tools input:checked')).map(cb => cb.value);
+
+    const btn = document.getElementById('pg-send');
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+
+    const resultDiv = document.getElementById('pg-result');
+    const respDiv = document.getElementById('pg-response');
+    const metaDiv = document.getElementById('pg-meta');
+    resultDiv.style.display = 'block';
+    respDiv.textContent = 'Processing...';
+
+    const agentName = '_playground_' + Date.now();
+    const startTime = Date.now();
+
+    try {
+        // Create temporary agent
+        await apiFetch('/api/v1/tenants/' + encodeURIComponent(tenant) + '/agents', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                name: agentName, model, system_prompt: prompt || 'You are a helpful assistant.',
+                tools: tools.length ? tools : ['*'], max_turns: turns,
+            }),
+        });
+
+        // Chat
+        const chatRes = await apiFetch('/api/v1/tenants/' + encodeURIComponent(tenant) + '/agents/' + agentName + '/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message}),
+        });
+
+        const elapsed = Date.now() - startTime;
+        const data = chatRes.data || {};
+        respDiv.innerHTML = renderMarkdown(data.content || data.message || JSON.stringify(data));
+        const toolsUsed = (data.tools_used || []).join(', ') || 'none';
+        metaDiv.textContent = 'Model: ' + model + ' | Tools used: ' + toolsUsed + ' | Time: ' + (elapsed/1000).toFixed(1) + 's';
+
+        // Delete temporary agent
+        await apiFetch('/api/v1/tenants/' + encodeURIComponent(tenant) + '/agents/' + agentName, {method: 'DELETE'});
+
+    } catch(e) {
+        respDiv.textContent = 'Error: ' + e.message;
+        metaDiv.textContent = '';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send';
+    }
+}
 
 /* ─────────────── Init ─────────────── */
 

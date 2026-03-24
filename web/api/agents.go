@@ -309,21 +309,17 @@ func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stream the response content in chunks for a streaming feel
+	// Stream the response by sentences for a more natural streaming feel
 	content := chatResp.Content
-	chunkSize := 50 // characters per chunk
-	for i := 0; i < len(content); i += chunkSize {
-		end := i + chunkSize
-		if end > len(content) {
-			end = len(content)
-		}
-		chunk := content[i:end]
+	sentences := splitIntoStreamChunks(content)
+	for _, chunk := range sentences {
 		data, _ := json.Marshal(map[string]any{
 			"type":    "text",
 			"content": chunk,
 		})
 		fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
 		flusher.Flush()
+		time.Sleep(30 * time.Millisecond) // small delay for visual streaming effect
 	}
 
 	// Send tools used if any
@@ -338,4 +334,33 @@ func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "event: done\ndata: {}\n\n")
 	flusher.Flush()
+}
+
+// splitIntoStreamChunks splits text into natural-looking streaming chunks.
+// Splits on sentence boundaries (. ! ? newline) with a minimum chunk size.
+func splitIntoStreamChunks(text string) []string {
+	if len(text) <= 100 {
+		return []string{text}
+	}
+
+	var chunks []string
+	current := ""
+
+	for _, r := range text {
+		current += string(r)
+		// Split on sentence boundaries when chunk is long enough
+		if len(current) >= 20 && (r == '.' || r == '!' || r == '?' || r == '\n') {
+			chunks = append(chunks, current)
+			current = ""
+		}
+		// Hard split at 200 chars if no sentence boundary found
+		if len(current) >= 200 {
+			chunks = append(chunks, current)
+			current = ""
+		}
+	}
+	if current != "" {
+		chunks = append(chunks, current)
+	}
+	return chunks
 }
