@@ -115,6 +115,9 @@ func runStart() {
 	}
 	agentRuntime.SetMemoryStore(memoryStore)
 
+	usageStore, _ := agent.NewUsageStore("usage.db")
+	agentRuntime.SetUsageStore(usageStore)
+
 	agentRuntime.RegisterProvider(agentproviders.NewMock("Default mock response"))
 
 	// Register tools
@@ -491,6 +494,7 @@ func runStart() {
 	}
 	apiServer.SetTenantManager(tenantMgr)
 	webapi.SetSessionStore(sessionStore)
+	webapi.SetUsageStore(usageStore)
 	dashboard := web.NewDashboardHandler()
 
 	// Wrap API with auth if API key is configured

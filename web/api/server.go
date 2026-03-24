@@ -146,4 +146,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/v1/eval/run", s.handleEvalRun)
 	s.mux.HandleFunc("GET /api/v1/eval/runs/{id}", s.handleEvalStatus)
 	s.mux.HandleFunc("GET /api/v1/eval/runs", s.handleEvalList)
+
+	// Usage
+	s.mux.HandleFunc("GET /api/v1/usage", s.handleUsageQuery)
+	s.mux.HandleFunc("GET /api/v1/usage/summary", s.handleUsageSummary)
 }

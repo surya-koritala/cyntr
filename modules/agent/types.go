@@ -72,6 +72,7 @@ type AgentConfig struct {
 	RateLimit           int               `yaml:"rate_limit" json:"rate_limit"`                       // max requests per minute (0 = unlimited)
 	Skills              []string          `yaml:"skills" json:"skills"`
 	MCPServers          []string          `yaml:"mcp_servers" json:"mcp_servers"`
+	AutoMemory          bool              `yaml:"auto_memory" json:"auto_memory"`
 }
 
 // ProgressEvent is published during tool execution to inform channels of agent activity.

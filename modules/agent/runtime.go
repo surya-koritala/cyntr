@@ -65,6 +65,7 @@ type Runtime struct {
 	agents      map[string]*agentInstance // "tenant/name" -> instance
 	store       *SessionStore
 	memoryStore *MemoryStore
+	usageStore  *UsageStore
 }
 
 // SetSessionStore attaches a SessionStore to the runtime for persistent conversations.
@@ -75,6 +76,11 @@ func (r *Runtime) SetSessionStore(store *SessionStore) {
 // SetMemoryStore attaches a MemoryStore to the runtime for long-term memory persistence.
 func (r *Runtime) SetMemoryStore(store *MemoryStore) {
 	r.memoryStore = store
+}
+
+// SetUsageStore attaches a UsageStore to the runtime for token/cost tracking.
+func (r *Runtime) SetUsageStore(store *UsageStore) {
+	r.usageStore = store
 }
 
 type agentInstance struct {
@@ -353,6 +359,17 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 			return ipc.Message{}, fmt.Errorf("model call failed: %w", err)
 		}
 
+		// Record usage
+		if r.usageStore != nil {
+			go r.usageStore.Record(UsageRecord{
+				Timestamp:  time.Now(),
+				Tenant:     req.Tenant,
+				Agent:      req.Agent,
+				Provider:   inst.config.Model,
+				DurationMs: time.Since(chatStart).Milliseconds(),
+			})
+		}
+
 		inst.session.AddMessage(response)
 
 		// If no tool calls, we're done
@@ -365,6 +382,12 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				})
 			}
 			r.publishActivity(req.Agent, req.Tenant, "chat_complete", "Response sent")
+
+			// Auto-memory extraction
+			if inst.config.AutoMemory && r.memoryStore != nil && len(toolsUsed) > 0 {
+				go r.extractMemories(req, inst, response.Content, toolsUsed)
+			}
+
 			return ipc.Message{
 				Type: ipc.MessageTypeResponse,
 				Payload: ChatResponse{
@@ -789,5 +812,57 @@ func (r *Runtime) handleSearch(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: results}, nil
+}
+
+func (r *Runtime) extractMemories(req ChatRequest, inst *agentInstance, lastResponse string, toolsUsed []string) {
+	if r.memoryStore == nil || lastResponse == "" {
+		return
+	}
+
+	// Simple heuristic: extract key facts from the conversation
+	// In production, this would call the LLM to summarize
+	// For now, save a summary of what tools were used and the topic
+
+	history := inst.session.History()
+	if len(history) < 2 {
+		return
+	}
+
+	// Find the user's original question
+	var userQuery string
+	for _, msg := range history {
+		if msg.Role == RoleUser {
+			userQuery = msg.Content
+			break
+		}
+	}
+
+	if userQuery == "" {
+		return
+	}
+
+	// Create a memory entry
+	summary := fmt.Sprintf("User asked: %s | Tools used: %s | Topic context from conversation",
+		truncate(userQuery, 100), strings.Join(toolsUsed, ", "))
+
+	memory := Memory{
+		Agent:   req.Agent,
+		Tenant:  req.Tenant,
+		Key:     "auto:" + strings.Join(toolsUsed, ","),
+		Content: summary,
+	}
+
+	if err := r.memoryStore.Save(memory); err != nil {
+		logger.Warn("auto-memory save failed", map[string]any{"error": err.Error()})
+	} else {
+		logger.Info("auto-memory saved", map[string]any{"agent": req.Agent, "tools": toolsUsed})
+	}
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
