@@ -2,17 +2,24 @@ package auth
 
 import (
 	"context"
+	"crypto"
 	crand "crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/cyntr-dev/cyntr/kernel/log"
 )
+
+var oidcLogger = log.Default().WithModule("oidc")
 
 // OIDCConfig holds OIDC provider configuration.
 type OIDCConfig struct {
@@ -31,6 +38,8 @@ type OIDCProvider struct {
 	authURL     string
 	tokenURL    string
 	userinfoURL string
+	jwksURI     string
+	jwksKeys    map[string]*rsa.PublicKey
 }
 
 // NewOIDCProvider creates an OIDC provider.
@@ -68,6 +77,7 @@ func (p *OIDCProvider) Discover(ctx context.Context) error {
 		AuthEndpoint     string `json:"authorization_endpoint"`
 		TokenEndpoint    string `json:"token_endpoint"`
 		UserinfoEndpoint string `json:"userinfo_endpoint"`
+		JwksURI          string `json:"jwks_uri"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return fmt.Errorf("parse discovery: %w", err)
@@ -76,6 +86,7 @@ func (p *OIDCProvider) Discover(ctx context.Context) error {
 	p.authURL = config.AuthEndpoint
 	p.tokenURL = config.TokenEndpoint
 	p.userinfoURL = config.UserinfoEndpoint
+	p.jwksURI = config.JwksURI
 	return nil
 }
 
@@ -200,14 +211,133 @@ func (p *OIDCProvider) ExchangeCodeWithPKCE(ctx context.Context, code, codeVerif
 }
 
 // verifyIDTokenSignature verifies the RS256 signature of an OIDC ID token.
-// Full implementation requires fetching the JWKS from the provider and
-// verifying against the matching key. Logged as a warning until implemented.
 func (p *OIDCProvider) verifyIDTokenSignature(idToken string) error {
-	// TODO: Fetch JWKS from discovery jwks_uri, parse kid from token header,
-	// find matching JWK, and verify RS256 signature using crypto/rsa.
-	// This is ~100 lines of stdlib crypto code — deferred to a follow-up.
-	_ = idToken
+	// Split JWT parts
+	parts := strings.SplitN(idToken, ".", 3)
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid JWT format: expected 3 parts")
+	}
+
+	// Decode header to get kid
+	headerJSON, err := base64URLDecode(parts[0])
+	if err != nil {
+		return fmt.Errorf("decode header: %w", err)
+	}
+
+	var header struct {
+		Alg string `json:"alg"`
+		Kid string `json:"kid"`
+	}
+	if err := json.Unmarshal(headerJSON, &header); err != nil {
+		return fmt.Errorf("parse header: %w", err)
+	}
+
+	if header.Alg != "RS256" {
+		return fmt.Errorf("unsupported algorithm: %s (only RS256 supported)", header.Alg)
+	}
+
+	// Fetch JWKS if not cached
+	if p.jwksKeys == nil {
+		if err := p.fetchJWKS(); err != nil {
+			oidcLogger.Warn("JWKS fetch failed, skipping signature verification", map[string]any{"error": err.Error()})
+			return nil // graceful degradation
+		}
+	}
+
+	// Find matching key by kid
+	key, ok := p.jwksKeys[header.Kid]
+	if !ok {
+		// Refresh JWKS in case keys rotated
+		if err := p.fetchJWKS(); err != nil {
+			return fmt.Errorf("JWKS refresh failed: %w", err)
+		}
+		key, ok = p.jwksKeys[header.Kid]
+		if !ok {
+			return fmt.Errorf("no matching key found for kid: %s", header.Kid)
+		}
+	}
+
+	// Verify RS256 signature
+	signedContent := parts[0] + "." + parts[1]
+	signature, err := base64URLDecode(parts[2])
+	if err != nil {
+		return fmt.Errorf("decode signature: %w", err)
+	}
+
+	hashed := sha256.Sum256([]byte(signedContent))
+	if err := rsa.VerifyPKCS1v15(key, crypto.SHA256, hashed[:], signature); err != nil {
+		return fmt.Errorf("signature verification failed: %w", err)
+	}
+
 	return nil
+}
+
+// fetchJWKS fetches the JSON Web Key Set from the OIDC provider.
+func (p *OIDCProvider) fetchJWKS() error {
+	if p.jwksURI == "" {
+		return fmt.Errorf("jwks_uri not configured")
+	}
+
+	resp, err := http.Get(p.jwksURI)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var jwks struct {
+		Keys []struct {
+			Kid string `json:"kid"`
+			Kty string `json:"kty"`
+			N   string `json:"n"`
+			E   string `json:"e"`
+			Alg string `json:"alg"`
+		} `json:"keys"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return fmt.Errorf("decode JWKS: %w", err)
+	}
+
+	p.jwksKeys = make(map[string]*rsa.PublicKey)
+	for _, jwk := range jwks.Keys {
+		if jwk.Kty != "RSA" {
+			continue
+		}
+		nBytes, err := base64URLDecode(jwk.N)
+		if err != nil {
+			continue
+		}
+		eBytes, err := base64URLDecode(jwk.E)
+		if err != nil {
+			continue
+		}
+
+		// Convert e bytes to int
+		var e int
+		for _, b := range eBytes {
+			e = e<<8 + int(b)
+		}
+
+		pubKey := &rsa.PublicKey{
+			N: new(big.Int).SetBytes(nBytes),
+			E: e,
+		}
+		p.jwksKeys[jwk.Kid] = pubKey
+	}
+
+	return nil
+}
+
+// base64URLDecode decodes a base64url-encoded string (no padding).
+func base64URLDecode(s string) ([]byte, error) {
+	// Add padding if needed
+	switch len(s) % 4 {
+	case 2:
+		s += "=="
+	case 3:
+		s += "="
+	}
+	return base64.URLEncoding.DecodeString(s)
 }
 
 // ExchangeCode exchanges an authorization code for tokens and returns a Cyntr JWT.

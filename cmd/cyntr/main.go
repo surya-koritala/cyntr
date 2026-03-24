@@ -66,6 +66,10 @@ func main() {
 		apiGet("/api/v1/system/health")
 	case "chat":
 		runChat(os.Args[2:])
+	case "backup":
+		runBackup(os.Args[2:])
+	case "restore":
+		runRestore(os.Args[2:])
 	case "help", "--help", "-h":
 		showHelp()
 	default:

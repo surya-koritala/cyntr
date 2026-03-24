@@ -217,3 +217,45 @@ func TestOIDCProviderExchangeCodeMissingEmail(t *testing.T) {
 		t.Fatalf("expected empty ID for missing email, got %q", principal.ID)
 	}
 }
+
+func TestBase64URLDecode(t *testing.T) {
+	// Standard base64url without padding
+	decoded, err := base64URLDecode("SGVsbG8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decoded) != "Hello" {
+		t.Fatalf("expected Hello, got %q", decoded)
+	}
+}
+
+func TestBase64URLDecodeWithPadding(t *testing.T) {
+	decoded, err := base64URLDecode("SGVsbG8gV29ybGQ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decoded) != "Hello World" {
+		t.Fatalf("expected 'Hello World', got %q", decoded)
+	}
+}
+
+func TestVerifyIDTokenBadFormat(t *testing.T) {
+	p := &OIDCProvider{}
+	err := p.verifyIDTokenSignature("not-a-jwt")
+	if err == nil {
+		t.Fatal("expected error for invalid JWT format")
+	}
+}
+
+func TestVerifyIDTokenUnsupportedAlg(t *testing.T) {
+	// Create a JWT with HS256 header
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"test"}`))
+	token := header + "." + payload + ".fakesig"
+
+	p := &OIDCProvider{}
+	err := p.verifyIDTokenSignature(token)
+	if err == nil {
+		t.Fatal("expected error for unsupported algorithm")
+	}
+}

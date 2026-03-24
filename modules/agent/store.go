@@ -27,6 +27,12 @@ func NewSessionStore(dbPath string) (*SessionStore, error) {
 		return nil, fmt.Errorf("set WAL: %w", err)
 	}
 
+	// Run schema migrations
+	if err := RunMigrations(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("run migrations: %w", err)
+	}
+
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS sessions (
 			id TEXT PRIMARY KEY,
