@@ -197,12 +197,20 @@ func (s *Scheduler) executeJob(job *Job) {
 
 	// Deliver results to configured channel
 	if job.DestChannel != "" && job.DestChannelID != "" {
+		deliveryText := chatResp.Content
+		if job.ReportMode {
+			title := job.ReportTitle
+			if title == "" {
+				title = "Scheduled Report: " + job.Name
+			}
+			deliveryText = fmt.Sprintf("*%s*\n_%s_\n\n%s", title, time.Now().Format("2006-01-02 15:04"), deliveryText)
+		}
 		_, err := s.bus.Request(ctx, ipc.Message{
 			Source: "scheduler", Target: "channel", Topic: "channel.send",
 			Payload: channel.OutboundMessage{
 				Channel:   job.DestChannel,
 				ChannelID: job.DestChannelID,
-				Text:      chatResp.Content,
+				Text:      deliveryText,
 			},
 		})
 		if err != nil {

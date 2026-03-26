@@ -28,6 +28,8 @@ import (
 	whatsapppkg "github.com/cyntr-dev/cyntr/modules/channel/whatsapp"
 	"github.com/cyntr-dev/cyntr/modules/eval"
 	"github.com/cyntr-dev/cyntr/modules/federation"
+	"github.com/cyntr-dev/cyntr/modules/notify"
+	"github.com/cyntr-dev/cyntr/modules/sla"
 	"github.com/cyntr-dev/cyntr/modules/crew"
 	"github.com/cyntr-dev/cyntr/modules/mcp"
 	"github.com/cyntr-dev/cyntr/modules/policy"
@@ -41,7 +43,7 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "1.0.1"
+const version = "1.1.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -464,6 +466,26 @@ func runStart() {
 	evalRunner := eval.New()
 	k.Register(evalRunner)
 
+	// Notification channels
+	notifierInst := notify.NewNotifier()
+	if pdKey := os.Getenv("PAGERDUTY_ROUTING_KEY"); pdKey != "" {
+		notifierInst.AddChannel(notify.NewPagerDutyChannel("", pdKey))
+		log.Info("notification channel registered", map[string]any{"channel": "pagerduty"})
+	}
+	if ddKey := os.Getenv("DATADOG_API_KEY"); ddKey != "" {
+		notifierInst.AddChannel(notify.NewDatadogChannel("", ddKey))
+		log.Info("notification channel registered", map[string]any{"channel": "datadog"})
+	}
+	if webhookURL := os.Getenv("NOTIFY_WEBHOOK_URL"); webhookURL != "" {
+		notifierInst.AddChannel(notify.NewGenericWebhookChannel("webhook", webhookURL, nil))
+		log.Info("notification channel registered", map[string]any{"channel": "webhook"})
+	}
+
+	// SLA monitoring
+	slaMonitor := sla.New()
+	slaMonitor.SetNotifier(notifierInst)
+	k.Register(slaMonitor)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -507,6 +529,7 @@ func runStart() {
 		log.Warn("tenant manager init failed", map[string]any{"error": err.Error()})
 	}
 	apiServer.SetTenantManager(tenantMgr)
+	apiServer.SetNotifier(notifierInst)
 	webapi.SetSessionStore(sessionStore)
 	webapi.SetUsageStore(usageStore)
 	dashboard := web.NewDashboardHandler()

@@ -5,6 +5,7 @@ import (
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/modules/notify"
 	"github.com/cyntr-dev/cyntr/tenant"
 )
 
@@ -14,12 +15,18 @@ type Server struct {
 	bus       *ipc.Bus
 	kernel    *kernel.Kernel
 	tenantMgr *tenant.Manager
+	notifier  *notify.Notifier
 }
 
 // SetTenantManager sets the tenant manager after construction.
 // This preserves backward compatibility with existing NewServer callers.
 func (s *Server) SetTenantManager(tm *tenant.Manager) {
 	s.tenantMgr = tm
+}
+
+// SetNotifier sets the notification manager.
+func (s *Server) SetNotifier(n *notify.Notifier) {
+	s.notifier = n
 }
 
 // NewServer creates an API server wired to the kernel IPC bus.
@@ -158,4 +165,24 @@ func (s *Server) registerRoutes() {
 	// Usage
 	s.mux.HandleFunc("GET /api/v1/usage", s.handleUsageQuery)
 	s.mux.HandleFunc("GET /api/v1/usage/summary", s.handleUsageSummary)
+
+	// SLA Monitoring
+	s.mux.HandleFunc("POST /api/v1/sla/rules", s.handleSLAAddRule)
+	s.mux.HandleFunc("GET /api/v1/sla/rules", s.handleSLAListRules)
+	s.mux.HandleFunc("DELETE /api/v1/sla/rules/{id}", s.handleSLARemoveRule)
+	s.mux.HandleFunc("GET /api/v1/sla/violations", s.handleSLAViolations)
+
+	// Notifications
+	s.mux.HandleFunc("GET /api/v1/notifications/channels", s.handleNotificationChannels)
+	s.mux.HandleFunc("POST /api/v1/notifications/test", s.handleNotificationTest)
+
+	// Observability
+	s.mux.HandleFunc("GET /api/v1/observability/latency", s.handleObservabilityLatency)
+	s.mux.HandleFunc("GET /api/v1/observability/tokens", s.handleObservabilityTokens)
+	s.mux.HandleFunc("GET /api/v1/observability/tools", s.handleObservabilityTools)
+
+	// Tools
+	s.mux.HandleFunc("GET /api/v1/tools", s.handleToolList)
+	s.mux.HandleFunc("POST /api/v1/tools", s.handleToolCreate)
+	s.mux.HandleFunc("DELETE /api/v1/tools/{name}", s.handleToolDelete)
 }

@@ -26,11 +26,14 @@ const (
 
 // Notification represents an alert to send.
 type Notification struct {
-	Type    NotificationType
-	Title   string
-	Message string
-	Tenant  string
-	Fields  map[string]string
+	Type     NotificationType
+	Title    string
+	Message  string
+	Tenant   string
+	Severity string            // critical, warning, error, info
+	Agent    string            // agent that triggered this
+	Source   string            // what generated this (sla-monitor, workflow, etc.)
+	Fields   map[string]string
 }
 
 // Channel is a notification delivery mechanism.
@@ -114,21 +117,35 @@ func (n *Notifier) AddChannel(ch Channel) {
 }
 
 // Send dispatches a notification to all channels.
-func (n *Notifier) Send(ctx context.Context, notif Notification) {
+// Returns the first error encountered, if any.
+func (n *Notifier) Send(ctx context.Context, notif Notification) error {
 	n.mu.RLock()
 	channels := make([]Channel, len(n.channels))
 	copy(channels, n.channels)
 	n.mu.RUnlock()
 
+	var firstErr error
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
 	for _, ch := range channels {
+		wg.Add(1)
 		go func(c Channel) {
+			defer wg.Done()
 			if err := c.Send(ctx, notif); err != nil {
 				logger.Warn("notification delivery failed", map[string]any{
 					"channel": c.Name(), "type": string(notif.Type), "error": err.Error(),
 				})
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
 			}
 		}(ch)
 	}
+	wg.Wait()
+	return firstErr
 }
 
 // ChannelCount returns the number of registered channels.
@@ -136,4 +153,15 @@ func (n *Notifier) ChannelCount() int {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return len(n.channels)
+}
+
+// ChannelNames returns the names of all registered channels.
+func (n *Notifier) ChannelNames() []string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	names := make([]string, len(n.channels))
+	for i, ch := range n.channels {
+		names[i] = ch.Name()
+	}
+	return names
 }

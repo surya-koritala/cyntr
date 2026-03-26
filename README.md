@@ -3,7 +3,7 @@
   <p align="center"><strong>Open-Source AI Agent Platform for Enterprise</strong></p>
   <p align="center">Deploy AI agents that run shell commands, browse the web, query databases, manage Kubernetes clusters, analyze cloud costs, enforce security policies, and automate workflows — with 25 built-in enterprise skills, a skill marketplace, and full audit trails.</p>
   <p align="center">
-    <a href="https://github.com/surya-koritala/cyntr/releases"><img src="https://img.shields.io/badge/release-v1.0.1-green" alt="Release"></a>
+    <a href="https://github.com/surya-koritala/cyntr/releases"><img src="https://img.shields.io/badge/release-v1.1.0-green" alt="Release"></a>
     <a href="https://github.com/surya-koritala/cyntr/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
     <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go" alt="Go">
     <img src="https://img.shields.io/badge/tests-37%20packages%20passing-brightgreen" alt="Tests">
@@ -12,7 +12,7 @@
     <img src="https://img.shields.io/badge/providers-7-purple" alt="Providers">
     <img src="https://img.shields.io/badge/channels-7-blue" alt="Channels">
     <img src="https://img.shields.io/badge/MCP-8%20servers-teal" alt="MCP">
-    <img src="https://img.shields.io/badge/API-70%2B%20endpoints-yellow" alt="API">
+    <img src="https://img.shields.io/badge/API-80%2B%20endpoints-yellow" alt="API">
   </p>
 </p>
 
