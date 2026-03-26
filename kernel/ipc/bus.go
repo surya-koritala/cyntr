@@ -66,20 +66,22 @@ func (b *Bus) Handle(module, topic string, h Handler) {
 	}
 	b.handlers[module][topic] = entry
 
-	go func() {
+	go func(fn Handler) {
 		for req := range entry.inbox {
-			resp, err := entry.handler(req.msg)
-			if err != nil {
-				req.replyCh <- replyEnvelope{err: err}
-			} else {
-				resp.ID = req.msg.ID
-				resp.Source = req.msg.Target
-				resp.Target = req.msg.Source
-				resp.TraceID = req.msg.TraceID // propagate trace ID
-				req.replyCh <- replyEnvelope{msg: resp}
-			}
+			go func(r requestEnvelope) {
+				resp, err := fn(r.msg)
+				if err != nil {
+					r.replyCh <- replyEnvelope{err: err}
+				} else {
+					resp.ID = r.msg.ID
+					resp.Source = r.msg.Target
+					resp.Target = r.msg.Source
+					resp.TraceID = r.msg.TraceID // propagate trace ID
+					r.replyCh <- replyEnvelope{msg: resp}
+				}
+			}(req)
 		}
-	}()
+	}(entry.handler)
 }
 
 func (b *Bus) Request(ctx context.Context, msg Message) (Message, error) {

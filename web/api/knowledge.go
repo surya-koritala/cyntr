@@ -66,6 +66,32 @@ func (s *Server) handleKnowledgeIngest(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 201, map[string]string{"status": "ingested", "id": id})
 }
 
+func (s *Server) handleKnowledgeSearch(w http.ResponseWriter, r *http.Request) {
+	if knowledgeTool == nil {
+		Respond(w, 200, []any{})
+		return
+	}
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		RespondError(w, 400, "MISSING_QUERY", "q parameter required")
+		return
+	}
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		mode = "hybrid"
+	}
+	results, err := knowledgeTool.Execute(r.Context(), map[string]string{
+		"action": "search",
+		"query":  query,
+		"mode":   mode,
+	})
+	if err != nil {
+		RespondError(w, 500, "SEARCH_FAILED", err.Error())
+		return
+	}
+	Respond(w, 200, map[string]string{"query": query, "mode": mode, "results": results})
+}
+
 func (s *Server) handleKnowledgeDelete(w http.ResponseWriter, r *http.Request) {
 	if knowledgeTool == nil {
 		RespondError(w, 500, "NOT_CONFIGURED", "knowledge base not configured")

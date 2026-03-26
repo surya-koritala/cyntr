@@ -271,6 +271,12 @@ type anthropicUsage struct {
 func (a *Anthropic) parseResponse(resp anthropicResponse) agent.Message {
 	msg := agent.Message{Role: agent.RoleAssistant}
 
+	// Extract token counts from usage
+	if resp.Usage != nil {
+		msg.InputTokens = resp.Usage.InputTokens
+		msg.OutputTokens = resp.Usage.OutputTokens
+	}
+
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "text":

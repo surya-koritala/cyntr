@@ -41,7 +41,7 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "1.0.0"
+const version = "1.0.1"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -123,6 +123,14 @@ func runStart() {
 
 	usageStore, _ := agent.NewUsageStore("usage.db")
 	agentRuntime.SetUsageStore(usageStore)
+
+	// Start data retention scheduler (cleans up old sessions/memories/usage)
+	agent.StartRetentionScheduler(sessionStore, memoryStore, usageStore, agent.RetentionPolicy{
+		SessionTTL: 90 * 24 * time.Hour,  // 90 days
+		MemoryTTL:  180 * 24 * time.Hour, // 180 days
+		UsageTTL:   365 * 24 * time.Hour, // 1 year
+	}, 24*time.Hour)
+	log.Info("retention scheduler started", map[string]any{"session_ttl": "90d", "memory_ttl": "180d", "usage_ttl": "365d"})
 
 	agentRuntime.RegisterProvider(agentproviders.NewMock("Default mock response"))
 

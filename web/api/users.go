@@ -82,9 +82,20 @@ func (s *Server) handleUserList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
 	uid := r.PathValue("uid")
 	if sessionStore == nil {
 		RespondError(w, 500, "NOT_CONFIGURED", "session store not configured")
+		return
+	}
+	// Verify user belongs to the specified tenant before deleting
+	user, err := sessionStore.GetUser(uid)
+	if err != nil {
+		RespondError(w, 404, "NOT_FOUND", "user not found")
+		return
+	}
+	if user.Tenant != tid {
+		RespondError(w, 403, "FORBIDDEN", "user does not belong to this tenant")
 		return
 	}
 	if err := sessionStore.DeleteUser(uid); err != nil {

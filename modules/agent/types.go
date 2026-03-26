@@ -37,11 +37,13 @@ type Attachment struct {
 
 // Message represents a single message in a conversation.
 type Message struct {
-	Role        Role
-	Content     string
-	ToolCalls   []ToolCall   // set when assistant requests tool use
-	ToolResults []ToolResult // set when providing tool results
-	Attachments []Attachment // optional media attachments (multimodal)
+	Role         Role
+	Content      string
+	ToolCalls    []ToolCall   // set when assistant requests tool use
+	ToolResults  []ToolResult // set when providing tool results
+	Attachments  []Attachment // optional media attachments (multimodal)
+	InputTokens  int          // token count from provider (input)
+	OutputTokens int          // token count from provider (output)
 }
 
 // ToolCall represents a request from the model to execute a tool.

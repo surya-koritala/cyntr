@@ -13,9 +13,10 @@ type Crew struct {
 
 // CrewMember is an agent assigned to a crew with a specific role.
 type CrewMember struct {
-	Agent string `json:"agent"` // agent name
-	Role  string `json:"role"`  // what this agent does in the crew
-	Goal  string `json:"goal"`  // specific objective for this agent
+	Agent  string `json:"agent"`  // agent name
+	Tenant string `json:"tenant"` // optional: tenant override (falls back to crew-level)
+	Role   string `json:"role"`   // what this agent does in the crew
+	Goal   string `json:"goal"`   // specific objective for this agent
 }
 
 // CrewRun tracks the execution of a crew task.

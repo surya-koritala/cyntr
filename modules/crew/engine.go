@@ -71,6 +71,10 @@ func (e *Engine) handleCreate(msg ipc.Message) (ipc.Message, error) {
 	if crew.Mode == "" {
 		crew.Mode = "pipeline"
 	}
+	// Inherit tenant from first member if crew-level is empty
+	if crew.Tenant == "" && len(crew.Members) > 0 && crew.Members[0].Tenant != "" {
+		crew.Tenant = crew.Members[0].Tenant
+	}
 
 	e.mu.Lock()
 	e.crews[crew.ID] = &crew
@@ -144,12 +148,17 @@ func (e *Engine) executePipeline(crew *Crew, run *CrewRun) {
 		// Build message: include role, goal, and previous output
 		message := fmt.Sprintf("Your role: %s\nYour goal: %s\n\nInput:\n%s", member.Role, member.Goal, currentInput)
 
+		memberTenant := member.Tenant
+		if memberTenant == "" {
+			memberTenant = crew.Tenant
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		resp, err := e.bus.Request(ctx, ipc.Message{
 			Source: "crew", Target: "agent_runtime", Topic: "agent.chat",
 			Payload: agent.ChatRequest{
 				Agent:   member.Agent,
-				Tenant:  crew.Tenant,
+				Tenant:  memberTenant,
 				User:    "crew:" + crew.Name,
 				Message: message,
 			},

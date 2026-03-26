@@ -174,6 +174,22 @@ func (s *Server) handleSessionMessages(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 200, resp.Payload)
 }
 
+func (s *Server) handleSessionClear(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	name := r.PathValue("name")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	_, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "agent_runtime", Topic: "agent.session.clear",
+		Payload: map[string]string{"tenant": tid, "name": name},
+	})
+	if err != nil {
+		RespondError(w, 500, "CLEAR_FAILED", err.Error())
+		return
+	}
+	Respond(w, 200, map[string]string{"status": "cleared", "agent": name, "tenant": tid})
+}
+
 func (s *Server) handleAgentMemories(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
 	name := r.PathValue("name")
@@ -210,10 +226,17 @@ func (s *Server) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
 	var body struct {
-		Model        string   `json:"model"`
-		SystemPrompt string   `json:"system_prompt"`
-		MaxTurns     int      `json:"max_turns"`
-		Tools        []string `json:"tools"`
+		Model              string            `json:"model"`
+		SystemPrompt       string            `json:"system_prompt"`
+		MaxTurns           int               `json:"max_turns"`
+		Tools              []string          `json:"tools"`
+		MaxHistory         int               `json:"max_history"`
+		SummarizeThreshold int               `json:"summarize_threshold"`
+		RateLimit          int               `json:"rate_limit"`
+		Skills             []string          `json:"skills"`
+		MCPServers         []string          `json:"mcp_servers"`
+		Secrets            map[string]string `json:"secrets"`
+		AutoMemory         bool              `json:"auto_memory"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON body")
@@ -226,12 +249,19 @@ func (s *Server) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	_, err := s.bus.Request(ctx, ipc.Message{
 		Source: "api", Target: "agent_runtime", Topic: "agent.update",
 		Payload: agent.AgentConfig{
-			Name:         name,
-			Tenant:       tid,
-			Model:        body.Model,
-			SystemPrompt: body.SystemPrompt,
-			MaxTurns:     body.MaxTurns,
-			Tools:        body.Tools,
+			Name:               name,
+			Tenant:             tid,
+			Model:              body.Model,
+			SystemPrompt:       body.SystemPrompt,
+			MaxTurns:           body.MaxTurns,
+			Tools:              body.Tools,
+			MaxHistory:         body.MaxHistory,
+			SummarizeThreshold: body.SummarizeThreshold,
+			RateLimit:          body.RateLimit,
+			Skills:             body.Skills,
+			MCPServers:         body.MCPServers,
+			Secrets:            body.Secrets,
+			AutoMemory:         body.AutoMemory,
 		},
 	})
 	if err != nil {
@@ -316,57 +346,79 @@ func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 300*time.Second)
 	defer cancel()
 
+	// Subscribe to activity events for this agent to show tool progress
+	progressCh := make(chan agent.ActivityEvent, 32)
+	sub := s.bus.Subscribe("stream:"+agentName, "agent.activity", func(msg ipc.Message) (ipc.Message, error) {
+		if evt, ok := msg.Payload.(agent.ActivityEvent); ok && evt.Agent == agentName && evt.Tenant == tid {
+			select {
+			case progressCh <- evt:
+			default:
+			}
+		}
+		return ipc.Message{}, nil
+	})
+
 	// Send thinking indicator
 	fmt.Fprintf(w, "event: message\ndata: {\"type\":\"thinking\",\"content\":\"\"}\n\n")
 	flusher.Flush()
 
-	resp, err := s.bus.Request(ctx, ipc.Message{
-		Source: "api", Target: "agent_runtime", Topic: "agent.chat",
-		Payload: agent.ChatRequest{
-			Agent:   agentName,
-			Tenant:  tid,
-			Message: message,
-		},
-		TraceID: traceID(r),
-	})
-	if err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
-		flusher.Flush()
-		return
+	// Start the chat in a goroutine so we can stream progress events
+	type chatResult struct {
+		resp agent.ChatResponse
+		err  error
 	}
-
-	chatResp, ok := resp.Payload.(agent.ChatResponse)
-	if !ok {
-		fmt.Fprintf(w, "event: error\ndata: unexpected response type\n\n")
-		flusher.Flush()
-		return
-	}
-
-	// Stream the response by sentences for a more natural streaming feel
-	content := chatResp.Content
-	sentences := splitIntoStreamChunks(content)
-	for _, chunk := range sentences {
-		data, _ := json.Marshal(map[string]any{
-			"type":    "text",
-			"content": chunk,
+	resultCh := make(chan chatResult, 1)
+	go func() {
+		resp, err := s.bus.Request(ctx, ipc.Message{
+			Source: "api", Target: "agent_runtime", Topic: "agent.chat",
+			Payload: agent.ChatRequest{Agent: agentName, Tenant: tid, Message: message},
+			TraceID: traceID(r),
 		})
-		fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
-		flusher.Flush()
-		time.Sleep(30 * time.Millisecond) // small delay for visual streaming effect
-	}
+		if err != nil {
+			resultCh <- chatResult{err: err}
+			return
+		}
+		chatResp, _ := resp.Payload.(agent.ChatResponse)
+		resultCh <- chatResult{resp: chatResp}
+	}()
 
-	// Send tools used if any
-	if len(chatResp.ToolsUsed) > 0 {
-		data, _ := json.Marshal(map[string]any{
-			"type":       "tools_used",
-			"tools_used": chatResp.ToolsUsed,
-		})
-		fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
-		flusher.Flush()
-	}
+	// Stream progress events while waiting for the final response
+	for {
+		select {
+		case evt := <-progressCh:
+			data, _ := json.Marshal(map[string]any{"type": "progress", "event": evt.Type, "detail": evt.Detail})
+			fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
+			flusher.Flush()
+		case result := <-resultCh:
+			sub.Cancel()
+			if result.err != nil {
+				fmt.Fprintf(w, "event: error\ndata: %s\n\n", result.err.Error())
+				flusher.Flush()
+				return
+			}
+			// Stream the final response in chunks
+			content := result.resp.Content
+			sentences := splitIntoStreamChunks(content)
+			for _, chunk := range sentences {
+				data, _ := json.Marshal(map[string]any{"type": "text", "content": chunk})
+				fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
+				flusher.Flush()
+			}
+			// Send tools used if any
+			if len(result.resp.ToolsUsed) > 0 {
+				data, _ := json.Marshal(map[string]any{
+					"type":       "tools_used",
+					"tools_used": result.resp.ToolsUsed,
+				})
+				fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
+				flusher.Flush()
+			}
 
-	fmt.Fprintf(w, "event: done\ndata: {}\n\n")
-	flusher.Flush()
+			fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+			flusher.Flush()
+			return
+		}
+	}
 }
 
 // splitIntoStreamChunks splits text into natural-looking streaming chunks.

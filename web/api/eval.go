@@ -12,7 +12,9 @@ import (
 
 func (s *Server) handleEvalRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Cases []eval.EvalCase `json:"cases"`
+		Agent  string           `json:"agent"`
+		Tenant string           `json:"tenant"`
+		Cases  []eval.EvalCase  `json:"cases"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON")
@@ -21,6 +23,15 @@ func (s *Server) handleEvalRun(w http.ResponseWriter, r *http.Request) {
 	if len(body.Cases) == 0 {
 		RespondError(w, 400, "MISSING_CASES", "at least one eval case required")
 		return
+	}
+	// Propagate top-level agent/tenant to cases that don't specify their own
+	for i := range body.Cases {
+		if body.Cases[i].Agent == "" {
+			body.Cases[i].Agent = body.Agent
+		}
+		if body.Cases[i].Tenant == "" {
+			body.Cases[i].Tenant = body.Tenant
+		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()

@@ -374,6 +374,18 @@ func (s *SessionStore) GetUserByKeyHash(hash string) (*User, error) {
 }
 
 // DeleteUser removes a user by ID.
+func (s *SessionStore) GetUser(id string) (*User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var u User
+	err := s.db.QueryRow("SELECT id, tenant, name, email, role, created_at FROM users WHERE id = ?", id).
+		Scan(&u.ID, &u.Tenant, &u.Name, &u.Email, &u.Role, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
 func (s *SessionStore) DeleteUser(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

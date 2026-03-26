@@ -58,6 +58,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PUT /api/v1/tenants/{tid}/agents/{name}", s.handleAgentUpdate)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/sessions", s.handleAgentSessions)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/sessions/{sid}/messages", s.handleSessionMessages)
+	s.mux.HandleFunc("DELETE /api/v1/tenants/{tid}/agents/{name}/sessions/{sid}", s.handleSessionClear)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/memories", s.handleAgentMemories)
 	s.mux.HandleFunc("DELETE /api/v1/tenants/{tid}/agents/{name}/memories/{mid}", s.handleMemoryDelete)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/versions", s.handleAgentVersions)
@@ -120,6 +121,7 @@ func (s *Server) registerRoutes() {
 
 	// Knowledge base
 	s.mux.HandleFunc("GET /api/v1/knowledge", s.handleKnowledgeList)
+	s.mux.HandleFunc("GET /api/v1/knowledge/search", s.handleKnowledgeSearch)
 	s.mux.HandleFunc("POST /api/v1/knowledge", s.handleKnowledgeIngest)
 	s.mux.HandleFunc("DELETE /api/v1/knowledge/{id}", s.handleKnowledgeDelete)
 

@@ -352,6 +352,9 @@ func (e *Engine) executeStep(step Step, run *Run) StepResult {
 	case StepHumanInput:
 		return e.executeHumanInputStep(step, run)
 
+	case StepApproval:
+		return e.executeApprovalStep(ctx, step, run)
+
 	default:
 		result.Status = "failure"
 		result.Error = fmt.Sprintf("unknown step type: %s", step.Type)
@@ -608,6 +611,40 @@ func (e *Engine) executeHumanInputStep(step Step, run *Run) StepResult {
 	case <-time.After(timeout):
 		return StepResult{StepID: step.ID, Status: "failure", Error: "input timeout", Duration: time.Since(start), Timestamp: time.Now()}
 	}
+}
+
+func (e *Engine) executeApprovalStep(ctx context.Context, step Step, run *Run) StepResult {
+	start := time.Now()
+	reason := step.Config["reason"]
+	if reason == "" {
+		reason = "Approval required to continue workflow"
+	}
+
+	run.Status = RunWaitingInput
+	logger.Info("workflow waiting for approval", map[string]any{"run_id": run.ID, "reason": reason})
+
+	// Request approval via policy engine
+	approvalResp, err := e.bus.Request(ctx, ipc.Message{
+		Source: "workflow", Target: "policy", Topic: "policy.request_approval",
+		Payload: map[string]string{
+			"workflow_id": run.WorkflowID,
+			"run_id":      run.ID,
+			"step_id":     step.ID,
+			"reason":      reason,
+		},
+	})
+
+	if err != nil {
+		// If no approval system, fall back to auto-approve
+		logger.Warn("approval system unavailable, auto-approving", map[string]any{"error": err.Error()})
+		return StepResult{StepID: step.ID, Status: "success", Output: "auto-approved (no approval system)", Duration: time.Since(start), Timestamp: time.Now()}
+	}
+
+	result, _ := approvalResp.Payload.(string)
+	if result == "approved" {
+		return StepResult{StepID: step.ID, Status: "success", Output: "approved", Duration: time.Since(start), Timestamp: time.Now()}
+	}
+	return StepResult{StepID: step.ID, Status: "failure", Error: "approval denied: " + result, Duration: time.Since(start), Timestamp: time.Now()}
 }
 
 func (e *Engine) handleSubmitInput(msg ipc.Message) (ipc.Message, error) {

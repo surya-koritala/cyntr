@@ -163,6 +163,10 @@ func (r *Runtime) handleCreate(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("expected AgentConfig, got %T", msg.Payload)
 	}
 
+	if cfg.MaxTurns == 0 {
+		cfg.MaxTurns = 10
+	}
+
 	key := cfg.Tenant + "/" + cfg.Name
 	sessID := "sess_" + cfg.Tenant + "_" + cfg.Name
 
@@ -195,6 +199,9 @@ func (r *Runtime) LoadSavedAgents() error {
 		return fmt.Errorf("load saved agents: %w", err)
 	}
 	for _, cfg := range agents {
+		if cfg.MaxTurns == 0 {
+			cfg.MaxTurns = 10
+		}
 		key := cfg.Tenant + "/" + cfg.Name
 		r.mu.RLock()
 		_, exists := r.agents[key]
@@ -362,14 +369,17 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 			return ipc.Message{}, fmt.Errorf("model call failed: %w", err)
 		}
 
-		// Record usage
+		// Record usage with token counts from provider
 		if r.usageStore != nil {
 			go r.usageStore.Record(UsageRecord{
-				Timestamp:  time.Now(),
-				Tenant:     req.Tenant,
-				Agent:      req.Agent,
-				Provider:   inst.config.Model,
-				DurationMs: time.Since(chatStart).Milliseconds(),
+				Timestamp:    time.Now(),
+				Tenant:       req.Tenant,
+				Agent:        req.Agent,
+				Provider:     inst.config.Model,
+				InputTokens:  response.InputTokens,
+				OutputTokens: response.OutputTokens,
+				TotalTokens:  response.InputTokens + response.OutputTokens,
+				DurationMs:   time.Since(chatStart).Milliseconds(),
 			})
 		}
 
@@ -391,11 +401,15 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				go r.extractMemories(req, inst, response.Content, toolsUsed)
 			}
 
+			// Apply security filters: mask secrets and redact PII
+			sanitized := MaskSecrets(response.Content)
+			sanitized = RedactPII(sanitized)
+
 			return ipc.Message{
 				Type: ipc.MessageTypeResponse,
 				Payload: ChatResponse{
 					Agent:     req.Agent,
-					Content:   MaskSecrets(response.Content),
+					Content:   sanitized,
 					ToolsUsed: toolsUsed,
 				},
 			}, nil
@@ -627,9 +641,12 @@ func (r *Runtime) handleSessionMessages(msg ipc.Message) (ipc.Message, error) {
 
 	out := make([]msgOut, len(messages))
 	for i, m := range messages {
+		// Apply secret masking and PII redaction to all message content
+		content := MaskSecrets(m.Content)
+		content = RedactPII(content)
 		out[i] = msgOut{
 			Role:        m.Role.String(),
-			Content:     m.Content,
+			Content:     content,
 			ToolCalls:   m.ToolCalls,
 			ToolResults: m.ToolResults,
 		}
@@ -651,6 +668,11 @@ func (r *Runtime) handleMemories(msg ipc.Message) (ipc.Message, error) {
 	memories, err := r.memoryStore.Recall(name, tenant)
 	if err != nil {
 		return ipc.Message{}, err
+	}
+	// Mask secrets and PII in memory content before returning
+	for i := range memories {
+		memories[i].Content = MaskSecrets(memories[i].Content)
+		memories[i].Content = RedactPII(memories[i].Content)
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: memories}, nil
 }
@@ -700,6 +722,27 @@ func (r *Runtime) handleUpdate(msg ipc.Message) (ipc.Message, error) {
 	if cfg.MaxTurns > 0 {
 		inst.config.MaxTurns = cfg.MaxTurns
 	}
+	if cfg.MaxHistory > 0 {
+		inst.config.MaxHistory = cfg.MaxHistory
+	}
+	if cfg.SummarizeThreshold > 0 {
+		inst.config.SummarizeThreshold = cfg.SummarizeThreshold
+	}
+	if cfg.RateLimit > 0 {
+		inst.config.RateLimit = cfg.RateLimit
+	}
+	if len(cfg.Skills) > 0 {
+		inst.config.Skills = cfg.Skills
+	}
+	if len(cfg.MCPServers) > 0 {
+		inst.config.MCPServers = cfg.MCPServers
+	}
+	if len(cfg.Secrets) > 0 {
+		inst.config.Secrets = cfg.Secrets
+	}
+	// AutoMemory is a bool — update if the config explicitly sets it
+	// (we always accept this field since false is a valid value)
+	inst.config.AutoMemory = cfg.AutoMemory
 	r.mu.Unlock()
 
 	if r.store != nil {
@@ -863,43 +906,65 @@ func (r *Runtime) extractMemories(req ChatRequest, inst *agentInstance, lastResp
 		return
 	}
 
-	// Simple heuristic: extract key facts from the conversation
-	// In production, this would call the LLM to summarize
-	// For now, save a summary of what tools were used and the topic
-
 	history := inst.session.History()
 	if len(history) < 2 {
 		return
 	}
 
-	// Find the user's original question
+	// Find the user's last question
 	var userQuery string
-	for _, msg := range history {
-		if msg.Role == RoleUser {
-			userQuery = msg.Content
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == RoleUser {
+			userQuery = history[i].Content
 			break
 		}
 	}
-
 	if userQuery == "" {
 		return
 	}
 
-	// Create a memory entry
-	summary := fmt.Sprintf("User asked: %s | Tools used: %s | Topic context from conversation",
-		truncate(userQuery, 100), strings.Join(toolsUsed, ", "))
+	// Use the LLM to extract meaningful memories from the conversation
+	r.mu.RLock()
+	provider, hasProvider := r.providers[inst.config.Model]
+	r.mu.RUnlock()
+
+	var summary string
+	if hasProvider {
+		// Ask the LLM to extract key facts
+		extractCtx, extractCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer extractCancel()
+
+		extractPrompt := fmt.Sprintf(
+			"Extract 1-3 key facts worth remembering from this exchange. "+
+				"Return only the facts, one per line. No preamble.\n\n"+
+				"User: %s\nAssistant: %s",
+			truncate(userQuery, 300), truncate(lastResponse, 500))
+
+		extractResp, err := provider.Chat(extractCtx, []Message{
+			{Role: RoleUser, Content: extractPrompt},
+		}, nil)
+		if err == nil && extractResp.Content != "" {
+			summary = extractResp.Content
+		}
+	}
+
+	// Fallback to heuristic if LLM extraction failed
+	if summary == "" {
+		summary = fmt.Sprintf("User asked: %s | Tools used: %s | Response: %s",
+			truncate(userQuery, 100), strings.Join(toolsUsed, ", "), truncate(lastResponse, 200))
+	}
 
 	memory := Memory{
 		Agent:   req.Agent,
 		Tenant:  req.Tenant,
-		Key:     "auto:" + strings.Join(toolsUsed, ","),
+		Key:     "auto:" + truncate(userQuery, 50),
 		Content: summary,
 	}
 
 	if err := r.memoryStore.Save(memory); err != nil {
 		logger.Warn("auto-memory save failed", map[string]any{"error": err.Error()})
 	} else {
-		logger.Info("auto-memory saved", map[string]any{"agent": req.Agent, "tools": toolsUsed})
+		logger.Info("auto-memory saved", map[string]any{"agent": req.Agent, "key": memory.Key})
 	}
 }
 

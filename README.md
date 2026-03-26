@@ -3,14 +3,16 @@
   <p align="center"><strong>Open-Source AI Agent Platform for Enterprise</strong></p>
   <p align="center">Deploy AI agents that run shell commands, browse the web, query databases, manage Kubernetes clusters, analyze cloud costs, enforce security policies, and automate workflows — with 25 built-in enterprise skills, a skill marketplace, and full audit trails.</p>
   <p align="center">
-    <a href="https://github.com/surya-koritala/cyntr/releases"><img src="https://img.shields.io/badge/release-v0.7.0-green" alt="Release"></a>
+    <a href="https://github.com/surya-koritala/cyntr/releases"><img src="https://img.shields.io/badge/release-v1.0.1-green" alt="Release"></a>
     <a href="https://github.com/surya-koritala/cyntr/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
     <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go" alt="Go">
-    <img src="https://img.shields.io/badge/tests-passing-brightgreen" alt="Tests">
-    <img src="https://img.shields.io/badge/tools-28-orange" alt="Tools">
-    <img src="https://img.shields.io/badge/skills-25-red" alt="Skills">
-    <img src="https://img.shields.io/badge/providers-8-purple" alt="Providers">
-    <img src="https://img.shields.io/badge/channels-9-blue" alt="Channels">
+    <img src="https://img.shields.io/badge/tests-37%20packages%20passing-brightgreen" alt="Tests">
+    <img src="https://img.shields.io/badge/tools-29-orange" alt="Tools">
+    <img src="https://img.shields.io/badge/skills-31-red" alt="Skills">
+    <img src="https://img.shields.io/badge/providers-7-purple" alt="Providers">
+    <img src="https://img.shields.io/badge/channels-7-blue" alt="Channels">
+    <img src="https://img.shields.io/badge/MCP-8%20servers-teal" alt="MCP">
+    <img src="https://img.shields.io/badge/API-70%2B%20endpoints-yellow" alt="API">
   </p>
 </p>
 
@@ -20,12 +22,16 @@
 
 Most AI agent frameworks are libraries — you build around them. Cyntr is a **platform** — you deploy it and it runs your agents. Single Go binary. Zero external dependencies. Self-hosted.
 
-- **28 tools, 25 skills** — agents get shell, web, cloud, Kubernetes, data analysis, and enterprise skills out of the box.
+- **29 tools, 31 skills** — agents get shell, web, cloud, Kubernetes, data analysis, and enterprise skills out of the box.
+- **Multi-agent crews** — pipeline, parallel, and sequential multi-agent collaboration with delegation and orchestration.
+- **MCP support** — 8 built-in Model Context Protocol servers with marketplace. Connect to the standard AI tool ecosystem.
 - **Skill marketplace** — browse a built-in catalog, search GitHub, or import OpenClaw skills. Agents load skills on demand mid-conversation.
 - **Slack-native** — agents respond in Slack threads with slash commands, Block Kit formatting, typing indicators, progress messages, and reaction-based approvals.
-- **Cloud & Kubernetes ops** — agents run AWS/Azure/GCP CLI commands and read-only `kubectl` operations with policy enforcement. Cross-account AWS via STS AssumeRole.
-- **Enterprise security** — multi-API key scopes, RBAC per HTTP method, OIDC/SSO with PKCE, blocking approval mode, configurable secret masking, and SHA-256 audit hash chains.
-- **No vendor lock-in** — 8 LLM providers. Switch models without changing agent code.
+- **Cloud & Kubernetes ops** — agents run AWS/Azure/GCP CLI commands and read-only `kubectl` operations with policy enforcement.
+- **Enterprise security** — PII detection/redaction, secret masking, OIDC/SSO, policy engine, SHA-256 audit hash chains, data retention.
+- **Agent evaluation** — test agents with expected output matching (contains/exact/regex) and tool usage validation.
+- **Token & cost tracking** — per-agent, per-provider usage with input/output token counts.
+- **No vendor lock-in** — 7 LLM providers. Switch models without changing agent code.
 
 ---
 
@@ -216,14 +222,15 @@ The agent runtime manages the full lifecycle of AI conversations with enterprise
 | **Parallel tool execution** | Multiple tool calls execute concurrently when safe |
 | **Request ID propagation** | Every request carries a trace ID through all tool calls and logs |
 
-### 15-Page Dashboard
+### 17-Page Dashboard
 
 | Page | What it does |
 |------|-------------|
 | **Dashboard** | Health cards, module status, recent audit, job/skill/agent counts |
-| **Agents** | Create, edit (model/prompt/tools/skills), delete, chat interface |
+| **Agents** | Create, edit (model/prompt/tools/skills), delete, chat interface with streaming |
 | **Sessions** | Browse conversation history per agent, view message details |
 | **Memories** | View/delete agent long-term memories |
+| **Versions** | Agent version history with rollback to any previous version |
 | **Knowledge** | Upload documents for RAG search, manage knowledge base |
 | **Skills** | Browse catalog, install/uninstall, GitHub search, OpenClaw import, marketplace |
 | **Workflows** | Register multi-step workflows, run, view step-by-step progress |
@@ -232,9 +239,73 @@ The agent runtime manages the full lifecycle of AI conversations with enterprise
 | **Policies** | View loaded rules, test policy decisions |
 | **Approvals** | Review pending approvals, approve/deny with context |
 | **Channels** | Active adapter status, configuration guide |
-| **Tenants** | Create, configure, delete tenants |
+| **Users** | User management with API key generation and role assignment |
+| **MCP Servers** | Manage Model Context Protocol servers, browse marketplace |
+| **Crews** | Create and run multi-agent crews (pipeline/parallel/sequential) |
+| **Eval** | Run agent evaluations with test cases, view pass rates |
+| **Metrics** | Usage, token counts, request latency, error rates |
 | **Federation** | Add/remove peer nodes, sync status |
-| **Logs** | Real-time SSE activity stream (tool executions, errors) |
+
+### Multi-Agent Crews
+
+Define teams of agents that collaborate on complex tasks:
+
+```json
+{
+  "name": "incident-team",
+  "mode": "pipeline",
+  "tenant": "ops",
+  "members": [
+    {"agent": "monitor", "role": "detector", "goal": "Identify the issue"},
+    {"agent": "cloud-ops", "role": "investigator", "goal": "Diagnose root cause"},
+    {"agent": "writer", "role": "reporter", "goal": "Write incident report"}
+  ]
+}
+```
+
+Modes: **pipeline** (output chains to next agent), **parallel** (all agents work simultaneously), **sequential** (ordered execution with aggregated results).
+
+### Agent Evaluation Framework
+
+Test agents before deploying with structured test cases:
+
+```json
+{
+  "agent": "assistant", "tenant": "ops",
+  "cases": [
+    {"input": "What is 2+2?", "expected_output": "4", "match_mode": "contains"},
+    {"input": "List S3 buckets", "expected_tools": ["aws"]}
+  ]
+}
+```
+
+Returns pass rates, per-case scores, actual outputs, and match details.
+
+### Model Context Protocol (MCP)
+
+Connect to the standard AI tool ecosystem with 8 built-in MCP servers:
+
+| Server | Purpose | Requirements |
+|--------|---------|-------------|
+| **filesystem** | File operations | None |
+| **github** | GitHub integration | `GITHUB_PERSONAL_ACCESS_TOKEN` |
+| **postgres** | Database queries | `DATABASE_URL` |
+| **slack** | Slack messaging | `SLACK_BOT_TOKEN` |
+| **brave-search** | Web search | `BRAVE_API_KEY` |
+| **memory** | Knowledge graph | None |
+| **sqlite** | SQLite queries | None |
+| **puppeteer** | Browser automation | None |
+
+Install community MCP servers from the marketplace or add custom servers via API.
+
+### PII Detection & Data Retention
+
+| Feature | Description |
+|---------|-------------|
+| **PII redaction** | SSN, credit cards, emails, phone numbers, IP addresses, dates of birth — auto-redacted in responses and history |
+| **Secret masking** | AWS keys, Slack/GitHub tokens, JWTs, passwords — masked in responses, session history, and memories |
+| **Data retention** | Configurable TTLs: sessions (90d), memories (180d), usage records (365d) — automatic background cleanup |
+| **Token tracking** | Per-agent, per-provider input/output token counts with cost tracking |
 
 ### Knowledge Base (RAG)
 
@@ -402,7 +473,7 @@ TypeScript type declarations included. Install: `npm install ./sdk/js`
 
 All endpoints return: `{"data": ..., "meta": {"request_id", "timestamp"}, "error": null}`
 
-50+ endpoints across 11 resource groups.
+70+ endpoints across 15 resource groups.
 
 ### System
 | Method | Endpoint | Description |
@@ -431,8 +502,11 @@ All endpoints return: `{"data": ..., "meta": {"request_id", "timestamp"}, "error
 | GET | `/api/v1/tenants/{tid}/agents/{name}/stream` | SSE streaming chat |
 | GET | `/api/v1/tenants/{tid}/agents/{name}/sessions` | List sessions |
 | GET | `/api/v1/tenants/{tid}/agents/{name}/sessions/{sid}/messages` | Get messages |
+| DELETE | `/api/v1/tenants/{tid}/agents/{name}/sessions/{sid}` | Clear session |
 | GET | `/api/v1/tenants/{tid}/agents/{name}/memories` | List memories |
 | DELETE | `/api/v1/tenants/{tid}/agents/{name}/memories/{mid}` | Delete memory |
+| GET | `/api/v1/tenants/{tid}/agents/{name}/versions` | List agent versions |
+| POST | `/api/v1/tenants/{tid}/agents/{name}/rollback/{v}` | Rollback to version |
 
 ### Policies & Approvals
 | Method | Endpoint | Description |
@@ -457,6 +531,7 @@ All endpoints return: `{"data": ..., "meta": {"request_id", "timestamp"}, "error
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/knowledge` | List documents |
+| GET | `/api/v1/knowledge/search?q=X&mode=hybrid` | Search knowledge base |
 | POST | `/api/v1/knowledge` | Ingest document |
 | DELETE | `/api/v1/knowledge/{id}` | Delete document |
 
@@ -485,6 +560,46 @@ All endpoints return: `{"data": ..., "meta": {"request_id", "timestamp"}, "error
 | GET | `/api/v1/federation/peers` | List federation peers |
 | POST | `/api/v1/federation/peers` | Join federation |
 | DELETE | `/api/v1/federation/peers/{name}` | Remove peer |
+
+### MCP Servers
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/mcp/servers` | List connected servers |
+| POST | `/api/v1/mcp/servers` | Add MCP server |
+| DELETE | `/api/v1/mcp/servers/{name}` | Remove server |
+| GET | `/api/v1/mcp/servers/{name}/tools` | List server tools |
+| GET | `/api/v1/mcp/marketplace` | Browse MCP marketplace |
+| POST | `/api/v1/mcp/marketplace/install` | Install from marketplace |
+
+### Crews
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/crews` | Create crew |
+| GET | `/api/v1/crews` | List crews |
+| POST | `/api/v1/crews/{id}/run` | Run crew |
+| GET | `/api/v1/crews/runs/{id}` | Get run status |
+| GET | `/api/v1/crews/runs` | List all runs |
+
+### Eval
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/eval/run` | Run evaluation |
+| GET | `/api/v1/eval/runs/{id}` | Get eval results |
+| GET | `/api/v1/eval/runs` | List eval runs |
+
+### Usage & Metrics
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/usage` | Query usage records |
+| GET | `/api/v1/usage/summary` | Aggregated usage summary |
+| GET | `/api/v1/metrics` | System metrics |
+| GET | `/api/v1/branding` | White-label branding config |
+
+### Webhooks
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/webhooks/trigger/{workflow_id}` | Trigger workflow via webhook |
+| POST | `/api/v1/webhooks/agent/{tenant}/{agent}` | Send message to agent via webhook |
 
 ---
 
@@ -573,7 +688,7 @@ cyntr federation peers
 # Build
 go build -o cyntr ./cmd/cyntr
 
-# Test (33 packages)
+# Test (37 packages)
 go test ./... -count=1 -race
 
 # Validate setup
@@ -588,16 +703,22 @@ go test ./... -count=1 -race
 |---------|-------|-----------|--------|---------|
 | Self-hosted platform | Yes | Library | Library | Library |
 | Single binary | Yes | No | No | No |
-| Enterprise skills (25) | Built-in | No | No | No |
+| Enterprise skills (31) | Built-in | No | No | No |
 | Skill marketplace | Built-in | No | No | No |
+| MCP protocol support | 8 servers | Plugin | No | No |
+| Multi-agent crews | Pipeline/Parallel/Sequential | No | Yes | Yes |
+| Agent evaluation framework | Built-in | No | No | No |
+| PII detection & redaction | Built-in | No | No | No |
+| Token & cost tracking | Built-in | Callback | No | No |
 | Policy engine | Yes | No | No | No |
 | Audit logging (hash chain) | Yes | No | No | No |
 | Multi-tenant | Yes | No | No | No |
 | RBAC + OIDC/SSO | Yes | No | No | No |
-| Slack/Teams/Discord (9 channels) | Built-in | Plugin | No | No |
-| Dashboard (15 pages) | Built-in | No | No | No |
+| Slack/Teams/Discord (7 channels) | Built-in | Plugin | No | No |
+| Dashboard (17 pages) | Built-in | No | No | No |
 | Cloud ops (AWS/Azure/GCP/K8s) | Built-in | Plugin | No | No |
-| Workflow engine | Built-in | Chain | No | No |
+| Workflow engine + approval steps | Built-in | Chain | No | No |
+| Data retention policies | Built-in | No | No | No |
 | Federation | Yes | No | No | No |
 | SDKs (Python + JS) | Yes | Python | Python | Python |
 | Zero dependencies | Yes | Many | Many | Many |
