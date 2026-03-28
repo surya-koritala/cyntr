@@ -486,9 +486,24 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				result = "tool registry not available"
 				isError = true
 			} else {
+				// Inject agent secrets into tool input so tools can use per-agent credentials
+				toolInput := tc.Input
+				if len(inst.config.Secrets) > 0 {
+					merged := make(map[string]string)
+					for k, v := range tc.Input {
+						merged[k] = v
+					}
+					for k, v := range inst.config.Secrets {
+						lk := strings.ToLower(k)
+						if _, exists := merged[lk]; !exists {
+							merged[lk] = v
+						}
+					}
+					toolInput = merged
+				}
 				var execErr error
 				toolStart := time.Now()
-				result, execErr = r.executeToolWithRetry(context.Background(), tc.Name, tc.Input)
+				result, execErr = r.executeToolWithRetry(context.Background(), tc.Name, toolInput)
 				toolDuration := time.Since(toolStart)
 				if toolDuration > 2*time.Second {
 					logger.Warn("slow tool execution", map[string]any{

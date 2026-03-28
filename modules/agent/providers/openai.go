@@ -107,6 +107,13 @@ type openaiResponse struct {
 			ToolCalls []openaiToolCall `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
+	Usage *openaiUsage `json:"usage,omitempty"`
+}
+
+type openaiUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 func (o *OpenAI) buildRequest(messages []agent.Message, tools []agent.ToolDef) openaiRequest {

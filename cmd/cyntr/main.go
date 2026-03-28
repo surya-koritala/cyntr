@@ -246,15 +246,27 @@ func runStart() {
 		log.Info("provider registered", map[string]any{"provider": "openrouter", "model": openrouterModel})
 	}
 
-	// Register Azure OpenAI provider if configured
+	// Register Azure OpenAI providers
+	// Supports single deployment (AZURE_OPENAI_DEPLOYMENT) or multiple (AZURE_OPENAI_DEPLOYMENTS=gpt-4.1,gpt-5-chat,...)
 	azureKey := os.Getenv("AZURE_OPENAI_API_KEY")
 	if azureKey != "" {
 		azureEndpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
-		azureDeployment := os.Getenv("AZURE_OPENAI_DEPLOYMENT")
 		azureAPIVersion := os.Getenv("AZURE_OPENAI_API_VERSION")
-		if azureEndpoint != "" && azureDeployment != "" {
+
+		// Multiple deployments
+		if deployments := os.Getenv("AZURE_OPENAI_DEPLOYMENTS"); deployments != "" && azureEndpoint != "" {
+			for _, dep := range strings.Split(deployments, ",") {
+				dep = strings.TrimSpace(dep)
+				if dep == "" {
+					continue
+				}
+				agentRuntime.RegisterProvider(agentproviders.NewAzureOpenAI(azureKey, azureEndpoint, dep, azureAPIVersion))
+				log.Info("provider registered", map[string]any{"provider": dep, "endpoint": azureEndpoint})
+			}
+		} else if azureDeployment := os.Getenv("AZURE_OPENAI_DEPLOYMENT"); azureDeployment != "" && azureEndpoint != "" {
+			// Single deployment (backward compat)
 			agentRuntime.RegisterProvider(agentproviders.NewAzureOpenAI(azureKey, azureEndpoint, azureDeployment, azureAPIVersion))
-			log.Info("provider registered", map[string]any{"provider": "azure-openai", "endpoint": azureEndpoint, "deployment": azureDeployment})
+			log.Info("provider registered", map[string]any{"provider": azureDeployment, "endpoint": azureEndpoint})
 		}
 	}
 

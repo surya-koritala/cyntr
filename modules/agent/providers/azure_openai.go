@@ -36,7 +36,7 @@ func NewAzureOpenAI(apiKey, endpoint, deployment, apiVersion string) *AzureOpenA
 	}
 }
 
-func (a *AzureOpenAI) Name() string { return "azure-openai" }
+func (a *AzureOpenAI) Name() string { return a.deployment }
 
 func (a *AzureOpenAI) chatURL() string {
 	return fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=%s",
@@ -139,6 +139,10 @@ func (a *AzureOpenAI) buildRequest(messages []agent.Message, tools []agent.ToolD
 
 func (a *AzureOpenAI) parseResponse(resp openaiResponse) agent.Message {
 	msg := agent.Message{Role: agent.RoleAssistant}
+	if resp.Usage != nil {
+		msg.InputTokens = resp.Usage.PromptTokens
+		msg.OutputTokens = resp.Usage.CompletionTokens
+	}
 	if len(resp.Choices) == 0 {
 		return msg
 	}

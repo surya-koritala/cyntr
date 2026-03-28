@@ -40,7 +40,8 @@ func (t *AlatirokTool) Description() string {
 
 func (t *AlatirokTool) Parameters() map[string]agent.ToolParam {
 	return map[string]agent.ToolParam{
-		"action": {Type: "string", Description: "Action: get_feed, create_post, get_post, create_comment, vote, search, get_communities, get_community_feed, whoami", Required: true},
+		"action": {Type: "string", Description: "Action: whoami, get_feed, create_post, edit_post, get_post, get_comments, create_comment, vote, react, search, get_communities, get_community_feed, subscribe, bookmark, my_posts, my_comments, notifications, trust_info", Required: true},
+		"reaction_type": {Type: "string", Description: "Reaction type: like, insightful, disagree (for react action)", Required: false},
 		"title":  {Type: "string", Description: "Post title (for create_post)", Required: false},
 		"body":   {Type: "string", Description: "Markdown body (for create_post, create_comment)", Required: false},
 		"community_id":   {Type: "string", Description: "Community UUID (for create_post)", Required: false},
@@ -60,7 +61,14 @@ func (t *AlatirokTool) Parameters() map[string]agent.ToolParam {
 }
 
 func (t *AlatirokTool) Execute(ctx context.Context, input map[string]string) (string, error) {
-	apiKey := os.Getenv("ALATIROK_API_KEY")
+	// Check input first (per-agent key via secrets injection), then env var
+	apiKey := input["api_key"]
+	if apiKey == "" {
+		apiKey = input["alatirok_api_key"]
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("ALATIROK_API_KEY")
+	}
 	if apiKey == "" {
 		return "", fmt.Errorf("ALATIROK_API_KEY not set — register an agent at https://alatirok.com and create an API key")
 	}
@@ -75,16 +83,34 @@ func (t *AlatirokTool) Execute(ctx context.Context, input map[string]string) (st
 		return t.createPost(ctx, apiKey, input)
 	case "get_post":
 		return t.getPost(ctx, apiKey, input["post_id"])
+	case "edit_post":
+		return t.editPost(ctx, apiKey, input)
+	case "get_comments":
+		return t.getComments(ctx, apiKey, input["post_id"])
 	case "create_comment":
 		return t.createComment(ctx, apiKey, input)
 	case "vote":
 		return t.vote(ctx, apiKey, input)
+	case "react":
+		return t.react(ctx, apiKey, input)
 	case "search":
 		return t.search(ctx, apiKey, input)
 	case "get_communities":
 		return t.getCommunities(ctx, apiKey)
 	case "get_community_feed":
 		return t.getCommunityFeed(ctx, apiKey, input)
+	case "my_posts":
+		return t.myPosts(ctx, apiKey)
+	case "my_comments":
+		return t.myComments(ctx, apiKey)
+	case "notifications":
+		return t.notifications(ctx, apiKey)
+	case "subscribe":
+		return t.subscribe(ctx, apiKey, input)
+	case "bookmark":
+		return t.bookmark(ctx, apiKey, input["post_id"])
+	case "trust_info":
+		return t.trustInfo(ctx, apiKey)
 	default:
 		return "", fmt.Errorf("unknown action: %s (supported: whoami, get_feed, create_post, get_post, create_comment, vote, search, get_communities, get_community_feed)", action)
 	}
@@ -240,6 +266,97 @@ func (t *AlatirokTool) getCommunityFeed(ctx context.Context, apiKey string, inpu
 }
 
 // --- HTTP helpers ---
+
+func (t *AlatirokTool) editPost(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	postID := input["post_id"]
+	if postID == "" {
+		return "", fmt.Errorf("post_id is required for edit_post")
+	}
+	payload := map[string]any{}
+	if input["title"] != "" {
+		payload["title"] = input["title"]
+	}
+	if input["body"] != "" {
+		payload["body"] = input["body"]
+	}
+	return t.doPatch(ctx, "/api/v1/posts/"+postID, apiKey, payload)
+}
+
+func (t *AlatirokTool) getComments(ctx context.Context, apiKey string, postID string) (string, error) {
+	if postID == "" {
+		return "", fmt.Errorf("post_id is required for get_comments")
+	}
+	return t.doGet(ctx, "/api/v1/posts/"+postID+"/comments", apiKey)
+}
+
+func (t *AlatirokTool) react(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	commentID := input["target_id"]
+	if commentID == "" {
+		return "", fmt.Errorf("target_id (comment ID) is required for react")
+	}
+	reactionType := input["reaction_type"]
+	if reactionType == "" {
+		reactionType = "like"
+	}
+	return t.doPost(ctx, "/api/v1/comments/"+commentID+"/reactions", apiKey, map[string]string{"type": reactionType})
+}
+
+func (t *AlatirokTool) myPosts(ctx context.Context, apiKey string) (string, error) {
+	return t.doGet(ctx, "/api/v1/me/posts", apiKey)
+}
+
+func (t *AlatirokTool) myComments(ctx context.Context, apiKey string) (string, error) {
+	return t.doGet(ctx, "/api/v1/me/comments", apiKey)
+}
+
+func (t *AlatirokTool) notifications(ctx context.Context, apiKey string) (string, error) {
+	return t.doGet(ctx, "/api/v1/notifications", apiKey)
+}
+
+func (t *AlatirokTool) subscribe(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	slug := input["community_slug"]
+	if slug == "" {
+		return "", fmt.Errorf("community_slug is required for subscribe")
+	}
+	return t.doPost(ctx, "/api/v1/communities/"+slug+"/subscribe", apiKey, nil)
+}
+
+func (t *AlatirokTool) bookmark(ctx context.Context, apiKey string, postID string) (string, error) {
+	if postID == "" {
+		return "", fmt.Errorf("post_id is required for bookmark")
+	}
+	return t.doPost(ctx, "/api/v1/posts/"+postID+"/bookmark", apiKey, nil)
+}
+
+func (t *AlatirokTool) trustInfo(ctx context.Context, apiKey string) (string, error) {
+	return t.doGet(ctx, "/api/v1/trust-info", apiKey)
+}
+
+// --- HTTP helpers ---
+
+func (t *AlatirokTool) doPatch(ctx context.Context, path, apiKey string, payload any) (string, error) {
+	jsonBody, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, "PATCH", t.baseURL+path, bytes.NewReader(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("Alatirok API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	var pretty bytes.Buffer
+	if json.Indent(&pretty, body, "", "  ") == nil {
+		return pretty.String(), nil
+	}
+	return string(body), nil
+}
 
 func (t *AlatirokTool) doGet(ctx context.Context, path, apiKey string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", t.baseURL+path, nil)
