@@ -1,0 +1,303 @@
+package tools
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/cyntr-dev/cyntr/modules/agent"
+)
+
+// AlatirokTool provides integration with the Alatirok social platform for AI agents.
+// Supports posting, commenting, voting, searching, and browsing communities.
+type AlatirokTool struct {
+	client  *http.Client
+	baseURL string
+}
+
+func NewAlatirokTool() *AlatirokTool {
+	baseURL := os.Getenv("ALATIROK_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://www.alatirok.com"
+	}
+	return &AlatirokTool{
+		client:  &http.Client{Timeout: 30 * time.Second},
+		baseURL: strings.TrimRight(baseURL, "/"),
+	}
+}
+
+func (t *AlatirokTool) Name() string { return "alatirok" }
+func (t *AlatirokTool) Description() string {
+	return "Interact with Alatirok — a social platform for AI agents. Post content, comment, vote, search, and browse communities."
+}
+
+func (t *AlatirokTool) Parameters() map[string]agent.ToolParam {
+	return map[string]agent.ToolParam{
+		"action": {Type: "string", Description: "Action: get_feed, create_post, get_post, create_comment, vote, search, get_communities, get_community_feed, whoami", Required: true},
+		"title":  {Type: "string", Description: "Post title (for create_post)", Required: false},
+		"body":   {Type: "string", Description: "Markdown body (for create_post, create_comment)", Required: false},
+		"community_id":   {Type: "string", Description: "Community UUID (for create_post)", Required: false},
+		"community_slug": {Type: "string", Description: "Community slug (for get_community_feed)", Required: false},
+		"post_type": {Type: "string", Description: "Post type: text, link, research, alert, meta, question, data (default: text)", Required: false},
+		"tags":       {Type: "string", Description: "Comma-separated tags (for create_post)", Required: false},
+		"post_id":    {Type: "string", Description: "Post UUID (for get_post, create_comment, vote)", Required: false},
+		"parent_comment_id": {Type: "string", Description: "Parent comment UUID for replies (for create_comment)", Required: false},
+		"target_id":   {Type: "string", Description: "Target UUID (for vote)", Required: false},
+		"target_type": {Type: "string", Description: "Target type: post or comment (for vote)", Required: false},
+		"direction":   {Type: "string", Description: "Vote direction: up or down (for vote)", Required: false},
+		"query":       {Type: "string", Description: "Search query (for search)", Required: false},
+		"sort":        {Type: "string", Description: "Sort: hot, new, top (default: hot)", Required: false},
+		"limit":       {Type: "string", Description: "Number of results (default: 25)", Required: false},
+		"metadata":    {Type: "string", Description: "JSON metadata object (for create_post, e.g. {\"confidence\": 0.9})", Required: false},
+	}
+}
+
+func (t *AlatirokTool) Execute(ctx context.Context, input map[string]string) (string, error) {
+	apiKey := os.Getenv("ALATIROK_API_KEY")
+	if apiKey == "" {
+		return "", fmt.Errorf("ALATIROK_API_KEY not set — register an agent at https://alatirok.com and create an API key")
+	}
+
+	action := input["action"]
+	switch action {
+	case "whoami":
+		return t.whoami(ctx, apiKey)
+	case "get_feed":
+		return t.getFeed(ctx, apiKey, input)
+	case "create_post":
+		return t.createPost(ctx, apiKey, input)
+	case "get_post":
+		return t.getPost(ctx, apiKey, input["post_id"])
+	case "create_comment":
+		return t.createComment(ctx, apiKey, input)
+	case "vote":
+		return t.vote(ctx, apiKey, input)
+	case "search":
+		return t.search(ctx, apiKey, input)
+	case "get_communities":
+		return t.getCommunities(ctx, apiKey)
+	case "get_community_feed":
+		return t.getCommunityFeed(ctx, apiKey, input)
+	default:
+		return "", fmt.Errorf("unknown action: %s (supported: whoami, get_feed, create_post, get_post, create_comment, vote, search, get_communities, get_community_feed)", action)
+	}
+}
+
+func (t *AlatirokTool) whoami(ctx context.Context, apiKey string) (string, error) {
+	return t.doGet(ctx, "/api/v1/auth/me", apiKey)
+}
+
+func (t *AlatirokTool) getFeed(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	sort := input["sort"]
+	if sort == "" {
+		sort = "hot"
+	}
+	limit := input["limit"]
+	if limit == "" {
+		limit = "25"
+	}
+	path := fmt.Sprintf("/api/v1/feed?sort=%s&limit=%s", sort, limit)
+	if pt := input["post_type"]; pt != "" {
+		path += "&type=" + pt
+	}
+	return t.doGet(ctx, path, apiKey)
+}
+
+func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	if input["title"] == "" {
+		return "", fmt.Errorf("title is required for create_post")
+	}
+	if input["body"] == "" {
+		return "", fmt.Errorf("body is required for create_post")
+	}
+
+	postType := input["post_type"]
+	if postType == "" {
+		postType = "text"
+	}
+
+	payload := map[string]any{
+		"title":     input["title"],
+		"body":      input["body"],
+		"post_type": postType,
+	}
+
+	if input["community_id"] != "" {
+		payload["community_id"] = input["community_id"]
+	}
+
+	if input["tags"] != "" {
+		tags := strings.Split(input["tags"], ",")
+		for i := range tags {
+			tags[i] = strings.TrimSpace(tags[i])
+		}
+		payload["tags"] = tags
+	}
+
+	if input["metadata"] != "" {
+		var meta map[string]any
+		if json.Unmarshal([]byte(input["metadata"]), &meta) == nil {
+			payload["metadata"] = meta
+		}
+	}
+
+	return t.doPost(ctx, "/api/v1/posts", apiKey, payload)
+}
+
+func (t *AlatirokTool) getPost(ctx context.Context, apiKey string, postID string) (string, error) {
+	if postID == "" {
+		return "", fmt.Errorf("post_id is required for get_post")
+	}
+	return t.doGet(ctx, "/api/v1/posts/"+postID, apiKey)
+}
+
+func (t *AlatirokTool) createComment(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	postID := input["post_id"]
+	if postID == "" {
+		return "", fmt.Errorf("post_id is required for create_comment")
+	}
+	if input["body"] == "" {
+		return "", fmt.Errorf("body is required for create_comment")
+	}
+
+	payload := map[string]any{
+		"body": input["body"],
+	}
+	if input["parent_comment_id"] != "" {
+		payload["parent_comment_id"] = input["parent_comment_id"]
+	}
+
+	return t.doPost(ctx, "/api/v1/posts/"+postID+"/comments", apiKey, payload)
+}
+
+func (t *AlatirokTool) vote(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	targetID := input["target_id"]
+	if targetID == "" {
+		targetID = input["post_id"]
+	}
+	if targetID == "" {
+		return "", fmt.Errorf("target_id or post_id is required for vote")
+	}
+
+	targetType := input["target_type"]
+	if targetType == "" {
+		targetType = "post"
+	}
+
+	direction := input["direction"]
+	if direction == "" {
+		direction = "up"
+	}
+
+	payload := map[string]any{
+		"target_id":   targetID,
+		"target_type": targetType,
+		"direction":   direction,
+	}
+
+	return t.doPost(ctx, "/api/v1/votes", apiKey, payload)
+}
+
+func (t *AlatirokTool) search(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	query := input["query"]
+	if query == "" {
+		return "", fmt.Errorf("query is required for search")
+	}
+	limit := input["limit"]
+	if limit == "" {
+		limit = "25"
+	}
+	path := fmt.Sprintf("/api/v1/search?q=%s&limit=%s", url.QueryEscape(query), limit)
+	return t.doGet(ctx, path, apiKey)
+}
+
+func (t *AlatirokTool) getCommunities(ctx context.Context, apiKey string) (string, error) {
+	return t.doGet(ctx, "/api/v1/communities", apiKey)
+}
+
+func (t *AlatirokTool) getCommunityFeed(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	slug := input["community_slug"]
+	if slug == "" {
+		return "", fmt.Errorf("community_slug is required for get_community_feed")
+	}
+	sort := input["sort"]
+	if sort == "" {
+		sort = "hot"
+	}
+	limit := input["limit"]
+	if limit == "" {
+		limit = "25"
+	}
+	path := fmt.Sprintf("/api/v1/communities/%s/feed?sort=%s&limit=%s", slug, sort, limit)
+	return t.doGet(ctx, path, apiKey)
+}
+
+// --- HTTP helpers ---
+
+func (t *AlatirokTool) doGet(ctx context.Context, path, apiKey string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", t.baseURL+path, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("Alatirok API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	// Pretty-print JSON for readability
+	var pretty bytes.Buffer
+	if json.Indent(&pretty, body, "", "  ") == nil {
+		return pretty.String(), nil
+	}
+	return string(body), nil
+}
+
+func (t *AlatirokTool) doPost(ctx context.Context, path, apiKey string, payload any) (string, error) {
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", t.baseURL+path, bytes.NewReader(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("Alatirok API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var pretty bytes.Buffer
+	if json.Indent(&pretty, body, "", "  ") == nil {
+		return pretty.String(), nil
+	}
+	return string(body), nil
+}
