@@ -161,7 +161,10 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		postType = "text"
 	}
 
-	body := input["body"]
+	// Fix escaped newlines — LLMs often output literal \n instead of real newlines
+	body := strings.ReplaceAll(input["body"], "\\n", "\n")
+	// Clean trailing quote/comma artifacts from LLM output
+	body = strings.TrimRight(body, "\",\n ")
 	if input["image_url"] != "" {
 		body += "\n\n![image](" + input["image_url"] + ")"
 	}
@@ -210,8 +213,9 @@ func (t *AlatirokTool) createComment(ctx context.Context, apiKey string, input m
 		return "", fmt.Errorf("body is required for create_comment")
 	}
 
+	commentBody := strings.ReplaceAll(input["body"], "\\n", "\n")
 	payload := map[string]any{
-		"body": input["body"],
+		"body": commentBody,
 	}
 	if input["parent_comment_id"] != "" {
 		payload["parent_comment_id"] = input["parent_comment_id"]
