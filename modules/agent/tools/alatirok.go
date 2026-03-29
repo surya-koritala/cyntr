@@ -57,6 +57,7 @@ func (t *AlatirokTool) Parameters() map[string]agent.ToolParam {
 		"sort":        {Type: "string", Description: "Sort: hot, new, top (default: hot)", Required: false},
 		"limit":       {Type: "string", Description: "Number of results (default: 25)", Required: false},
 		"metadata":    {Type: "string", Description: "JSON metadata object (for create_post, e.g. {\"confidence\": 0.9})", Required: false},
+		"image_url":   {Type: "string", Description: "Image URL to include in post body (for create_post)", Required: false},
 	}
 }
 
@@ -72,6 +73,9 @@ func (t *AlatirokTool) Execute(ctx context.Context, input map[string]string) (st
 	if apiKey == "" {
 		return "", fmt.Errorf("ALATIROK_API_KEY not set — register an agent at https://alatirok.com and create an API key")
 	}
+
+	// Send heartbeat on every authenticated action (marks agent as "online")
+	go t.heartbeat(context.Background(), apiKey)
 
 	action := input["action"]
 	switch action {
@@ -111,8 +115,16 @@ func (t *AlatirokTool) Execute(ctx context.Context, input map[string]string) (st
 		return t.bookmark(ctx, apiKey, input["post_id"])
 	case "trust_info":
 		return t.trustInfo(ctx, apiKey)
+	case "poll_create":
+		return t.pollCreate(ctx, apiKey, input)
+	case "poll_vote":
+		return t.pollVote(ctx, apiKey, input)
+	case "poll_get":
+		return t.pollGet(ctx, apiKey, input["post_id"])
+	case "activity":
+		return t.activity(ctx, apiKey)
 	default:
-		return "", fmt.Errorf("unknown action: %s (supported: whoami, get_feed, create_post, get_post, create_comment, vote, search, get_communities, get_community_feed)", action)
+		return "", fmt.Errorf("unknown action: %s", action)
 	}
 }
 
@@ -149,9 +161,14 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		postType = "text"
 	}
 
+	body := input["body"]
+	if input["image_url"] != "" {
+		body += "\n\n![image](" + input["image_url"] + ")"
+	}
+
 	payload := map[string]any{
 		"title":     input["title"],
-		"body":      input["body"],
+		"body":      body,
 		"post_type": postType,
 	}
 
@@ -330,6 +347,56 @@ func (t *AlatirokTool) bookmark(ctx context.Context, apiKey string, postID strin
 
 func (t *AlatirokTool) trustInfo(ctx context.Context, apiKey string) (string, error) {
 	return t.doGet(ctx, "/api/v1/trust-info", apiKey)
+}
+
+func (t *AlatirokTool) pollCreate(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	postID := input["post_id"]
+	if postID == "" {
+		return "", fmt.Errorf("post_id is required for poll_create")
+	}
+	options := strings.Split(input["options"], ",")
+	for i := range options {
+		options[i] = strings.TrimSpace(options[i])
+	}
+	payload := map[string]any{"options": options}
+	if input["deadline"] != "" {
+		payload["deadline"] = input["deadline"]
+	}
+	return t.doPost(ctx, "/api/v1/posts/"+postID+"/poll", apiKey, payload)
+}
+
+func (t *AlatirokTool) pollVote(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	postID := input["post_id"]
+	if postID == "" {
+		return "", fmt.Errorf("post_id is required for poll_vote")
+	}
+	return t.doPost(ctx, "/api/v1/posts/"+postID+"/poll/vote", apiKey, map[string]string{
+		"option_id": input["option_id"],
+	})
+}
+
+func (t *AlatirokTool) pollGet(ctx context.Context, apiKey string, postID string) (string, error) {
+	if postID == "" {
+		return "", fmt.Errorf("post_id is required for poll_get")
+	}
+	return t.doGet(ctx, "/api/v1/posts/"+postID+"/poll", apiKey)
+}
+
+func (t *AlatirokTool) activity(ctx context.Context, apiKey string) (string, error) {
+	return t.doGet(ctx, "/api/v1/activity/recent?limit=20", apiKey)
+}
+
+func (t *AlatirokTool) heartbeat(ctx context.Context, apiKey string) {
+	req, err := http.NewRequestWithContext(ctx, "POST", t.baseURL+"/api/v1/heartbeat", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
 }
 
 // --- HTTP helpers ---

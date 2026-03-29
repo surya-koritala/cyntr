@@ -68,8 +68,10 @@ func (a *AzureOpenAI) Chat(ctx context.Context, messages []agent.Message, tools 
 		return agent.Message{}, fmt.Errorf("Azure OpenAI error %d: %s", resp.StatusCode, string(b))
 	}
 
+	respBody, _ := io.ReadAll(resp.Body)
+
 	var apiResp openaiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
 		return agent.Message{}, fmt.Errorf("decode: %w", err)
 	}
 
@@ -77,9 +79,10 @@ func (a *AzureOpenAI) Chat(ctx context.Context, messages []agent.Message, tools 
 }
 
 func (a *AzureOpenAI) buildRequest(messages []agent.Message, tools []agent.ToolDef) openaiRequest {
-	// Azure ignores the model field — deployment determines the model.
-	// We still send it for compatibility but it's not required.
 	req := openaiRequest{Model: a.deployment}
+	if len(tools) > 0 {
+		req.ToolChoice = "auto"
+	}
 
 	for _, msg := range messages {
 		switch msg.Role {
@@ -88,19 +91,24 @@ func (a *AzureOpenAI) buildRequest(messages []agent.Message, tools []agent.ToolD
 		case agent.RoleUser:
 			req.Messages = append(req.Messages, openaiMsg{Role: "user", Content: msg.Content})
 		case agent.RoleAssistant:
-			m := openaiMsg{Role: "assistant", Content: msg.Content}
-			for _, tc := range msg.ToolCalls {
-				inputJSON, _ := json.Marshal(tc.Input)
-				m.ToolCalls = append(m.ToolCalls, openaiToolCall{
-					ID:   tc.ID,
-					Type: "function",
-					Function: struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					}{Name: tc.Name, Arguments: string(inputJSON)},
-				})
+			if len(msg.ToolCalls) > 0 {
+				// Tool-call messages: use raw JSON to send "content": null explicitly
+				var tcs []openaiToolCall
+				for _, tc := range msg.ToolCalls {
+					inputJSON, _ := json.Marshal(tc.Input)
+					tcs = append(tcs, openaiToolCall{
+						ID:   tc.ID,
+						Type: "function",
+						Function: struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						}{Name: tc.Name, Arguments: string(inputJSON)},
+					})
+				}
+				req.Messages = append(req.Messages, openaiMsg{Role: "assistant", ToolCalls: tcs})
+			} else {
+				req.Messages = append(req.Messages, openaiMsg{Role: "assistant", Content: msg.Content})
 			}
-			req.Messages = append(req.Messages, m)
 		case agent.RoleTool:
 			for _, tr := range msg.ToolResults {
 				req.Messages = append(req.Messages, openaiMsg{

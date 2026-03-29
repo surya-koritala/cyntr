@@ -191,15 +191,30 @@ func runStart() {
 
 	agentRuntime.SetToolRegistry(toolReg)
 
-	// Register Claude provider if API key is set
+	// Register Claude providers if API key is set
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
 	if anthropicKey != "" {
-		claudeModel := os.Getenv("ANTHROPIC_MODEL")
-		if claudeModel == "" {
-			claudeModel = "claude-sonnet-4-20250514"
+		// Register multiple Anthropic models if ANTHROPIC_MODELS is set
+		if models := os.Getenv("ANTHROPIC_MODELS"); models != "" {
+			for _, m := range strings.Split(models, ",") {
+				m = strings.TrimSpace(m)
+				if m == "" {
+					continue
+				}
+				p := agentproviders.NewAnthropic(anthropicKey, m, "")
+				agentRuntime.RegisterProvider(p)
+				log.Info("provider registered", map[string]any{"provider": p.Name(), "model": m})
+			}
+		} else {
+			// Single model (backward compat)
+			claudeModel := os.Getenv("ANTHROPIC_MODEL")
+			if claudeModel == "" {
+				claudeModel = "claude-sonnet-4-20250514"
+			}
+			p := agentproviders.NewAnthropic(anthropicKey, claudeModel, "")
+			agentRuntime.RegisterProvider(p)
+			log.Info("provider registered", map[string]any{"provider": p.Name(), "model": claudeModel})
 		}
-		agentRuntime.RegisterProvider(agentproviders.NewAnthropic(anthropicKey, claudeModel, ""))
-		log.Info("provider registered", map[string]any{"provider": "claude", "model": claudeModel})
 	}
 
 	// Register OpenAI provider if API key is set

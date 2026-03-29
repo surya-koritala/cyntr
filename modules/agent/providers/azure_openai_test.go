@@ -13,8 +13,8 @@ import (
 
 func TestAzureOpenAIProviderName(t *testing.T) {
 	p := NewAzureOpenAI("key", "https://myresource.openai.azure.com", "gpt-4", "")
-	if p.Name() != "azure-openai" {
-		t.Fatalf("expected azure-openai, got %q", p.Name())
+	if p.Name() != "gpt-4" {
+		t.Fatalf("expected gpt-4, got %q", p.Name())
 	}
 }
 

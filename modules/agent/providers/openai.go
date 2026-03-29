@@ -67,14 +67,15 @@ func (o *OpenAI) Chat(ctx context.Context, messages []agent.Message, tools []age
 }
 
 type openaiRequest struct {
-	Model    string         `json:"model"`
-	Messages []openaiMsg    `json:"messages"`
-	Tools    []openaiTool   `json:"tools,omitempty"`
+	Model      string         `json:"model"`
+	Messages   []openaiMsg    `json:"messages"`
+	Tools      []openaiTool   `json:"tools,omitempty"`
+	ToolChoice string         `json:"tool_choice,omitempty"`
 }
 
 type openaiMsg struct {
 	Role       string           `json:"role"`
-	Content    string           `json:"content,omitempty"`
+	Content    string           `json:"content"`
 	ToolCalls  []openaiToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 }

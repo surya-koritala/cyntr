@@ -51,8 +51,16 @@ func mockAnthropicStreamServer(events []string) *httptest.Server {
 
 func TestAnthropicProviderName(t *testing.T) {
 	p := NewAnthropic("test-key", "claude-sonnet-4-20250514", "")
-	if p.Name() != "claude" {
-		t.Fatalf("expected 'claude', got %q", p.Name())
+	if p.Name() != "claude-sonnet" {
+		t.Fatalf("expected claude-sonnet, got %q", p.Name())
+	}
+	p2 := NewAnthropic("test-key", "claude-haiku-4-5-20251001", "")
+	if p2.Name() != "claude-haiku" {
+		t.Fatalf("expected claude-haiku, got %q", p2.Name())
+	}
+	p3 := NewAnthropic("test-key", "claude-opus-4-6", "")
+	if p3.Name() != "claude-opus" {
+		t.Fatalf("expected claude-opus, got %q", p3.Name())
 	}
 }
 

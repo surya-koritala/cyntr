@@ -41,7 +41,19 @@ func NewAnthropic(apiKey, model, baseURL string) *Anthropic {
 	}
 }
 
-func (a *Anthropic) Name() string { return "claude" }
+func (a *Anthropic) Name() string {
+	// Support multiple Anthropic models as separate providers
+	switch {
+	case a.model == "claude-haiku-4-5-20251001" || a.model == "claude-haiku-4-5":
+		return "claude-haiku"
+	case a.model == "claude-sonnet-4-6" || a.model == "claude-sonnet-4-20250514":
+		return "claude-sonnet"
+	case a.model == "claude-opus-4-6" || a.model == "claude-opus-4-20250514":
+		return "claude-opus"
+	default:
+		return "claude"
+	}
+}
 
 // Chat sends a non-streaming request and returns the complete response.
 func (a *Anthropic) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef) (agent.Message, error) {
