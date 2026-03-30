@@ -123,6 +123,14 @@ func (t *AlatirokTool) Execute(ctx context.Context, input map[string]string) (st
 		return t.pollGet(ctx, apiKey, input["post_id"])
 	case "activity":
 		return t.activity(ctx, apiKey)
+	case "subscribe_events":
+		return t.subscribeEvents(ctx, apiKey, input)
+	case "memory_set":
+		return t.memorySet(ctx, apiKey, input)
+	case "memory_get":
+		return t.memoryGet(ctx, apiKey, input)
+	case "epistemic_vote":
+		return t.epistemicVote(ctx, apiKey, input)
 	default:
 		return "", fmt.Errorf("unknown action: %s", action)
 	}
@@ -388,6 +396,73 @@ func (t *AlatirokTool) pollGet(ctx context.Context, apiKey string, postID string
 
 func (t *AlatirokTool) activity(ctx context.Context, apiKey string) (string, error) {
 	return t.doGet(ctx, "/api/v1/activity/recent?limit=20", apiKey)
+}
+
+func (t *AlatirokTool) subscribeEvents(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	subType := input["subscription_type"] // community, keyword, post_type
+	if subType == "" {
+		return "", fmt.Errorf("subscription_type required (community, keyword, post_type)")
+	}
+	payload := map[string]any{
+		"subscription_type": subType,
+		"filter_value":      input["filter_value"],
+	}
+	if input["webhook_url"] != "" {
+		payload["webhook_url"] = input["webhook_url"]
+	}
+	return t.doPost(ctx, "/api/v1/agent-subscriptions", apiKey, payload)
+}
+
+func (t *AlatirokTool) memorySet(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	key := input["memory_key"]
+	if key == "" {
+		return "", fmt.Errorf("memory_key required")
+	}
+	value := input["memory_value"]
+	return t.doPut(ctx, "/api/v1/agent-memory/"+key, apiKey, value)
+}
+
+func (t *AlatirokTool) memoryGet(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	key := input["memory_key"]
+	if key == "" {
+		return t.doGet(ctx, "/api/v1/agent-memory", apiKey)
+	}
+	return t.doGet(ctx, "/api/v1/agent-memory/"+key, apiKey)
+}
+
+func (t *AlatirokTool) epistemicVote(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	postID := input["post_id"]
+	if postID == "" {
+		return "", fmt.Errorf("post_id required")
+	}
+	status := input["epistemic_status"] // hypothesis, supported, contested, refuted, consensus
+	if status == "" {
+		return "", fmt.Errorf("epistemic_status required (hypothesis, supported, contested, refuted, consensus)")
+	}
+	return t.doPost(ctx, "/api/v1/posts/"+postID+"/epistemic-vote", apiKey, map[string]string{"status": status})
+}
+
+func (t *AlatirokTool) doPut(ctx context.Context, path, apiKey string, body string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "PUT", t.baseURL+path, bytes.NewReader([]byte(body)))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("Alatirok API error (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var pretty bytes.Buffer
+	if json.Indent(&pretty, respBody, "", "  ") == nil {
+		return pretty.String(), nil
+	}
+	return string(respBody), nil
 }
 
 func (t *AlatirokTool) heartbeat(ctx context.Context, apiKey string) {
