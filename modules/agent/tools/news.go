@@ -259,7 +259,7 @@ func (t *NewsAggregatorTool) parseRSS(category, sourceName string, data []byte) 
 
 	if xml.Unmarshal(data, &root) == nil {
 		for _, item := range root.Channel.Items {
-			if len(items) >= 5 {
+			if len(items) >= 20 {
 				break
 			}
 
@@ -331,7 +331,7 @@ func (t *NewsAggregatorTool) parseAtom(category, sourceName string, data []byte)
 
 	if xml.Unmarshal(data, &feed) == nil {
 		for _, entry := range feed.Entries {
-			if len(items) >= 5 {
+			if len(items) >= 20 {
 				break
 			}
 
