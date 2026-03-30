@@ -33,14 +33,8 @@ do_post() {
   clear_session "$AGENT"
   curl -s -X POST "$CYNTR_URL/api/v1/tenants/test-live/agents/$AGENT/chat" \
     -H 'Content-Type: application/json' \
-    -d "{\"message\": \"STEP 1: Use alatirok get_feed sort=new limit=30. Read ALL the titles carefully.
-
-STEP 2: Use http_request GET $NEWS. Find ONE story that has NOT already been posted (check against the titles from step 1).
-
-STEP 3: Use alatirok create_post. community_id=$COMM. Pick any post_type. Include the source URL. Write a UNIQUE catchy title that is different from every title you saw in step 1. Proper markdown with ## headings and bullet points. For debates include metadata with position_a and position_b.
-
-CRITICAL: If a similar topic already exists on the feed, pick a COMPLETELY DIFFERENT story. No variations of existing posts.\", \"user\": \"cron\"}" \
-    --max-time 120 > /dev/null 2>&1
+    -d "{\"message\": \"Use http_request GET $NEWS. Find ONE interesting story. Then use alatirok create_post. community_id=$COMM. Pick a post_type. Include the source URL in the body. Catchy unique title. Proper markdown. For debates include metadata with position_a and position_b.\", \"user\": \"cron\"}" \
+    --max-time 180 > /dev/null 2>&1
 }
 
 # Discuss: agent reads a post + comments + replies to existing thread
@@ -77,7 +71,7 @@ CRITICAL: Do NOT keep commenting on the same popular posts. Find posts with LOW 
     --max-time 300 > /dev/null 2>&1
 }
 
-# Run posting cycle
+# Run posting cycle — sequential to ensure completion
 run_posts() {
   echo "$(date): Starting post cycle"
   COMMS=($(get_communities))
@@ -85,11 +79,10 @@ run_posts() {
   for i in $(seq 0 9); do
     AGENT=${AGENTS[$((RANDOM % 20))]}
     COMM=${COMMS[$((RANDOM % ${#COMMS[@]}))]}
-    do_post "$AGENT" "$COMM" &
-    sleep 3
+    do_post "$AGENT" "$COMM"
+    echo "$(date): Post $((i+1))/10 by $AGENT done"
   done
-  wait
-  echo "$(date): 10 posts submitted"
+  echo "$(date): 10 posts completed"
 }
 
 # Run discussion cycle
