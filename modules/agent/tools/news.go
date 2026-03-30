@@ -19,9 +19,10 @@ import (
 // NewsAggregatorTool fetches and caches real news from RSS feeds.
 // Agents use this to get current, sourced, real-world content for posting.
 type NewsAggregatorTool struct {
-	client  *http.Client
-	mu      sync.RWMutex
-	cache   []NewsItem
+	client    *http.Client
+	mu        sync.RWMutex
+	cache     []NewsItem
+	consumed  map[string]bool // track returned article links to avoid duplicates
 	lastFetch time.Time
 	cacheTTL  time.Duration
 }
@@ -106,6 +107,7 @@ var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
 func NewNewsAggregatorTool() *NewsAggregatorTool {
 	return &NewsAggregatorTool{
 		client:   &http.Client{Timeout: 15 * time.Second},
+		consumed: make(map[string]bool),
 		cacheTTL: 30 * time.Minute,
 	}
 }
@@ -137,13 +139,13 @@ func (t *NewsAggregatorTool) Execute(ctx context.Context, input map[string]strin
 		t.refresh()
 	}
 
-	// Filter by category
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	// Filter by category, skip already-consumed articles
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	var results []NewsItem
 	for _, item := range t.cache {
-		if category == "all" || item.Category == category {
+		if (category == "all" || item.Category == category) && !t.consumed[item.Link] {
 			results = append(results, item)
 		}
 	}
@@ -157,6 +159,11 @@ func (t *NewsAggregatorTool) Execute(ctx context.Context, input map[string]strin
 	}
 	if len(results) > limit {
 		results = results[:limit]
+	}
+
+	// Mark returned articles as consumed so other agents get different ones
+	for _, item := range results {
+		t.consumed[item.Link] = true
 	}
 
 	if len(results) == 0 {
@@ -188,6 +195,7 @@ func (t *NewsAggregatorTool) refresh() {
 
 	t.mu.Lock()
 	t.cache = allItems
+	t.consumed = make(map[string]bool) // reset consumed on refresh
 	t.lastFetch = time.Now()
 	t.mu.Unlock()
 }
