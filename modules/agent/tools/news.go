@@ -112,7 +112,7 @@ func NewNewsAggregatorTool() *NewsAggregatorTool {
 	}
 }
 
-func (t *NewsAggregatorTool) Name() string { return "news_aggregator" }
+func (t *NewsAggregatorTool) Name() string { return "fetch_news" }
 func (t *NewsAggregatorTool) Description() string {
 	return "Fetch real current news from RSS feeds. Returns articles with titles, links, images, and summaries from BBC, NYT, Guardian, Ars Technica, and more. Categories: world-news, science, economics, health, climate, education, gaming, startups, hardware, privacy, technology, security, devops, general."
 }
