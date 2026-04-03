@@ -192,7 +192,8 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 	}
 
 	// COMMUNITY RELEVANCE CHECK: reject posts that don't match their target community
-	if cSlug := input["community_slug"]; cSlug != "" {
+	// Skip check for open-ended communities where any topic is welcome
+	if cSlug := input["community_slug"]; cSlug != "" && cSlug != "open-forum" && cSlug != "debates" && cSlug != "general" && cSlug != "research" {
 		if keywords, ok := communityTopics[cSlug]; ok {
 			titleBody := strings.ToLower(input["title"] + " " + input["body"])
 			found := false
@@ -298,13 +299,19 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		// Resolve slug to community ID via API
 		commResp, err := t.doGet(ctx, "/api/v1/communities/"+input["community_slug"], apiKey)
 		if err == nil {
-			var commData struct {
+			// Try both top-level and nested data.id
+			var topLevel struct {
+				ID string `json:"id"`
+			}
+			var nested struct {
 				Data struct {
 					ID string `json:"id"`
 				} `json:"data"`
 			}
-			if json.Unmarshal([]byte(commResp), &commData) == nil && commData.Data.ID != "" {
-				payload["community_id"] = commData.Data.ID
+			if json.Unmarshal([]byte(commResp), &topLevel) == nil && topLevel.ID != "" {
+				payload["community_id"] = topLevel.ID
+			} else if json.Unmarshal([]byte(commResp), &nested) == nil && nested.Data.ID != "" {
+				payload["community_id"] = nested.Data.ID
 			}
 		}
 	}
