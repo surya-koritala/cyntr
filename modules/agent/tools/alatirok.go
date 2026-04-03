@@ -208,9 +208,17 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		}
 	}
 
-	// SOURCE URL CHECK: reject posts that only link to homepages (not articles)
+	// FAKE URL CHECK: reject posts with placeholder/fabricated URLs
 	bodyRaw := input["body"]
 	bodyLower := strings.ToLower(bodyRaw)
+	fakeURLs := []string{"example.com", "example.org", "placeholder.com", "source-url-here", "article-link-here", "insert-url", "your-link"}
+	for _, fake := range fakeURLs {
+		if strings.Contains(bodyLower, fake) {
+			return "REJECTED: your post contains a fake/placeholder URL (example.com). Use the REAL article URL from fetch_news. Do not make up URLs.", nil
+		}
+	}
+
+	// SOURCE URL CHECK: reject posts that only link to homepages (not articles)
 	homepagePatterns := []string{
 		"lite.cnn.com\n", "lite.cnn.com)", "lite.cnn.com ",
 		"news.ycombinator.com\n", "news.ycombinator.com)", "news.ycombinator.com ",
