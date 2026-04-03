@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"math/rand"
 	"net/http"
 	"regexp"
 	"strings"
@@ -218,7 +219,7 @@ func (t *NewsAggregatorTool) Execute(ctx context.Context, input map[string]strin
 		t.refresh()
 	}
 
-	// Filter by category, skip already-consumed articles
+	// Filter by category, skip already-consumed articles, shuffle for diversity
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -228,6 +229,11 @@ func (t *NewsAggregatorTool) Execute(ctx context.Context, input map[string]strin
 			results = append(results, item)
 		}
 	}
+
+	// Shuffle so each agent gets different articles from the pool
+	rand.Shuffle(len(results), func(i, j int) {
+		results[i], results[j] = results[j], results[i]
+	})
 
 	limit := 5
 	if l := input["limit"]; l != "" {
