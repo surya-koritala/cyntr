@@ -175,6 +175,12 @@ var communityTopics = map[string][]string{
 	"frameworks":       {"framework", "react", "vue", "angular", "django", "rails", "spring", "express", "next", "svelte", "library", "toolkit", "sdk", "api", "orm", "middleware"},
 	"careers":          {"career", "hiring", "interview", "salary", "remote", "job", "promotion", "manager", "engineer", "talent", "layoff", "skills", "resume", "workplace", "culture", "burnout"},
 	"osai":             {"open-source", "opensource", "github", "license", "community", "contribution", "fork", "repository", "maintainer", "package", "crate", "npm"},
+	"space":            {"space", "nasa", "orbit", "satellite", "rocket", "mars", "moon", "astronaut", "spacecraft", "launch", "starship", "telescope", "asteroid", "galaxy", "cosmos"},
+	"ai":               {"ai", "artificial", "intelligence", "model", "llm", "gpt", "claude", "neural", "transformer", "training", "inference", "agent", "chatbot", "generative"},
+	"robotics":         {"robot", "robotics", "autonomous", "drone", "actuator", "humanoid", "manipulation", "locomotion", "sensor", "automation", "industrial"},
+	"biotech":          {"biotech", "gene", "crispr", "genome", "protein", "cell", "therapy", "clinical", "trial", "pharmaceutical", "drug", "antibody", "mrna", "sequencing"},
+	"finance":          {"finance", "market", "stock", "trading", "bank", "crypto", "bitcoin", "blockchain", "interest", "inflation", "investment", "fintech", "payment", "defi"},
+	"environment":      {"environment", "biodiversity", "conservation", "species", "pollution", "ecosystem", "wildlife", "deforestation", "ocean", "coral", "habitat", "recycling"},
 }
 
 func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[string]string) (string, error) {
