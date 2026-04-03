@@ -76,10 +76,14 @@ func (o *Ollama) buildRequest(messages []agent.Message, tools []agent.ToolDef) o
 			if len(msg.ToolCalls) > 0 {
 				var tcs []ollamaToolCall
 				for _, tc := range msg.ToolCalls {
+					args := make(map[string]any, len(tc.Input))
+					for k, v := range tc.Input {
+						args[k] = v
+					}
 					tcs = append(tcs, ollamaToolCall{
 						Function: ollamaFnCall{
 							Name:      tc.Name,
-							Arguments: tc.Input,
+							Arguments: args,
 						},
 					})
 				}
@@ -165,8 +169,8 @@ type ollamaToolCall struct {
 }
 
 type ollamaFnCall struct {
-	Name      string            `json:"name"`
-	Arguments map[string]string `json:"arguments"`
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
 }
 
 type ollamaTool struct {
