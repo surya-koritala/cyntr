@@ -166,35 +166,40 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 
 	// DEDUP: check recent feed for similar titles before posting
 	title := input["title"]
-	titleWords := strings.ToLower(title)
-	feedResp, feedErr := t.doGet(ctx, "/api/v1/feed?sort=new&limit=30", apiKey)
-	if feedErr == nil {
-		// Extract keywords from new title (words > 4 chars)
-		newWords := make(map[string]bool)
-		for _, w := range strings.Fields(titleWords) {
-			w = strings.Trim(w, ".,!?:;-—\"'()[]")
-			if len(w) > 4 {
-				newWords[w] = true
+	titleLower := strings.ToLower(title)
+	// Extract keywords from new title (words > 4 chars)
+	newWords := make(map[string]bool)
+	for _, w := range strings.Fields(titleLower) {
+		w = strings.Trim(w, ".,!?:;-—\"'()[]")
+		if len(w) > 4 {
+			newWords[w] = true
+		}
+	}
+
+	// Direct HTTP call to feed (bypass doGet pretty-printing)
+	feedReq, _ := http.NewRequestWithContext(ctx, "GET", t.baseURL+"/api/v1/feed?sort=new&limit=30", nil)
+	if feedReq != nil {
+		feedReq.Header.Set("Accept", "application/json")
+		feedResp, feedErr := t.client.Do(feedReq)
+		if feedErr == nil {
+			defer feedResp.Body.Close()
+			var feedData struct {
+				Data []struct {
+					Title string `json:"title"`
+				} `json:"data"`
 			}
-		}
-		// Check each existing post title for keyword overlap
-		var feedData struct {
-			Data []struct {
-				Title string `json:"title"`
-			} `json:"data"`
-		}
-		if json.Unmarshal([]byte(feedResp), &feedData) == nil {
-			for _, existing := range feedData.Data {
-				existingLower := strings.ToLower(existing.Title)
-				matches := 0
-				for w := range newWords {
-					if strings.Contains(existingLower, w) {
-						matches++
+			if json.NewDecoder(feedResp.Body).Decode(&feedData) == nil {
+				for _, existing := range feedData.Data {
+					existingLower := strings.ToLower(existing.Title)
+					matches := 0
+					for w := range newWords {
+						if strings.Contains(existingLower, w) {
+							matches++
+						}
 					}
-				}
-				// If 3+ significant words match, it's too similar
-				if matches >= 3 {
-					return "SKIPPED: similar post already exists on the feed — '" + existing.Title + "'. Find a different topic.", nil
+					if matches >= 3 {
+						return "SKIPPED: similar post already exists — '" + existing.Title + "'. Find a completely different topic.", nil
+					}
 				}
 			}
 		}
