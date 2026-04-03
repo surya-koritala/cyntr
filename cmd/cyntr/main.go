@@ -240,15 +240,29 @@ func runStart() {
 		log.Info("provider registered", map[string]any{"provider": "gemini", "model": geminiModel})
 	}
 
-	// Register Ollama provider if URL is set
+	// Register Ollama providers — supports multiple models via OLLAMA_MODELS=gemma4,qwen3:8b,...
 	ollamaURL := os.Getenv("OLLAMA_URL")
+	if ollamaURL == "" {
+		ollamaURL = os.Getenv("OLLAMA_HOST")
+	}
 	if ollamaURL != "" {
-		ollamaModel := os.Getenv("OLLAMA_MODEL")
-		if ollamaModel == "" {
-			ollamaModel = "llama3"
+		if models := os.Getenv("OLLAMA_MODELS"); models != "" {
+			for _, model := range strings.Split(models, ",") {
+				model = strings.TrimSpace(model)
+				if model == "" {
+					continue
+				}
+				agentRuntime.RegisterProvider(agentproviders.NewOllama(model, ollamaURL))
+				log.Info("provider registered", map[string]any{"provider": "ollama", "model": model})
+			}
+		} else {
+			ollamaModel := os.Getenv("OLLAMA_MODEL")
+			if ollamaModel == "" {
+				ollamaModel = "llama3"
+			}
+			agentRuntime.RegisterProvider(agentproviders.NewOllama(ollamaModel, ollamaURL))
+			log.Info("provider registered", map[string]any{"provider": "ollama", "model": ollamaModel})
 		}
-		agentRuntime.RegisterProvider(agentproviders.NewOllama(ollamaModel, ollamaURL))
-		log.Info("provider registered", map[string]any{"provider": "ollama", "model": ollamaModel})
 	}
 
 	// Register OpenRouter provider if API key is set

@@ -156,12 +156,66 @@ func (t *AlatirokTool) getFeed(ctx context.Context, apiKey string, input map[str
 	return t.doGet(ctx, path, apiKey)
 }
 
+// communityTopics maps community slugs to required topic keywords.
+// A post must contain at least 1 keyword from the target community.
+var communityTopics = map[string][]string{
+	"gaming":           {"game", "gaming", "esport", "console", "playstation", "xbox", "nintendo", "steam", "fps", "mmorpg", "indie", "developer", "gamer", "play", "quest", "rpg", "multiplayer", "singleplayer", "studio", "launch"},
+	"health":           {"health", "medical", "disease", "treatment", "hospital", "vaccine", "drug", "patient", "mental", "fitness", "cancer", "heart", "brain", "doctor", "clinical", "therapy", "diagnosis", "nutrition", "wellness"},
+	"climate":          {"climate", "carbon", "emissions", "warming", "renewable", "energy", "solar", "wind", "fossil", "temperature", "environment", "sustainability", "coal", "methane", "glacier", "drought", "flood", "weather", "ocean"},
+	"world-news":       {"government", "election", "president", "minister", "war", "peace", "treaty", "nato", "sanctions", "refugee", "diplomacy", "parliament", "conflict", "military", "humanitarian", "crisis", "nation", "democracy"},
+	"science":          {"research", "study", "discovery", "experiment", "physics", "biology", "chemistry", "space", "nasa", "genome", "quantum", "theory", "evolution", "scientific", "laboratory", "peer-review", "nature", "neuroscience"},
+	"privacy":          {"privacy", "surveillance", "encryption", "tracking", "gdpr", "data", "consent", "cookies", "breach", "anonymity", "spyware", "vpn", "biometric", "facial", "recognition", "wiretap"},
+	"ai-news":          {"ai", "artificial", "intelligence", "model", "llm", "gpt", "claude", "gemini", "openai", "anthropic", "google", "neural", "transformer", "training", "inference", "benchmark"},
+	"ai-safety":        {"safety", "alignment", "bias", "ethical", "regulation", "risk", "existential", "guardrail", "hallucination", "audit", "trust", "responsible", "harm", "oversight"},
+	"machine-learning": {"machine", "learning", "training", "neural", "deep", "reinforcement", "gradient", "optimizer", "dataset", "embedding", "fine-tune", "attention", "diffusion", "generative"},
+	"devops":           {"devops", "kubernetes", "docker", "cicd", "pipeline", "deployment", "monitoring", "terraform", "ansible", "infrastructure", "scaling", "microservice", "container", "cloud", "observability", "sre"},
+	"hardware":         {"chip", "processor", "gpu", "cpu", "memory", "ram", "storage", "silicon", "semiconductor", "manufacturing", "nanometer", "board", "server", "laptop", "device", "sensor", "robot"},
+	"startups":         {"startup", "founder", "funding", "venture", "capital", "seed", "series", "valuation", "growth", "pivot", "product", "market", "acquisition", "ipo", "disruption", "unicorn"},
+	"code-review":      {"code", "review", "refactor", "pattern", "architecture", "testing", "debug", "lint", "merge", "pull-request", "dependency", "library", "framework", "technical-debt", "clean"},
+	"frameworks":       {"framework", "react", "vue", "angular", "django", "rails", "spring", "express", "next", "svelte", "library", "toolkit", "sdk", "api", "orm", "middleware"},
+	"careers":          {"career", "hiring", "interview", "salary", "remote", "job", "promotion", "manager", "engineer", "talent", "layoff", "skills", "resume", "workplace", "culture", "burnout"},
+	"osai":             {"open-source", "opensource", "github", "license", "community", "contribution", "fork", "repository", "maintainer", "package", "crate", "npm"},
+}
+
 func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[string]string) (string, error) {
 	if input["title"] == "" {
 		return "", fmt.Errorf("title is required for create_post")
 	}
 	if input["body"] == "" {
 		return "", fmt.Errorf("body is required for create_post")
+	}
+
+	// COMMUNITY RELEVANCE CHECK: reject posts that don't match their target community
+	if cSlug := input["community_slug"]; cSlug != "" {
+		if keywords, ok := communityTopics[cSlug]; ok {
+			titleBody := strings.ToLower(input["title"] + " " + input["body"])
+			found := false
+			for _, kw := range keywords {
+				if strings.Contains(titleBody, kw) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Sprintf("REJECTED: your post doesn't match the '%s' community. Rewrite to be about %s topics, or choose the correct community.", cSlug, cSlug), nil
+			}
+		}
+	}
+
+	// SOURCE URL CHECK: reject posts that only link to homepages (not articles)
+	bodyRaw := input["body"]
+	bodyLower := strings.ToLower(bodyRaw)
+	homepagePatterns := []string{
+		"lite.cnn.com\n", "lite.cnn.com)", "lite.cnn.com ",
+		"news.ycombinator.com\n", "news.ycombinator.com)", "news.ycombinator.com ",
+		"lobste.rs\n", "lobste.rs)", "lobste.rs ",
+		"techmeme.com\n", "techmeme.com)", "techmeme.com ",
+		"text.npr.org\n", "text.npr.org)", "text.npr.org ",
+	}
+	for _, hp := range homepagePatterns {
+		if strings.Contains(bodyLower, hp) && !strings.Contains(bodyLower, "/2026") && !strings.Contains(bodyLower, "/2025") && !strings.Contains(bodyLower, "/article") && !strings.Contains(bodyLower, "/story") {
+			return "REJECTED: you linked to a homepage URL instead of the specific article. Get the actual article URL and include that as your source.", nil
+		}
 	}
 
 	// DEDUP: check recent feed for similar titles before posting
@@ -226,6 +280,19 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 
 	if input["community_id"] != "" {
 		payload["community_id"] = input["community_id"]
+	} else if input["community_slug"] != "" {
+		// Resolve slug to community ID via API
+		commResp, err := t.doGet(ctx, "/api/v1/communities/"+input["community_slug"], apiKey)
+		if err == nil {
+			var commData struct {
+				Data struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			if json.Unmarshal([]byte(commResp), &commData) == nil && commData.Data.ID != "" {
+				payload["community_id"] = commData.Data.ID
+			}
+		}
 	}
 
 	if input["tags"] != "" {
