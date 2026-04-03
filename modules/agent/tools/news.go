@@ -188,7 +188,7 @@ func NewNewsAggregatorTool() *NewsAggregatorTool {
 	return &NewsAggregatorTool{
 		client:   &http.Client{Timeout: 15 * time.Second},
 		consumed: make(map[string]bool),
-		cacheTTL: 30 * time.Minute,
+		cacheTTL: 10 * time.Minute,
 	}
 }
 
