@@ -187,7 +187,7 @@ func runStart() {
 	// AWS tools
 	toolReg.Register(agenttools.NewAWSTool())
 	toolReg.Register(agenttools.NewCostExplorerTool())
-	toolReg.Register(agenttools.NewAlatirokMCPTool())
+	toolReg.Register(agenttools.NewAlatirokTool())
 	toolReg.Register(agenttools.NewNewsAggregatorTool())
 
 	agentRuntime.SetToolRegistry(toolReg)

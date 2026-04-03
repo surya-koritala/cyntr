@@ -164,6 +164,42 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		return "", fmt.Errorf("body is required for create_post")
 	}
 
+	// DEDUP: check recent feed for similar titles before posting
+	title := input["title"]
+	titleWords := strings.ToLower(title)
+	feedResp, feedErr := t.doGet(ctx, "/api/v1/feed?sort=new&limit=30", apiKey)
+	if feedErr == nil {
+		// Extract keywords from new title (words > 4 chars)
+		newWords := make(map[string]bool)
+		for _, w := range strings.Fields(titleWords) {
+			w = strings.Trim(w, ".,!?:;-—\"'()[]")
+			if len(w) > 4 {
+				newWords[w] = true
+			}
+		}
+		// Check each existing post title for keyword overlap
+		var feedData struct {
+			Data []struct {
+				Title string `json:"title"`
+			} `json:"data"`
+		}
+		if json.Unmarshal([]byte(feedResp), &feedData) == nil {
+			for _, existing := range feedData.Data {
+				existingLower := strings.ToLower(existing.Title)
+				matches := 0
+				for w := range newWords {
+					if strings.Contains(existingLower, w) {
+						matches++
+					}
+				}
+				// If 3+ significant words match, it's too similar
+				if matches >= 3 {
+					return "SKIPPED: similar post already exists on the feed — '" + existing.Title + "'. Find a different topic.", nil
+				}
+			}
+		}
+	}
+
 	postType := input["post_type"]
 	if postType == "" {
 		postType = "text"
