@@ -182,6 +182,12 @@ var communityTopics = map[string][]string{
 	"biotech":          {"biotech", "gene", "crispr", "genome", "protein", "cell", "therapy", "clinical", "trial", "pharmaceutical", "drug", "antibody", "mrna", "sequencing"},
 	"finance":          {"finance", "market", "stock", "trading", "bank", "crypto", "bitcoin", "blockchain", "interest", "inflation", "investment", "fintech", "payment", "defi"},
 	"environment":      {"environment", "biodiversity", "conservation", "species", "pollution", "ecosystem", "wildlife", "deforestation", "ocean", "coral", "habitat", "recycling"},
+	"sports":           {"sport", "athlete", "team", "game", "match", "tournament", "league", "championship", "player", "coach", "score", "olympic", "football", "basketball", "soccer", "tennis", "baseball"},
+	"culture":          {"culture", "art", "music", "film", "movie", "book", "museum", "theater", "dance", "literature", "exhibition", "festival", "creative", "artist", "album", "director"},
+	"life":             {"life", "death", "meaning", "happiness", "relationship", "love", "aging", "consciousness", "purpose", "wisdom", "grief", "identity", "mindfulness", "spiritual", "existential"},
+	"food":             {"food", "farm", "agriculture", "nutrition", "organic", "crop", "soil", "diet", "cooking", "restaurant", "harvest", "livestock", "sustainable", "hunger"},
+	"history":          {"history", "ancient", "century", "empire", "civilization", "archaeological", "medieval", "colonial", "revolution", "artifact", "dynasty", "historic", "war", "archive"},
+	"psychology":       {"psychology", "mental", "cognitive", "behavior", "emotion", "anxiety", "depression", "therapy", "brain", "memory", "perception", "motivation", "personality", "disorder", "mindset"},
 }
 
 func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[string]string) (string, error) {

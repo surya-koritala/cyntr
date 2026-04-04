@@ -39,40 +39,65 @@ type NewsItem struct {
 	PubDate     string `json:"pub_date"`
 }
 
-// RSS feed sources mapped to categories
+// RSS feed sources mapped to categories — 170+ verified feeds across 26 categories
 var newsSources = map[string][]struct {
 	Name string
 	URL  string
 }{
 	"world-news": {
 		{"BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"},
-		{"Guardian World", "https://www.theguardian.com/world/rss"},
-		{"Reuters World", "https://feeds.reuters.com/reuters/worldNews"},
 		{"Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml"},
+		{"Guardian World", "https://www.theguardian.com/world/rss"},
 		{"NPR World", "https://feeds.npr.org/1004/rss.xml"},
+		{"DW News", "https://rss.dw.com/rdf/rss-en-all"},
+		{"Independent World", "https://www.independent.co.uk/news/world/rss"},
+		{"Japan Times", "https://www.japantimes.co.jp/feed/"},
+		{"Global Voices", "https://globalvoices.org/feed/"},
+		{"The Diplomat", "https://thediplomat.com/feed/"},
+		{"Axios", "https://api.axios.com/feed/top"},
+		{"CBC World", "https://rss.cbc.ca/lineup/world.xml"},
+		{"UN News", "https://news.un.org/feed/subscribe/en/news/all/rss.xml"},
+		{"Middle East Eye", "https://www.middleeasteye.net/rss"},
 	},
 	"science": {
-		{"BBC Science", "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml"},
-		{"NYT Science", "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml"},
+		{"Nature", "https://www.nature.com/nature.rss"},
+		{"Science Daily", "https://www.sciencedaily.com/rss/all.xml"},
+		{"New Scientist", "https://www.newscientist.com/feed/home"},
 		{"Ars Science", "https://feeds.arstechnica.com/arstechnica/science"},
+		{"Live Science", "https://www.livescience.com/feeds/all"},
+		{"Science News", "https://www.sciencenews.org/feed"},
+		{"Quanta Magazine", "https://quantamagazine.org/feed/"},
 		{"Phys.org", "https://phys.org/rss-feed/"},
-		{"Nature News", "https://www.nature.com/nature.rss"},
-		{"Scientific American", "https://www.scientificamerican.com/feed/"},
-		{"New Scientist", "https://www.newscientist.com/feed/home/"},
+		{"Nautilus", "https://nautil.us/feed/"},
+		{"Science Alert", "https://www.sciencealert.com/feed"},
+		{"Futurism", "https://futurism.com/feed"},
+		{"Wired Science", "https://www.wired.com/feed/category/science/latest/rss"},
+		{"Smithsonian Science", "https://www.smithsonianmag.com/rss/science-nature/"},
+		{"Popular Science", "https://www.popsci.com/feed/"},
 	},
 	"economics": {
 		{"BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"},
-		{"Reuters Business", "https://feeds.reuters.com/reuters/businessNews"},
-		{"FT", "https://www.ft.com/rss/home"},
-		{"Economist", "https://www.economist.com/rss"},
+		{"Naked Capitalism", "https://www.nakedcapitalism.com/feed"},
+		{"Marginal Revolution", "https://marginalrevolution.com/feed"},
 		{"NPR Economy", "https://feeds.npr.org/1017/rss.xml"},
+		{"Calculated Risk", "https://www.calculatedriskblog.com/feeds/posts/default?alt=rss"},
+		{"EPI Blog", "https://www.epi.org/blog/feed/"},
+		{"Farnam Street", "https://fs.blog/feed/"},
+		{"Vox Policy", "https://www.vox.com/rss/policy/index.xml"},
+		{"CEPR", "https://cepr.net/feed/"},
+		{"ProMarket", "https://www.promarket.org/feed/"},
 	},
 	"health": {
 		{"BBC Health", "https://feeds.bbci.co.uk/news/health/rss.xml"},
-		{"NYT Health", "https://rss.nytimes.com/services/xml/rss/nyt/Health.xml"},
-		{"STAT News", "https://www.statnews.com/feed/"},
-		{"Medical News Today", "https://www.medicalnewstoday.com/newsfeeds/rss"},
 		{"NPR Health", "https://feeds.npr.org/1128/rss.xml"},
+		{"STAT News", "https://www.statnews.com/feed/"},
+		{"KFF Health News", "https://kffhealthnews.org/feed/"},
+		{"Science Daily Health", "https://www.sciencedaily.com/rss/health_medicine.xml"},
+		{"Guardian Health", "https://www.theguardian.com/lifeandstyle/health-and-wellbeing/rss"},
+		{"Vox Health", "https://www.vox.com/rss/health-care/index.xml"},
+		{"Science Based Medicine", "https://sciencebasedmedicine.org/feed/"},
+		{"Undark", "https://undark.org/feed/"},
+		{"WHO News", "https://www.who.int/rss-feeds/news-english.xml"},
 	},
 	"climate": {
 		{"NYT Climate", "https://rss.nytimes.com/services/xml/rss/nyt/Climate.xml"},
@@ -85,7 +110,6 @@ var newsSources = map[string][]struct {
 		{"BBC Education", "https://feeds.bbci.co.uk/news/education/rss.xml"},
 		{"Inside Higher Ed", "https://www.insidehighered.com/rss/feed"},
 		{"EdSurge", "https://www.edsurge.com/rss"},
-		{"Chronicle Higher Ed", "https://www.chronicle.com/section/News/6/rss"},
 	},
 	"gaming": {
 		{"Ars Gaming", "https://feeds.arstechnica.com/arstechnica/gaming"},
@@ -99,12 +123,10 @@ var newsSources = map[string][]struct {
 		{"The Verge", "https://www.theverge.com/rss/index.xml"},
 		{"TechCrunch", "https://techcrunch.com/feed/"},
 		{"Hacker News Best", "https://hnrss.org/best"},
-		{"Product Hunt", "https://www.producthunt.com/feed"},
 		{"Indie Hackers", "https://www.indiehackers.com/feed.xml"},
 	},
 	"hardware": {
 		{"Ars Gadgets", "https://arstechnica.com/gadgets/feed/"},
-		{"AnandTech", "https://www.anandtech.com/rss/"},
 		{"Tom's Hardware", "https://www.tomshardware.com/feeds/all"},
 		{"IEEE Spectrum", "https://spectrum.ieee.org/feeds/feed.rss"},
 		{"Hackaday", "https://hackaday.com/feed/"},
@@ -118,7 +140,6 @@ var newsSources = map[string][]struct {
 	},
 	"technology": {
 		{"BBC Tech", "https://feeds.bbci.co.uk/news/technology/rss.xml"},
-		{"NYT Tech", "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"},
 		{"Wired", "https://www.wired.com/feed/rss"},
 		{"Ars Technica", "https://arstechnica.com/feed/"},
 		{"MIT Tech Review", "https://www.technologyreview.com/feed/"},
@@ -127,18 +148,15 @@ var newsSources = map[string][]struct {
 	"security": {
 		{"EFF", "https://www.eff.org/rss/updates.xml"},
 		{"Krebs", "https://krebsonsecurity.com/feed/"},
-		{"Threatpost", "https://threatpost.com/feed/"},
 		{"Bleeping Computer", "https://www.bleepingcomputer.com/feed/"},
-		{"Hacker News Security", "https://hnrss.org/best?q=security"},
 	},
 	"devops": {
 		{"Lobsters", "https://lobste.rs/rss"},
-		{"DevOps.com", "https://devops.com/feed/"},
 		{"CNCF Blog", "https://www.cncf.io/blog/feed/"},
 		{"The New Stack", "https://thenewstack.io/feed/"},
 	},
 	"space": {
-		{"NASA", "https://www.nasa.gov/rss/dyn/breaking_news.rss"},
+		{"NASA", "https://www.nasa.gov/news-release/feed/"},
 		{"Space.com", "https://www.space.com/feeds/all"},
 		{"SpaceNews", "https://spacenews.com/feed/"},
 		{"Ars Space", "https://arstechnica.com/space/feed/"},
@@ -157,14 +175,13 @@ var newsSources = map[string][]struct {
 	"biotech": {
 		{"STAT News", "https://www.statnews.com/feed/"},
 		{"Endpoints News", "https://endpts.com/feed/"},
-		{"Fierce Biotech", "https://www.fiercebiotech.com/rss/xml"},
 		{"Nature Biotech", "https://www.nature.com/nbt.rss"},
 	},
 	"finance": {
 		{"Bloomberg", "https://feeds.bloomberg.com/markets/news.rss"},
-		{"Reuters Finance", "https://feeds.reuters.com/reuters/businessNews"},
 		{"Finextra", "https://www.finextra.com/rss/headlines.aspx"},
 		{"Coin Telegraph", "https://cointelegraph.com/rss"},
+		{"MarketWatch", "https://feeds.marketwatch.com/marketwatch/topstories/"},
 	},
 	"environment": {
 		{"Guardian Environment", "https://www.theguardian.com/environment/rss"},
@@ -172,12 +189,86 @@ var newsSources = map[string][]struct {
 		{"Yale E360", "https://e360.yale.edu/feed"},
 		{"Treehugger", "https://www.treehugger.com/rss"},
 	},
+	"sports": {
+		{"ESPN Top", "https://www.espn.com/espn/rss/news"},
+		{"ESPN NFL", "https://www.espn.com/espn/rss/nfl/news"},
+		{"ESPN NBA", "https://www.espn.com/espn/rss/nba/news"},
+		{"ESPN Soccer", "https://www.espn.com/espn/rss/soccer/news"},
+		{"ESPN F1", "https://www.espn.com/espn/rss/rpm/news"},
+		{"BBC Sport", "https://feeds.bbci.co.uk/sport/rss.xml"},
+		{"BBC Football", "https://feeds.bbci.co.uk/sport/football/rss.xml"},
+		{"BBC Cricket", "https://feeds.bbci.co.uk/sport/cricket/rss.xml"},
+		{"BBC Tennis", "https://feeds.bbci.co.uk/sport/tennis/rss.xml"},
+		{"BBC F1", "https://feeds.bbci.co.uk/sport/formula1/rss.xml"},
+		{"Guardian Sport", "https://www.theguardian.com/uk/sport/rss"},
+		{"SB Nation", "https://www.sbnation.com/rss/index.xml"},
+		{"Yahoo Sports", "https://sports.yahoo.com/rss/"},
+		{"Deadspin", "https://deadspin.com/rss"},
+		{"Cycling News", "https://www.cyclingnews.com/rss"},
+	},
+	"culture": {
+		{"Guardian Culture", "https://www.theguardian.com/culture/rss"},
+		{"NPR Arts", "https://feeds.npr.org/1048/rss.xml"},
+		{"NPR Books", "https://feeds.npr.org/1032/rss.xml"},
+		{"The Atlantic", "https://www.theatlantic.com/feed/all/"},
+		{"Aeon", "https://aeon.co/feed.rss"},
+		{"Hyperallergic", "https://hyperallergic.com/feed/"},
+		{"Pitchfork", "https://pitchfork.com/feed/feed-news/rss"},
+		{"ArtNews", "https://www.artnews.com/feed/"},
+		{"Literary Hub", "https://lithub.com/feed/"},
+		{"Open Culture", "https://www.openculture.com/feed"},
+		{"Colossal", "https://www.thisiscolossal.com/feed/"},
+		{"Longreads", "https://longreads.com/feed/"},
+	},
+	"life": {
+		{"Aeon", "https://aeon.co/feed.rss"},
+		{"The Marginalian", "https://www.themarginalian.org/feed/"},
+		{"Psyche", "https://psyche.co/feed"},
+		{"Daily Stoic", "https://dailystoic.com/feed/"},
+		{"Farnam Street", "https://fs.blog/feed/"},
+		{"3 Quarks Daily", "https://3quarksdaily.com/feed"},
+		{"Ribbonfarm", "https://www.ribbonfarm.com/feed/"},
+		{"BigThink", "https://bigthink.com/feed/"},
+	},
+	"food": {
+		{"Food Safety News", "https://www.foodsafetynews.com/feed/"},
+		{"Civil Eats", "https://civileats.com/feed/"},
+		{"Modern Farmer", "https://modernfarmer.com/feed/"},
+		{"Eater", "https://www.eater.com/rss/index.xml"},
+		{"Food Politics", "https://www.foodpolitics.com/feed/"},
+		{"AgFunder News", "https://agfundernews.com/feed"},
+		{"Food Tank", "https://foodtank.com/feed/"},
+		{"Guardian Food", "https://www.theguardian.com/lifeandstyle/food-and-drink/rss"},
+		{"NPR Food", "https://feeds.npr.org/1053/rss.xml"},
+		{"The Takeout", "https://thetakeout.com/rss"},
+	},
+	"history": {
+		{"Smithsonian History", "https://www.smithsonianmag.com/rss/history/"},
+		{"Atlas Obscura", "https://www.atlasobscura.com/feeds/latest"},
+		{"History Extra", "https://www.historyextra.com/feed/"},
+		{"All That's Interesting", "https://allthatsinteresting.com/feed"},
+		{"Medievalists", "https://www.medievalists.net/feed/"},
+		{"Ancient Origins", "https://www.ancient-origins.net/rss.xml"},
+		{"The History Blog", "https://www.thehistoryblog.com/feed"},
+		{"Public Domain Review", "https://publicdomainreview.org/rss.xml"},
+		{"JSTOR Daily", "https://daily.jstor.org/feed/"},
+		{"Archaeology Magazine", "https://www.archaeology.org/feed"},
+	},
+	"psychology": {
+		{"PsyPost", "https://www.psypost.org/feed/"},
+		{"Neuroscience News", "https://neurosciencenews.com/feed/"},
+		{"Behavioral Scientist", "https://behavioralscientist.org/feed/"},
+		{"Greater Good Berkeley", "https://greatergood.berkeley.edu/rss/all"},
+		{"BigThink", "https://bigthink.com/feed/"},
+		{"Science Daily Mind", "https://www.sciencedaily.com/rss/mind_brain.xml"},
+		{"PsyBlog", "https://www.spring.org.uk/feed"},
+	},
 	"general": {
 		{"Guardian Science", "https://www.theguardian.com/science/rss"},
 		{"NPR News", "https://feeds.npr.org/1001/rss.xml"},
-		{"AP News", "https://rsshub.app/apnews/topics/apf-topnews"},
 		{"Smithsonian", "https://www.smithsonianmag.com/rss/latest_articles/"},
 		{"Atlas Obscura", "https://www.atlasobscura.com/feeds/latest"},
+		{"JSTOR Daily", "https://daily.jstor.org/feed/"},
 	},
 }
 
@@ -194,12 +285,12 @@ func NewNewsAggregatorTool() *NewsAggregatorTool {
 
 func (t *NewsAggregatorTool) Name() string { return "fetch_news" }
 func (t *NewsAggregatorTool) Description() string {
-	return "Fetch real current news from RSS feeds. Returns articles with titles, links, images, and summaries from 70+ sources (BBC, NYT, Guardian, Reuters, Nature, MIT Tech Review, IEEE, NASA, and more). Categories: world-news, science, economics, health, climate, education, gaming, startups, hardware, privacy, technology, security, devops, space, ai, robotics, biotech, finance, environment, general."
+	return "Fetch real current news from RSS feeds. Returns articles with titles, links, images, and summaries from 90+ sources. Categories: world-news, science, economics, health, climate, education, gaming, startups, hardware, privacy, technology, security, devops, space, ai, robotics, biotech, finance, environment, sports, culture, life, food, history, psychology, general."
 }
 
 func (t *NewsAggregatorTool) Parameters() map[string]agent.ToolParam {
 	return map[string]agent.ToolParam{
-		"category": {Type: "string", Description: "Category: world-news, science, economics, health, climate, education, gaming, startups, hardware, privacy, technology, security, devops, space, ai, robotics, biotech, finance, environment, general. Use 'all' for everything.", Required: true},
+		"category": {Type: "string", Description: "Category: world-news, science, economics, health, climate, education, gaming, startups, hardware, privacy, technology, security, devops, space, ai, robotics, biotech, finance, environment, sports, culture, life, food, history, psychology, general. Use 'all' for everything.", Required: true},
 		"limit":    {Type: "string", Description: "Number of articles to return (default 5, max 20)", Required: false},
 	}
 }
