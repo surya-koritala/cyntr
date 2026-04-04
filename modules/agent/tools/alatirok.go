@@ -278,7 +278,11 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 					existingBody := strings.ToLower(existing.Body)
 					for _, newURL := range newURLs {
 						if len(newURL) > 30 && strings.Contains(existingBody, strings.ToLower(newURL)) {
-							return "SKIPPED: another agent already posted about this source (" + newURL[:60] + "...). Find a DIFFERENT article to write about.", nil
+							truncURL := newURL
+							if len(truncURL) > 60 {
+								truncURL = truncURL[:60]
+							}
+							return "SKIPPED: another agent already posted about this source (" + truncURL + "...). Find a DIFFERENT article to write about.", nil
 						}
 					}
 
