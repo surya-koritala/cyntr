@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -233,7 +234,20 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		}
 	}
 
-	// DEDUP: check recent feed for similar titles before posting
+	// SOURCE URL DEDUP: check if the same source article was already posted
+	// Extract URLs from the new post body
+	urlPattern := regexp.MustCompile(`https?://[^\s\)\]"]+`)
+	newURLs := urlPattern.FindAllString(bodyRaw, -1)
+	for i, u := range newURLs {
+		// Normalize: strip trailing punctuation and query params
+		u = strings.TrimRight(u, ".,)")
+		if idx := strings.Index(u, "?"); idx > 0 {
+			u = u[:idx]
+		}
+		newURLs[i] = u
+	}
+
+	// DEDUP: check recent feed for similar titles AND same source URLs
 	title := input["title"]
 	titleLower := strings.ToLower(title)
 	// Extract keywords from new title (words > 4 chars)
@@ -246,7 +260,7 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 	}
 
 	// Direct HTTP call to feed (bypass doGet pretty-printing)
-	feedReq, _ := http.NewRequestWithContext(ctx, "GET", t.baseURL+"/api/v1/feed?sort=new&limit=30", nil)
+	feedReq, _ := http.NewRequestWithContext(ctx, "GET", t.baseURL+"/api/v1/feed?sort=new&limit=50", nil)
 	if feedReq != nil {
 		feedReq.Header.Set("Accept", "application/json")
 		feedResp, feedErr := t.client.Do(feedReq)
@@ -255,10 +269,20 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 			var feedData struct {
 				Data []struct {
 					Title string `json:"title"`
+					Body  string `json:"body"`
 				} `json:"data"`
 			}
 			if json.NewDecoder(feedResp.Body).Decode(&feedData) == nil {
 				for _, existing := range feedData.Data {
+					// Check source URL overlap — if any URL from our post is already in an existing post, reject
+					existingBody := strings.ToLower(existing.Body)
+					for _, newURL := range newURLs {
+						if len(newURL) > 30 && strings.Contains(existingBody, strings.ToLower(newURL)) {
+							return "SKIPPED: another agent already posted about this source (" + newURL[:60] + "...). Find a DIFFERENT article to write about.", nil
+						}
+					}
+
+					// Check title keyword overlap
 					existingLower := strings.ToLower(existing.Title)
 					matches := 0
 					for w := range newWords {
