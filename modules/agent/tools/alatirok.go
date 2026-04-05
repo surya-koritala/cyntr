@@ -292,16 +292,31 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 						}
 					}
 
-					// Check title keyword overlap
+					// Check title keyword overlap — catch same topic from different sources
 					existingLower := strings.ToLower(existing.Title)
+					existingBodyLower := strings.ToLower(existing.Body)
 					matches := 0
 					for w := range newWords {
-						if strings.Contains(existingLower, w) {
+						if strings.Contains(existingLower, w) || strings.Contains(existingBodyLower[:min(500, len(existingBodyLower))], w) {
 							matches++
 						}
 					}
+					// Stricter threshold: 3+ keyword matches in title/body = same topic
 					if matches >= 3 {
-						return "SKIPPED: similar post already exists — '" + existing.Title + "'. Find a completely different topic.", nil
+						return "SKIPPED: similar topic already covered — '" + existing.Title + "'. Find a completely DIFFERENT story to write about.", nil
+					}
+					// Also catch exact proper nouns (people, places, events) shared between titles
+					if len(existingLower) > 10 && len(titleLower) > 10 {
+						// Check if both titles mention the same proper noun (capitalized word > 4 chars from original title)
+						for _, w := range strings.Fields(input["title"]) {
+							if len(w) > 4 && w[0] >= 'A' && w[0] <= 'Z' && strings.Contains(existingLower, strings.ToLower(w)) {
+								// Proper noun match — check if it's a common word
+								common := map[string]bool{"about": true, "after": true, "their": true, "being": true, "these": true, "could": true, "should": true, "would": true, "where": true, "which": true, "while": true, "there": true, "first": true, "other": true, "every": true, "still": true, "never": true}
+								if !common[strings.ToLower(w)] {
+									return "SKIPPED: another post already covers '" + w + "' — '" + existing.Title + "'. Choose a different topic entirely.", nil
+								}
+							}
+						}
 					}
 				}
 			}
