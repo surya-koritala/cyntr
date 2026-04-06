@@ -56,8 +56,10 @@ func (t *AlatirokPipelineTool) Execute(ctx context.Context, input map[string]str
 		return t.writePost(ctx, apiKey, input)
 	case "write_comment":
 		return t.writeComment(ctx, apiKey, input)
+	case "auto_comment":
+		return t.autoComment(ctx, apiKey, input)
 	default:
-		return "", fmt.Errorf("unknown pipeline: %s (use write_post or write_comment)", pipeline)
+		return "", fmt.Errorf("unknown pipeline: %s (use write_post, write_comment, or auto_comment)", pipeline)
 	}
 }
 
@@ -214,6 +216,103 @@ Write your reply and call this tool again with:
 	})
 
 	return "COMMENT POSTED:\n" + result, nil
+}
+
+// autoComment fetches a post + comments, returns them as context.
+// The LLM's TEXT RESPONSE to this tool call IS the comment body.
+// On the next turn, if the LLM responds with text (not a tool call),
+// the runtime should call this tool again with pipeline=auto_comment,
+// post_id=same, and body=the LLM's text. This handles models that
+// write great comments but don't call create_comment.
+//
+// Usage: ONE call with just post_id → returns post+comments as context
+//        SECOND call with post_id + body → posts the comment
+//        OR: call with post_id + body directly if you already know what to write
+func (t *AlatirokPipelineTool) autoComment(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	postID := input["post_id"]
+	body := input["body"]
+
+	if postID == "" {
+		// Pick a random post needing comments
+		feedResult, _ := t.alatirok.getFeed(ctx, apiKey, map[string]string{"sort": "new", "limit": "15"})
+		var feedData struct {
+			Data []struct {
+				ID           string `json:"id"`
+				Title        string `json:"title"`
+				Body         string `json:"body"`
+				CommentCount int    `json:"comment_count"`
+			} `json:"data"`
+		}
+		if json.Unmarshal([]byte(feedResult), &feedData) == nil && len(feedData.Data) > 0 {
+			var candidates []int
+			for i, p := range feedData.Data {
+				if p.CommentCount < 5 {
+					candidates = append(candidates, i)
+				}
+			}
+			if len(candidates) == 0 {
+				candidates = []int{0}
+			}
+			pick := feedData.Data[candidates[rand.Intn(len(candidates))]]
+			postID = pick.ID
+		}
+		if postID == "" {
+			return "No posts found to comment on", nil
+		}
+	}
+
+	if body != "" {
+		// We have the comment text — post it directly
+		body = strings.ReplaceAll(body, "\\n", "\n")
+		payload := map[string]any{"body": body}
+		if replyTo := input["reply_to"]; replyTo != "" {
+			payload["parent_comment_id"] = replyTo
+		}
+
+		result, err := t.alatirok.doPost(ctx, "/api/v1/posts/"+postID+"/comments", apiKey, payload)
+		if err != nil {
+			return "", fmt.Errorf("create comment: %w", err)
+		}
+
+		// Also upvote
+		t.alatirok.doPost(ctx, "/api/v1/votes", apiKey, map[string]any{
+			"target_id": postID, "target_type": "post", "direction": "up",
+		})
+
+		return "COMMENT POSTED:\n" + result, nil
+	}
+
+	// No body — fetch the post and comments, return as context for the LLM
+	postResult, _ := t.alatirok.getPost(ctx, apiKey, postID)
+	commentsResult, _ := t.alatirok.getComments(ctx, apiKey, postID)
+
+	// Parse to get a reply target
+	var commentsData []struct {
+		ID     string `json:"id"`
+		Author struct {
+			DisplayName string `json:"display_name"`
+		} `json:"author"`
+		Body string `json:"body"`
+	}
+	json.Unmarshal([]byte(commentsResult), &commentsData)
+
+	replyHint := ""
+	if len(commentsData) > 0 {
+		last := commentsData[len(commentsData)-1]
+		replyHint = fmt.Sprintf("\n\nREPLY TO: %s (comment ID: %s)\nTheir comment: %s",
+			last.Author.DisplayName, last.ID, last.Body[:min(300, len(last.Body))])
+	}
+
+	return fmt.Sprintf(`READ THIS POST AND WRITE YOUR REPLY:
+
+%s
+
+EXISTING COMMENTS:
+%s
+%s
+
+NOW: Call this tool again with pipeline=auto_comment, post_id=%s, body=YOUR_REPLY_TEXT (2 paragraphs, reference specific content from the post)`,
+		postResult, commentsResult, replyHint, postID), nil
 }
 
 func min(a, b int) int {
