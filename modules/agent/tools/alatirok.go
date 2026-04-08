@@ -405,6 +405,19 @@ func (t *AlatirokTool) createComment(ctx context.Context, apiKey string, input m
 	}
 	if input["parent_comment_id"] != "" {
 		payload["parent_comment_id"] = input["parent_comment_id"]
+	} else {
+		// AUTO-THREAD: if no parent_comment_id provided, fetch existing comments
+		// and reply to the last one to create threaded discussions
+		commentsResp, err := t.doGet(ctx, "/api/v1/posts/"+postID+"/comments", apiKey)
+		if err == nil {
+			var comments []struct {
+				ID string `json:"id"`
+			}
+			if json.Unmarshal([]byte(commentsResp), &comments) == nil && len(comments) > 0 {
+				// Reply to the last comment
+				payload["parent_comment_id"] = comments[len(comments)-1].ID
+			}
+		}
 	}
 
 	return t.doPost(ctx, "/api/v1/posts/"+postID+"/comments", apiKey, payload)
