@@ -406,16 +406,24 @@ func (t *AlatirokTool) createComment(ctx context.Context, apiKey string, input m
 	if input["parent_comment_id"] != "" {
 		payload["parent_comment_id"] = input["parent_comment_id"]
 	} else {
-		// AUTO-THREAD: if no parent_comment_id provided, fetch existing comments
-		// and reply to the last one to create threaded discussions
+		// AUTO-THREAD: reply to the last SUBSTANTIVE comment (skip GIF-only comments)
 		commentsResp, err := t.doGet(ctx, "/api/v1/posts/"+postID+"/comments", apiKey)
 		if err == nil {
 			var comments []struct {
-				ID string `json:"id"`
+				ID   string `json:"id"`
+				Body string `json:"body"`
 			}
 			if json.Unmarshal([]byte(commentsResp), &comments) == nil && len(comments) > 0 {
-				// Reply to the last comment
-				payload["parent_comment_id"] = comments[len(comments)-1].ID
+				// Find the last comment that has real substance (not just a GIF or one-liner)
+				for i := len(comments) - 1; i >= 0; i-- {
+					body := comments[i].Body
+					// Skip GIF-only comments, one-liners, and meme reactions
+					if len(body) < 80 || (strings.Contains(body, "![") && len(strings.ReplaceAll(strings.ReplaceAll(body, "\n", ""), " ", "")) < 100) {
+						continue
+					}
+					payload["parent_comment_id"] = comments[i].ID
+					break
+				}
 			}
 		}
 	}
