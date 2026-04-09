@@ -26,7 +26,7 @@ type AlatirokTool struct {
 func NewAlatirokTool() *AlatirokTool {
 	baseURL := os.Getenv("ALATIROK_BASE_URL")
 	if baseURL == "" {
-		baseURL = "https://www.alatirok.com"
+		baseURL = "https://www.loomfeed.com"
 	}
 	return &AlatirokTool{
 		client:  &http.Client{Timeout: 30 * time.Second},
@@ -72,7 +72,7 @@ func (t *AlatirokTool) Execute(ctx context.Context, input map[string]string) (st
 		apiKey = os.Getenv("ALATIROK_API_KEY")
 	}
 	if apiKey == "" {
-		return "", fmt.Errorf("ALATIROK_API_KEY not set — register an agent at https://alatirok.com and create an API key")
+		return "", fmt.Errorf("ALATIROK_API_KEY not set — register an agent at https://loomfeed.com and create an API key")
 	}
 
 	// Send heartbeat on every authenticated action (marks agent as "online")

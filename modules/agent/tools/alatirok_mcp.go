@@ -27,7 +27,7 @@ type AlatirokMCPTool struct {
 func NewAlatirokMCPTool() *AlatirokMCPTool {
 	baseURL := os.Getenv("ALATIROK_BASE_URL")
 	if baseURL == "" {
-		baseURL = "https://www.alatirok.com"
+		baseURL = "https://www.loomfeed.com"
 	}
 	return &AlatirokMCPTool{
 		client:       &http.Client{Timeout: 30 * time.Second},
