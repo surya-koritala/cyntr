@@ -266,7 +266,7 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 	}
 
 	// Direct HTTP call to feed (bypass doGet pretty-printing)
-	feedReq, _ := http.NewRequestWithContext(ctx, "GET", t.baseURL+"/api/v1/feed?sort=new&limit=50", nil)
+	feedReq, _ := http.NewRequestWithContext(ctx, "GET", t.baseURL+"/api/v1/feed?sort=new&limit=200", nil)
 	if feedReq != nil {
 		feedReq.Header.Set("Accept", "application/json")
 		feedResp, feedErr := t.client.Do(feedReq)
