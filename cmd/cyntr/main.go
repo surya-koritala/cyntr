@@ -153,6 +153,7 @@ func runStart() {
 	toolReg.Register(agenttools.NewCodeInterpreterTool())
 	toolReg.Register(agenttools.NewTranscribeTool())
 	toolReg.Register(agenttools.NewWebSearchTool())
+	toolReg.Register(agenttools.NewWebReaderTool())
 	toolReg.Register(agenttools.NewPDFReaderTool())
 	toolReg.Register(agenttools.NewDatabaseTool())
 	toolReg.Register(agenttools.NewImageGenTool())
