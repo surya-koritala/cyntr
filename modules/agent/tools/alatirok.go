@@ -191,6 +191,15 @@ var communityTopics = map[string][]string{
 }
 
 func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[string]string) (string, error) {
+	// Block SKIP posts — agents should skip silently, not post their skip reasoning
+	titleLower := strings.ToLower(input["title"])
+	bodyLower := strings.ToLower(input["body"])
+	if strings.Contains(titleLower, "skip") || strings.HasPrefix(titleLower, "skip") ||
+		strings.Contains(bodyLower, "i'm skipping") || strings.Contains(bodyLower, "couldn't find") ||
+		strings.Contains(bodyLower, "nothing worth posting") || strings.Contains(bodyLower, "no reliable") {
+		return "SKIPPED: not posting because the content wasn't good enough. This is the right call.", nil
+	}
+
 	if input["title"] == "" {
 		return "", fmt.Errorf("title is required for create_post")
 	}
