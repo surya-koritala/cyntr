@@ -1,11 +1,14 @@
 package tools
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -92,48 +95,90 @@ func (t *WebReaderTool) Execute(ctx context.Context, input map[string]string) (s
 	t.domains[domain] = time.Now()
 	t.mu.Unlock()
 
-	// Fetch the page
-	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+	// Try Firecrawl first (if running), fall back to direct fetch
+	firecrawlURL := os.Getenv("FIRECRAWL_URL")
+	if firecrawlURL == "" {
+		firecrawlURL = "http://localhost:3002"
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; CyntrBot/1.0; +https://cyntr.dev)")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
-	resp, err := t.client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return "", fmt.Errorf("request timed out")
+	var article readability.Article
+	usedFirecrawl := false
+
+	// Attempt 1: Firecrawl (handles JS rendering, anti-bot)
+	fcPayload, _ := json.Marshal(map[string]any{
+		"url":     rawURL,
+		"formats": []string{"markdown"},
+	})
+	fcReq, err := http.NewRequestWithContext(ctx, "POST", firecrawlURL+"/v1/scrape", bytes.NewReader(fcPayload))
+	if err == nil {
+		fcReq.Header.Set("Content-Type", "application/json")
+		fcResp, fcErr := t.client.Do(fcReq)
+		if fcErr == nil {
+			defer fcResp.Body.Close()
+			var fcResult struct {
+				Success bool `json:"success"`
+				Data    struct {
+					Markdown string `json:"markdown"`
+					Metadata struct {
+						Title       string `json:"title"`
+						Description string `json:"description"`
+						OGSiteName  string `json:"ogSiteName"`
+						Author      string `json:"author"`
+					} `json:"metadata"`
+				} `json:"data"`
+			}
+			if json.NewDecoder(fcResp.Body).Decode(&fcResult) == nil && fcResult.Success && len(fcResult.Data.Markdown) > 100 {
+				// Firecrawl returned content — use it directly
+				usedFirecrawl = true
+				article.Title = fcResult.Data.Metadata.Title
+				article.Byline = fcResult.Data.Metadata.Author
+				article.SiteName = fcResult.Data.Metadata.OGSiteName
+				article.Content = fcResult.Data.Markdown
+				article.TextContent = fcResult.Data.Markdown
+			}
 		}
-		return "", fmt.Errorf("fetch failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	// Handle non-200 responses
-	if resp.StatusCode != 200 {
-		switch {
-		case resp.StatusCode == 403:
-			return "", fmt.Errorf("access denied (HTTP 403) — site may block automated access")
-		case resp.StatusCode == 429:
-			return "", fmt.Errorf("rate limited by target site (HTTP 429) — try again later")
-		case resp.StatusCode == 402 || resp.StatusCode == 451:
-			return "", fmt.Errorf("content behind paywall or restricted (HTTP %d)", resp.StatusCode)
-		case resp.StatusCode >= 500:
-			return "", fmt.Errorf("server error (HTTP %d)", resp.StatusCode)
-		default:
-			return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	// Attempt 2: Direct fetch + Readability (fallback if Firecrawl not available)
+	if !usedFirecrawl {
+		req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+		if err != nil {
+			return "", fmt.Errorf("create request: %w", err)
 		}
-	}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; CyntrBot/1.0; +https://cyntr.dev)")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
-	// Limit body size to 2MB
-	body := io.LimitReader(resp.Body, 2*1024*1024)
+		resp, err := t.client.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return "", fmt.Errorf("request timed out")
+			}
+			return "", fmt.Errorf("fetch failed: %w", err)
+		}
+		defer resp.Body.Close()
 
-	// Extract article using Readability
-	article, err := readability.FromReader(body, parsedURL)
-	if err != nil {
-		// Fallback: try basic text extraction
-		return t.fallbackExtract(ctx, rawURL, input)
+		if resp.StatusCode != 200 {
+			switch {
+			case resp.StatusCode == 403:
+				return "", fmt.Errorf("access denied (HTTP 403) — site may block automated access")
+			case resp.StatusCode == 429:
+				return "", fmt.Errorf("rate limited by target site (HTTP 429) — try again later")
+			case resp.StatusCode == 402 || resp.StatusCode == 451:
+				return "", fmt.Errorf("content behind paywall or restricted (HTTP %d)", resp.StatusCode)
+			case resp.StatusCode >= 500:
+				return "", fmt.Errorf("server error (HTTP %d)", resp.StatusCode)
+			default:
+				return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+			}
+		}
+
+		body := io.LimitReader(resp.Body, 2*1024*1024)
+		var readErr error
+		article, readErr = readability.FromReader(body, parsedURL)
+		if readErr != nil {
+			return t.fallbackExtract(ctx, rawURL, input)
+		}
 	}
 
 	// Check if readability found content
