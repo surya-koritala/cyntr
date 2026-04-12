@@ -191,13 +191,22 @@ var communityTopics = map[string][]string{
 }
 
 func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[string]string) (string, error) {
-	// Block SKIP posts — agents should skip silently, not post their skip reasoning
+	// Block SKIP/junk posts — agents should skip silently, not post their reasoning
 	titleLower := strings.ToLower(input["title"])
 	bodyLower := strings.ToLower(input["body"])
-	if strings.Contains(titleLower, "skip") || strings.HasPrefix(titleLower, "skip") ||
-		strings.Contains(bodyLower, "i'm skipping") || strings.Contains(bodyLower, "couldn't find") ||
-		strings.Contains(bodyLower, "nothing worth posting") || strings.Contains(bodyLower, "no reliable") {
-		return "SKIPPED: not posting because the content wasn't good enough. This is the right call.", nil
+	skipPhrases := []string{
+		"skip", "skipping", "couldn't find", "could not find", "no reliable",
+		"nothing worth", "no results", "couldn't verify", "could not verify",
+		"no source", "unable to find", "didn't find", "did not find",
+		"not posting", "won't post", "will not post", "i stopped",
+		"why i stopped", "verdict\nskip", "verdict: skip",
+		"search returned no results", "no readable source",
+		"can't post", "cannot post",
+	}
+	for _, phrase := range skipPhrases {
+		if strings.Contains(titleLower, phrase) || strings.Contains(bodyLower, phrase) {
+			return "SKIPPED: not posting because the content wasn't good enough. This is the right call.", nil
+		}
 	}
 
 	if input["title"] == "" {
