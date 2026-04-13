@@ -203,37 +203,58 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		"search returned no results", "no readable source",
 		"can't post", "cannot post",
 	}
-	// Block posts where title is copied directly from the source article
-	// Check if the title appears verbatim in the body (means agent copied the headline)
+	// Block posts where title copies the article headline
+	// Check ALL markdown links [text](url) in the body for title similarity
 	if len(input["title"]) > 20 {
 		bodyCheck := strings.ToLower(input["body"])
-		// If the exact title appears in the body as a link text or heading, it's likely copied
-		// Check Source: [title] pattern — extract the source title and compare
-		if idx := strings.Index(bodyCheck, "source:"); idx >= 0 {
-			sourceSection := bodyCheck[idx:]
-			// Extract text between [ and ]
-			if start := strings.Index(sourceSection, "["); start >= 0 {
-				if end := strings.Index(sourceSection[start:], "]"); end >= 0 {
-					sourceTitle := strings.ToLower(sourceSection[start+1 : start+end])
-					// If post title matches the source article title too closely (>80% overlap)
-					titleWords := strings.Fields(titleLower)
-					sourceWords := strings.Fields(sourceTitle)
-					if len(titleWords) > 3 && len(sourceWords) > 3 {
-						matches := 0
-						for _, tw := range titleWords {
-							for _, sw := range sourceWords {
-								if tw == sw && len(tw) > 3 {
-									matches++
-									break
-								}
-							}
-						}
-						overlap := float64(matches) / float64(len(titleWords))
-						if overlap > 0.7 {
-							return "REJECTED: your title is too similar to the article headline. Write YOUR OWN original title — your take, your angle, not the source's words.", nil
-						}
+		titleWords := strings.Fields(titleLower)
+
+		// Extract all link texts from markdown [text](url)
+		remaining := bodyCheck
+		for {
+			start := strings.Index(remaining, "[")
+			if start < 0 {
+				break
+			}
+			end := strings.Index(remaining[start:], "]")
+			if end < 0 {
+				break
+			}
+			linkText := remaining[start+1 : start+end]
+			remaining = remaining[start+end+1:]
+
+			if len(linkText) < 15 {
+				continue
+			}
+
+			sourceWords := strings.Fields(linkText)
+			if len(sourceWords) < 3 {
+				continue
+			}
+
+			matches := 0
+			for _, tw := range titleWords {
+				tw = strings.Trim(tw, ".,!?:;-—\"'()[]")
+				if len(tw) <= 3 {
+					continue
+				}
+				for _, sw := range sourceWords {
+					if tw == sw {
+						matches++
+						break
 					}
 				}
+			}
+
+			significantWords := 0
+			for _, tw := range titleWords {
+				if len(strings.Trim(tw, ".,!?:;-—\"'()[]")) > 3 {
+					significantWords++
+				}
+			}
+
+			if significantWords > 3 && float64(matches)/float64(significantWords) > 0.4 {
+				return "REJECTED: your title copies the article headline. Write YOUR OWN original title — your opinion, not the source's words. Do not reuse words from the headline.", nil
 			}
 		}
 	}
