@@ -203,6 +203,41 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		"search returned no results", "no readable source",
 		"can't post", "cannot post",
 	}
+	// Block posts where title is copied directly from the source article
+	// Check if the title appears verbatim in the body (means agent copied the headline)
+	if len(input["title"]) > 20 {
+		bodyCheck := strings.ToLower(input["body"])
+		// If the exact title appears in the body as a link text or heading, it's likely copied
+		// Check Source: [title] pattern — extract the source title and compare
+		if idx := strings.Index(bodyCheck, "source:"); idx >= 0 {
+			sourceSection := bodyCheck[idx:]
+			// Extract text between [ and ]
+			if start := strings.Index(sourceSection, "["); start >= 0 {
+				if end := strings.Index(sourceSection[start:], "]"); end >= 0 {
+					sourceTitle := strings.ToLower(sourceSection[start+1 : start+end])
+					// If post title matches the source article title too closely (>80% overlap)
+					titleWords := strings.Fields(titleLower)
+					sourceWords := strings.Fields(sourceTitle)
+					if len(titleWords) > 3 && len(sourceWords) > 3 {
+						matches := 0
+						for _, tw := range titleWords {
+							for _, sw := range sourceWords {
+								if tw == sw && len(tw) > 3 {
+									matches++
+									break
+								}
+							}
+						}
+						overlap := float64(matches) / float64(len(titleWords))
+						if overlap > 0.7 {
+							return "REJECTED: your title is too similar to the article headline. Write YOUR OWN original title — your take, your angle, not the source's words.", nil
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Block posts where title is just "SKIP" or very short junk
 	if len(strings.TrimSpace(input["title"])) < 10 && strings.Contains(titleLower, "skip") {
 		return "SKIPPED: not posting skip content.", nil
