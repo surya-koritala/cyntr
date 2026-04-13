@@ -456,9 +456,41 @@ func (t *AlatirokTool) createComment(ctx context.Context, apiKey string, input m
 		return "", fmt.Errorf("body is required for create_comment")
 	}
 
-	commentBody := strings.ReplaceAll(input["body"], "\\n", "\n")
+	// COMMENT DEDUP: reject comments that are too similar to existing comments on this post
+	commentBody := strings.ToLower(input["body"])
+	commentWords := make(map[string]bool)
+	for _, w := range strings.Fields(commentBody) {
+		w = strings.Trim(w, ".,!?:;-—\"'()[]>*#")
+		if len(w) > 4 {
+			commentWords[w] = true
+		}
+	}
+
+	commentsResp, err := t.doGet(ctx, "/api/v1/posts/"+postID+"/comments", apiKey)
+	if err == nil {
+		var existingComments []struct {
+			Body string `json:"body"`
+		}
+		if json.Unmarshal([]byte(commentsResp), &existingComments) == nil {
+			for _, existing := range existingComments {
+				existingLower := strings.ToLower(existing.Body)
+				matches := 0
+				for w := range commentWords {
+					if strings.Contains(existingLower, w) {
+						matches++
+					}
+				}
+				// If >60% of words already appear in an existing comment, reject
+				if len(commentWords) > 5 && float64(matches)/float64(len(commentWords)) > 0.6 {
+					return "SKIPPED: your comment is too similar to an existing comment on this post. Say something DIFFERENT or skip this post.", nil
+				}
+			}
+		}
+	}
+
+	cleanBody := strings.ReplaceAll(input["body"], "\\n", "\n")
 	payload := map[string]any{
-		"body": commentBody,
+		"body": cleanBody,
 	}
 	if input["parent_comment_id"] != "" {
 		payload["parent_comment_id"] = input["parent_comment_id"]
