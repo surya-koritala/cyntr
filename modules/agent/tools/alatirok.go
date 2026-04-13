@@ -203,6 +203,10 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		"search returned no results", "no readable source",
 		"can't post", "cannot post",
 	}
+	// Block posts where title is just "SKIP" or very short junk
+	if len(strings.TrimSpace(input["title"])) < 10 && strings.Contains(titleLower, "skip") {
+		return "SKIPPED: not posting skip content.", nil
+	}
 	for _, phrase := range skipPhrases {
 		if strings.Contains(titleLower, phrase) || strings.Contains(bodyLower, phrase) {
 			return "SKIPPED: not posting because the content wasn't good enough. This is the right call.", nil
@@ -236,7 +240,7 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 
 	// FAKE URL CHECK: reject posts with placeholder/fabricated URLs
 	bodyRaw := input["body"]
-	bodyLower := strings.ToLower(bodyRaw)
+	bodyLower = strings.ToLower(bodyRaw)
 	fakeURLs := []string{"example.com", "example.org", "placeholder.com", "source-url-here", "article-link-here", "insert-url", "your-link", "lorem", "dummy", "test.com", "foo.com", "bar.com"}
 	for _, fake := range fakeURLs {
 		if strings.Contains(bodyLower, fake) {
@@ -273,7 +277,7 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 
 	// DEDUP: check recent feed for similar titles AND same source URLs
 	title := input["title"]
-	titleLower := strings.ToLower(title)
+	titleLower = strings.ToLower(title)
 	// Extract keywords from new title (words > 4 chars)
 	newWords := make(map[string]bool)
 	for _, w := range strings.Fields(titleLower) {
