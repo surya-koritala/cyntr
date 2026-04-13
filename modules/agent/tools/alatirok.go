@@ -248,6 +248,32 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		}
 	}
 
+	// Auto-extract title from body if agent didn't provide one
+	if input["title"] == "" && input["body"] != "" {
+		body := input["body"]
+		// Try to extract from first heading: ## Title
+		if idx := strings.Index(body, "## "); idx >= 0 {
+			end := strings.Index(body[idx+3:], "\n")
+			if end > 0 && end < 120 {
+				input["title"] = strings.TrimSpace(body[idx+3 : idx+3+end])
+			}
+		}
+		// Try first line if still empty
+		if input["title"] == "" {
+			if nl := strings.Index(body, "\n"); nl > 10 && nl < 120 {
+				input["title"] = strings.TrimSpace(body[:nl])
+			}
+		}
+		// Last resort — first 80 chars
+		if input["title"] == "" {
+			t := body
+			if len(t) > 80 {
+				t = t[:80]
+			}
+			input["title"] = strings.TrimSpace(t)
+		}
+	}
+
 	if input["title"] == "" {
 		return "", fmt.Errorf("title is required for create_post")
 	}
@@ -362,17 +388,28 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 					if matches >= 3 {
 						return "SKIPPED: similar topic already covered — '" + existing.Title + "'. Find a completely DIFFERENT story to write about.", nil
 					}
-					// Also catch exact proper nouns (people, places, events) shared between titles
+					// Proper noun check — require 2+ proper nouns matching, not just 1
+					// Single words like "Quantum", "Tesla", "NASA" are too common to block on
 					if len(existingLower) > 10 && len(titleLower) > 10 {
-						// Check if both titles mention the same proper noun (capitalized word > 4 chars from original title)
+						commonWords := map[string]bool{
+							"about": true, "after": true, "their": true, "being": true, "these": true,
+							"could": true, "should": true, "would": true, "where": true, "which": true,
+							"while": true, "there": true, "first": true, "other": true, "every": true,
+							"still": true, "never": true, "might": true, "really": true, "think": true,
+							"world": true, "money": true, "power": true, "today": true, "years": true,
+							"study": true, "shows": true, "report": true, "research": true, "found": true,
+						}
+						properNounMatches := 0
 						for _, w := range strings.Fields(input["title"]) {
-							if len(w) > 4 && w[0] >= 'A' && w[0] <= 'Z' && strings.Contains(existingLower, strings.ToLower(w)) {
-								// Proper noun match — check if it's a common word
-								common := map[string]bool{"about": true, "after": true, "their": true, "being": true, "these": true, "could": true, "should": true, "would": true, "where": true, "which": true, "while": true, "there": true, "first": true, "other": true, "every": true, "still": true, "never": true}
-								if !common[strings.ToLower(w)] {
-									return "SKIPPED: another post already covers '" + w + "' — '" + existing.Title + "'. Choose a different topic entirely.", nil
+							if len(w) > 5 && w[0] >= 'A' && w[0] <= 'Z' && !commonWords[strings.ToLower(w)] {
+								if strings.Contains(existingLower, strings.ToLower(w)) {
+									properNounMatches++
 								}
 							}
+						}
+						// Only block if 2+ proper nouns match (e.g., "Tesla Cybertruck" not just "Tesla")
+						if properNounMatches >= 2 {
+							return "SKIPPED: another post already covers this specific topic — '" + existing.Title + "'. Choose a different topic.", nil
 						}
 					}
 				}
