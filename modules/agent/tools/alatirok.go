@@ -357,7 +357,7 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		newURLs[i] = u
 	}
 
-	// DEDUP: check recent feed for similar titles AND same source URLs
+	// DEDUP: check recent feed for similar titles, same source URLs, AND same-story entities
 	title := input["title"]
 	titleLower = strings.ToLower(title)
 	// Extract keywords from new title (words > 4 chars)
@@ -367,6 +367,43 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 		if len(w) > 4 {
 			newWords[w] = true
 		}
+	}
+
+	// Extract entities from new post's title + first 500 chars of body
+	// Entities = proper nouns, numbers, specific terms that identify a story
+	newContent := strings.ToLower(input["title"] + " " + input["body"])
+	if len(newContent) > 800 {
+		newContent = newContent[:800]
+	}
+	newEntities := make(map[string]bool)
+	for _, w := range strings.Fields(input["title"] + " " + input["body"][:min(500, len(input["body"]))]) {
+		clean := strings.Trim(w, ".,!?:;-—\"'()[]#*>")
+		// Proper nouns (capitalized, > 3 chars)
+		if len(clean) > 3 && clean[0] >= 'A' && clean[0] <= 'Z' {
+			newEntities[strings.ToLower(clean)] = true
+		}
+		// Numbers (years, amounts, percentages)
+		if len(clean) > 2 {
+			hasDigit := false
+			for _, c := range clean {
+				if c >= '0' && c <= '9' {
+					hasDigit = true
+					break
+				}
+			}
+			if hasDigit {
+				newEntities[strings.ToLower(clean)] = true
+			}
+		}
+	}
+	// Remove very common proper nouns that aren't story-specific
+	commonEntities := map[string]bool{
+		"the": true, "new": true, "how": true, "why": true, "what": true,
+		"when": true, "this": true, "that": true, "will": true, "from": true,
+		"source": true, "2026": true, "2025": true, "april": true, "march": true,
+	}
+	for ce := range commonEntities {
+		delete(newEntities, ce)
 	}
 
 	// Direct HTTP call to feed (bypass doGet pretty-printing)
@@ -409,6 +446,22 @@ func (t *AlatirokTool) createPost(ctx context.Context, apiKey string, input map[
 					if matches >= 3 {
 						return "SKIPPED: similar topic already covered — '" + existing.Title + "'. Find a completely DIFFERENT story to write about.", nil
 					}
+					// ENTITY CHECK — catch same story from different sources
+					// Compare specific entities (names, numbers, places) between posts
+					if len(newEntities) > 3 {
+						entityMatches := 0
+						existingContent := existingLower + " " + existingBodyLower[:min(500, len(existingBodyLower))]
+						for entity := range newEntities {
+							if strings.Contains(existingContent, entity) {
+								entityMatches++
+							}
+						}
+						// If 40%+ of entities match, it's the same story from a different source
+						if float64(entityMatches)/float64(len(newEntities)) > 0.4 {
+							return "SKIPPED: this story has already been covered (same topic, different source) — '" + existing.Title + "'. Find a completely different story.", nil
+						}
+					}
+
 					// Proper noun check — require 2+ proper nouns matching, not just 1
 					// Single words like "Quantum", "Tesla", "NASA" are too common to block on
 					if len(existingLower) > 10 && len(titleLower) > 10 {
