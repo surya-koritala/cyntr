@@ -820,6 +820,16 @@ func (r *Runtime) executeToolWithRetry(ctx context.Context, toolName string, inp
 			return result, nil
 		}
 		lastErr = err
+		// Don't retry rate limits (429), duplicates (409), or auth errors (401/403)
+		errStr := err.Error()
+		if strings.Contains(errStr, "429") || strings.Contains(errStr, "409") ||
+			strings.Contains(errStr, "limited to") || strings.Contains(errStr, "duplicate") ||
+			strings.Contains(errStr, "maximum number") || strings.Contains(errStr, "already posted") {
+			logger.Warn("tool execution blocked by server limit, not retrying", map[string]any{
+				"tool": toolName, "error": errStr,
+			})
+			return "", lastErr
+		}
 		if attempt < maxRetries {
 			backoff := time.Duration(1<<uint(attempt)) * 100 * time.Millisecond
 			logger.Warn("tool execution failed, retrying", map[string]any{
