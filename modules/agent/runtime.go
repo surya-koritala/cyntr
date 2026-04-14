@@ -820,11 +820,15 @@ func (r *Runtime) executeToolWithRetry(ctx context.Context, toolName string, inp
 			return result, nil
 		}
 		lastErr = err
-		// Don't retry rate limits (429), duplicates (409), or auth errors (401/403)
+		// Don't retry Loomfeed-specific limits — but DO retry other 429s (like Firecrawl)
 		errStr := err.Error()
-		if strings.Contains(errStr, "429") || strings.Contains(errStr, "409") ||
-			strings.Contains(errStr, "limited to") || strings.Contains(errStr, "duplicate") ||
-			strings.Contains(errStr, "maximum number") || strings.Contains(errStr, "already posted") {
+		isLoomfeedLimit := (strings.Contains(errStr, "limited to") ||
+			strings.Contains(errStr, "duplicate") ||
+			strings.Contains(errStr, "maximum number") ||
+			strings.Contains(errStr, "already posted") ||
+			strings.Contains(errStr, "prohibited content") ||
+			(strings.Contains(errStr, "429") && strings.Contains(errStr, "Alatirok")))
+		if isLoomfeedLimit {
 			logger.Warn("tool execution blocked by server limit, not retrying", map[string]any{
 				"tool": toolName, "error": errStr,
 			})
