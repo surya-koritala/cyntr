@@ -120,6 +120,80 @@ func TestModuleScoresViaIPC(t *testing.T) {
 	}
 }
 
+// TestModuleJudgeViaIPC verifies the new curator.judge IPC topic
+// drives the judge end-to-end with a stubbed provider.
+func TestModuleJudgeViaIPC(t *testing.T) {
+	dir := t.TempDir()
+	bus := ipc.NewBus()
+	defer bus.Close()
+
+	mod := New(filepath.Join(dir, "curator.db"))
+	ctx := context.Background()
+	mod.Init(ctx, &kernel.Services{Bus: bus})
+	mod.Start(ctx)
+	defer mod.Stop(ctx)
+
+	// Seed one invocation so the judge has something to score.
+	id, err := mod.Store().RecordID(Invocation{SkillName: "skl", Success: true, DurationMs: 5})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	provider := &stubProvider{reply: `{"score": 0.6, "reason": "ok", "verdict": "acceptable"}`}
+	mod.SetJudge(NewJudge(provider, "test-model"))
+
+	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := bus.Request(reqCtx, ipc.Message{
+		Source: "api", Target: ModuleName, Topic: TopicJudge,
+		Payload: InvocationContext{
+			SkillName:    "skl",
+			InvocationID: id,
+			Success:      true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("judge ipc: %v", err)
+	}
+	result, ok := resp.Payload.(*JudgeResult)
+	if !ok {
+		t.Fatalf("expected *JudgeResult, got %T", resp.Payload)
+	}
+	if result.Verdict != VerdictAcceptable {
+		t.Fatalf("expected acceptable, got %q", result.Verdict)
+	}
+
+	// Score should also have flowed to the store.
+	invs, _ := mod.Store().LoadInvocations("skl", 0)
+	if len(invs) != 1 || invs[0].LLMJudgeScore == nil || *invs[0].LLMJudgeScore != 0.6 {
+		t.Fatalf("expected score 0.6 persisted, got %+v", invs)
+	}
+}
+
+// TestModuleJudgeUnavailableWhenNotWired confirms the safety
+// rail — calling curator.judge with no provider returns an error
+// rather than a panic.
+func TestModuleJudgeUnavailableWhenNotWired(t *testing.T) {
+	dir := t.TempDir()
+	bus := ipc.NewBus()
+	defer bus.Close()
+
+	mod := New(filepath.Join(dir, "curator.db"))
+	mod.Init(context.Background(), &kernel.Services{Bus: bus})
+	mod.Start(context.Background())
+	defer mod.Stop(context.Background())
+
+	reqCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := bus.Request(reqCtx, ipc.Message{
+		Source: "api", Target: ModuleName, Topic: TopicJudge,
+		Payload: InvocationContext{SkillName: "x"},
+	})
+	if err == nil {
+		t.Fatal("expected error when no judge wired")
+	}
+}
+
 func TestModuleSuggestPruneViaIPC(t *testing.T) {
 	dir := t.TempDir()
 	bus := ipc.NewBus()

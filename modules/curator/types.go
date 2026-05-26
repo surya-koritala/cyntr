@@ -62,3 +62,81 @@ type PruneSuggestion struct {
 	SuccessRate      float64   `json:"success_rate"`
 	Invocations      int       `json:"invocations"`
 }
+
+// InvocationContext is the payload the judge consumes when scoring
+// a single skill invocation. It carries the full request / response
+// pair plus the metadata the curator already knows (success, error,
+// tools used) so the LLM has enough signal to grade meaningfully.
+type InvocationContext struct {
+	SkillName     string   `json:"skill_name"`
+	UserMessage   string   `json:"user_message"`
+	AgentResponse string   `json:"agent_response"`
+	ToolsUsed     []string `json:"tools_used"`
+	Success       bool     `json:"success"`
+	Error         string   `json:"error,omitempty"`
+	// InvocationID, if set, lets the judge write its score back to
+	// the matching invocations row. Unset = judge result is returned
+	// to the caller only (no persistence).
+	InvocationID int64 `json:"invocation_id,omitempty"`
+}
+
+// JudgeVerdict labels — coarse-grained buckets so dashboards and
+// alerting can group judgments without staring at raw scores.
+const (
+	VerdictGood       = "good"
+	VerdictAcceptable = "acceptable"
+	VerdictPoor       = "poor"
+)
+
+// JudgeResult is what an LLM judge returns for a single invocation.
+// Score is 0-1, Verdict is one of {good, acceptable, poor}.
+type JudgeResult struct {
+	Score   float64 `json:"score"`
+	Reason  string  `json:"reason"`
+	Verdict string  `json:"verdict"`
+}
+
+// PruneReport is the outcome of a single auto-prune pass. One entry
+// per skill that the prune logic considered. Disabled=true means we
+// actually flipped the skill off; reasons + samples explain why.
+type PruneReport struct {
+	RanAt   time.Time           `json:"ran_at"`
+	Entries []PruneReportEntry  `json:"entries"`
+}
+
+// PruneReportEntry is one skill in a PruneReport.
+type PruneReportEntry struct {
+	Skill    string   `json:"skill"`
+	Disabled bool     `json:"disabled"`
+	Reason   string   `json:"reason"`
+	Samples  []string `json:"samples"`
+}
+
+// ConsolidationReport surfaces pairs of skills that overlap heavily
+// on their declared tool surface — candidates the operator might
+// want to merge. v1 just reports; v2 might auto-suggest a merge.
+type ConsolidationReport struct {
+	GeneratedAt time.Time                 `json:"generated_at"`
+	Suggestions []ConsolidationSuggestion `json:"suggestions"`
+}
+
+// ConsolidationSuggestion is a single pair of overlapping skills.
+type ConsolidationSuggestion struct {
+	SkillA       string   `json:"skill_a"`
+	SkillB       string   `json:"skill_b"`
+	SharedTools  []string `json:"shared_tools"`
+	Jaccard      float64  `json:"jaccard"`
+	InvocationsA int      `json:"invocations_a"`
+	InvocationsB int      `json:"invocations_b"`
+	Note         string   `json:"note"`
+}
+
+// SkillDisabledEvent is the IPC payload published when the auto-prune
+// loop disables a skill. Subscribers (notify, audit, dashboards) use
+// it to alert / log the action.
+type SkillDisabledEvent struct {
+	Skill   string    `json:"skill"`
+	Reason  string    `json:"reason"`
+	Samples []string  `json:"samples"`
+	At      time.Time `json:"at"`
+}

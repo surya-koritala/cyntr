@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
@@ -12,24 +13,33 @@ import (
 
 // IPC topics owned by the curator module.
 const (
-	TopicRecord         = "curator.record"
-	TopicScores         = "curator.scores"
-	TopicSuggestPrune   = "curator.suggest_prune"
-	ModuleName          = "curator"
+	TopicRecord           = "curator.record"
+	TopicScores           = "curator.scores"
+	TopicSuggestPrune     = "curator.suggest_prune"
+	TopicJudge            = "curator.judge"
+	TopicPruneRun         = "curator.prune.run"
+	TopicConsolidateRun   = "curator.consolidate.run"
+	ModuleName            = "curator"
 )
 
 // Module is the kernel-facing wrapper around the curator store +
-// score logic. It exposes three IPC topics:
-//
-//	curator.record         — fire-and-forget event with Invocation payload (Subscribe)
-//	curator.scores         — request/response, optional ScoresFilter payload
-//	curator.suggest_prune  — request/response, returns []PruneSuggestion
+// score logic. v0 exposed record / scores / suggest_prune; v1 adds
+// the judge, the auto-prune action, and consolidation suggestions.
 type Module struct {
 	dbPath string
 	bus    *ipc.Bus
 	store  *Store
 	sub    *ipc.Subscription
 	now    func() time.Time // injectable for tests
+
+	// v1 additions:
+	judge       *Judge
+	disabler    PruneSkillDisabler
+	snapshotter ConsolidationSnapshotter
+
+	// Background prune loop. Cancel via stopCancel during Stop.
+	stopMu     sync.Mutex
+	stopCancel context.CancelFunc
 }
 
 // New constructs a Curator module that will persist to dbPath when
@@ -43,6 +53,17 @@ func New(dbPath string) *Module {
 
 func (m *Module) Name() string           { return ModuleName }
 func (m *Module) Dependencies() []string { return nil }
+
+// SetJudge wires the LLM judge. If unset (the default), curator.judge
+// IPC + the POST /curator/judge endpoint return an error. This keeps
+// judge calls strictly opt-in — operators must explicitly construct
+// the Judge with their provider of choice.
+func (m *Module) SetJudge(j *Judge) {
+	m.judge = j
+}
+
+// Judge exposes the wired judge for tests.
+func (m *Module) Judge() *Judge { return m.judge }
 
 func (m *Module) Init(ctx context.Context, svc *kernel.Services) error {
 	m.bus = svc.Bus
@@ -60,10 +81,29 @@ func (m *Module) Start(ctx context.Context) error {
 	m.sub = m.bus.Subscribe(ModuleName, TopicRecord, m.handleRecord)
 	m.bus.Handle(ModuleName, TopicScores, m.handleScores)
 	m.bus.Handle(ModuleName, TopicSuggestPrune, m.handleSuggestPrune)
+	m.bus.Handle(ModuleName, TopicJudge, m.handleJudge)
+	m.bus.Handle(ModuleName, TopicPruneRun, m.handlePruneRun)
+	m.bus.Handle(ModuleName, TopicConsolidateRun, m.handleConsolidateRun)
+
+	// Spin up the background auto-prune loop. We use a goroutine
+	// rather than the heavyweight scheduler module to keep this
+	// self-contained and because the curator owns the action.
+	loopCtx, cancel := context.WithCancel(context.Background())
+	m.stopMu.Lock()
+	m.stopCancel = cancel
+	m.stopMu.Unlock()
+	go m.pruneLoop(loopCtx)
 	return nil
 }
 
 func (m *Module) Stop(ctx context.Context) error {
+	m.stopMu.Lock()
+	if m.stopCancel != nil {
+		m.stopCancel()
+		m.stopCancel = nil
+	}
+	m.stopMu.Unlock()
+
 	if m.sub != nil {
 		m.sub.Cancel()
 	}
@@ -83,6 +123,17 @@ func (m *Module) Health(ctx context.Context) kernel.HealthStatus {
 // Store exposes the underlying store. It is here primarily for
 // tests that want to read invocations directly.
 func (m *Module) Store() *Store { return m.store }
+
+// SetNow overrides the module's clock. Used by tests to pin the
+// "now" timestamp so prune / score computations are deterministic.
+func (m *Module) SetNow(fn func() time.Time) { m.now = fn }
+
+// JudgeEnabled returns true iff a Judge has been wired AND the
+// CYNTR_CURATOR_JUDGE env var opts in. We keep both gates so a
+// misconfigured deploy doesn't accidentally start burning tokens.
+func (m *Module) JudgeEnabled() bool {
+	return m.judge != nil && os.Getenv("CYNTR_CURATOR_JUDGE") == "1"
+}
 
 func (m *Module) handleRecord(msg ipc.Message) (ipc.Message, error) {
 	inv, ok := msg.Payload.(Invocation)
@@ -128,3 +179,79 @@ func (m *Module) handleSuggestPrune(msg ipc.Message) (ipc.Message, error) {
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: suggestions}, nil
 }
+
+// handleJudge runs a single judgment via the wired LLM provider. We
+// honour the rate-limit gate even on direct calls so an over-eager
+// operator hitting the API can't tear through token budget.
+func (m *Module) handleJudge(msg ipc.Message) (ipc.Message, error) {
+	inv, ok := msg.Payload.(InvocationContext)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("curator.judge: expected InvocationContext, got %T", msg.Payload)
+	}
+	if m.judge == nil {
+		return ipc.Message{}, fmt.Errorf("curator.judge: no judge configured (set CYNTR_CURATOR_JUDGE and wire a provider)")
+	}
+	// Rate-limit check, unless caller passed an explicit
+	// InvocationID — that path is an explicit re-score and the
+	// operator has accepted the cost.
+	if inv.InvocationID == 0 {
+		ok, err := m.judge.ShouldJudge(m.store, inv.SkillName)
+		if err != nil {
+			return ipc.Message{}, err
+		}
+		if !ok {
+			return ipc.Message{}, fmt.Errorf("curator.judge: rate-limited (wait for more invocations of %q)", inv.SkillName)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := m.judge.JudgeAndPersist(ctx, m.store, inv)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: result}, nil
+}
+
+// handlePruneRun runs one auto-prune pass on demand. The background
+// loop runs it on a cadence; this lets ops trigger it manually too.
+func (m *Module) handlePruneRun(msg ipc.Message) (ipc.Message, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	report, err := m.PruneFailingSkills(ctx)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: report}, nil
+}
+
+// handleConsolidateRun returns the current consolidation suggestions
+// without performing any action.
+func (m *Module) handleConsolidateRun(msg ipc.Message) (ipc.Message, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	report, err := m.SuggestConsolidation(ctx)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: report}, nil
+}
+
+// pruneLoop drives the auto-prune action on a configurable cadence.
+// Default 24h; CYNTR_CURATOR_PRUNE_INTERVAL overrides for tests /
+// staging. The loop exits cleanly when Stop is called.
+func (m *Module) pruneLoop(ctx context.Context) {
+	interval := pruneCadenceFromEnv()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := m.PruneFailingSkills(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "curator: prune loop: %v\n", err)
+			}
+		}
+	}
+}
+
