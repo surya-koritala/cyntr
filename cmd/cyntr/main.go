@@ -107,8 +107,17 @@ func runStart() {
 	// Determine policy path from config or default
 	policyPath := "policy.yaml"
 
+	// Optional Rego policy: enabled if policy.rego (file) or policy.rego.d (dir) exists.
+	regoPath := ""
+	for _, candidate := range []string{"policy.rego", "policy.rego.d"} {
+		if _, err := os.Stat(candidate); err == nil {
+			regoPath = candidate
+			break
+		}
+	}
+
 	// Register all modules
-	policyEngine := policy.NewEngine(policyPath)
+	policyEngine := policy.NewEngine(policyPath, regoPath)
 	auditLogger := audit.NewLogger("audit.db", "cyntr-local", "audit-secret")
 	agentRuntime := agent.NewRuntime()
 

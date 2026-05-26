@@ -1,0 +1,17 @@
+package cyntr.policy
+
+default decision := "allow"
+
+# Deny shell_exec to non-admin agents in production tenants.
+decision := "deny" if {
+  input.action == "tool_call"
+  input.tool == "shell_exec"
+  startswith(input.tenant, "prod-")
+  input.agent != "admin"
+}
+
+# Require approval for any AWS write action (heuristic: tool starts with "aws" — refine in real policies).
+decision := "require_approval" if {
+  input.action == "tool_call"
+  startswith(input.tool, "aws")
+}
