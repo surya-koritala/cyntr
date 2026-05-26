@@ -60,6 +60,31 @@ var BuiltinCatalog = []MarketplaceEntry{
 		Description: "Test REST APIs automatically. Generate test cases from OpenAPI specs, run requests, validate responses.",
 		DownloadURL: "https://raw.githubusercontent.com/surya-koritala/cyntr-skills/main/api-tester/skill.yaml",
 	},
+	// Cyntr for Cloud Ops — vertical pack (ships in-tree under skills/cloud-ops/)
+	{
+		Name:        "cost-anomaly-investigator",
+		Version:     "1.0.0",
+		Author:      "cyntr",
+		Description: "Investigates AWS cost spikes end-to-end: Cost Explorer for top services/accounts driving the increase, then drills into specific services (EC2, S3, RDS, NAT, data transfer) via the AWS CLI. Returns a triage with dollar amounts, dates, and a recommended read-only action.",
+		DownloadURL: "inproc:skills/cloud-ops/cost-anomaly-investigator",
+		Source:      "builtin",
+	},
+	{
+		Name:        "k8s-troubleshooter",
+		Version:     "1.0.0",
+		Author:      "cyntr",
+		Description: "Diagnoses Kubernetes workload problems (CrashLoopBackOff, Pending, ImagePullBackOff, OOMKilled) using read-only kubectl. Walks get → describe → logs → events, then summarizes root cause and a single remediation step for human approval.",
+		DownloadURL: "inproc:skills/cloud-ops/k8s-troubleshooter",
+		Source:      "builtin",
+	},
+	{
+		Name:        "security-audit-runner",
+		Version:     "1.0.0",
+		Author:      "cyntr",
+		Description: "Runs point-in-time AWS security audits: IAM MFA coverage, S3 public access, security group ingress on sensitive ports, root account hygiene. Output is a P0/P1/P2 findings list with runbook citations.",
+		DownloadURL: "inproc:skills/cloud-ops/security-audit-runner",
+		Source:      "builtin",
+	},
 	// Verified OpenClaw community skills
 	{
 		Name:        "openclaw-weather-checker",
