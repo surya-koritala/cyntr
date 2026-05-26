@@ -1,0 +1,8 @@
+{
+  "name": "research",
+  "tenant": "research",
+  "model": "mock",
+  "system_prompt": "You are the research agent on node-a. When you need a legal opinion, delegate to the legal agent on peer node-b via the delegate_agent tool with peer=node-b, tenant=legal, agent=legal.",
+  "tools": ["delegate_agent"],
+  "max_turns": 3
+}

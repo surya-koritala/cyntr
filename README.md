@@ -1,14 +1,14 @@
 <p align="center">
   <h1 align="center">Cyntr</h1>
   <p align="center"><strong>Open-Source AI Agent Platform for Enterprise</strong></p>
-  <p align="center">Deploy AI agents that run shell commands, browse the web, query databases, manage Kubernetes clusters, analyze cloud costs, enforce security policies, and automate workflows — with 25 built-in enterprise skills, a skill marketplace, and full audit trails.</p>
+  <p align="center">Deploy AI agents that run shell commands, browse the web, query databases, manage Kubernetes clusters, analyze cloud costs, enforce security policies, and automate workflows — with a curated skill catalog, skill marketplace, and full audit trails.</p>
   <p align="center">
     <a href="https://github.com/surya-koritala/cyntr/releases"><img src="https://img.shields.io/badge/release-v1.1.0-green" alt="Release"></a>
     <a href="https://github.com/surya-koritala/cyntr/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
     <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go" alt="Go">
     <img src="https://img.shields.io/badge/tests-37%20packages%20passing-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/tools-29-orange" alt="Tools">
-    <img src="https://img.shields.io/badge/skills-31-red" alt="Skills">
+    <img src="https://img.shields.io/badge/skills-12%2B%20catalog-red" alt="Skills">
     <img src="https://img.shields.io/badge/providers-7-purple" alt="Providers">
     <img src="https://img.shields.io/badge/channels-7-blue" alt="Channels">
     <img src="https://img.shields.io/badge/MCP-8%20servers-teal" alt="MCP">
@@ -22,7 +22,7 @@
 
 Most AI agent frameworks are libraries — you build around them. Cyntr is a **platform** — you deploy it and it runs your agents. Single Go binary. Zero external dependencies. Self-hosted.
 
-- **29 tools, 31 skills** — agents get shell, web, cloud, Kubernetes, data analysis, and enterprise skills out of the box.
+- **34 tools, 12+ curated skills** — agents get shell, web, cloud, Kubernetes, data analysis, and enterprise skills out of the box, plus a marketplace for more.
 - **Multi-agent crews** — pipeline, parallel, and sequential multi-agent collaboration with delegation and orchestration.
 - **MCP support** — 8 built-in Model Context Protocol servers with marketplace. Connect to the standard AI tool ecosystem.
 - **Skill marketplace** — browse a built-in catalog, search GitHub, or import OpenClaw skills. Agents load skills on demand mid-conversation.
@@ -85,26 +85,22 @@ The setup wizard configures your AI provider, messaging channels, cloud CLI acce
 | **Orchestration** | `delegate_agent`, `orchestrate_agents` (parallel multi-agent), `skill_router` (dynamically load skills mid-conversation) |
 | **Custom** | Define tools in `tools/*.yaml` — no Go code required |
 
-### 25 Enterprise Skills
+### Curated Skill Catalog
 
-Cyntr ships with 25 embedded enterprise skills across 6 categories. Skills are loaded on demand — agents only load what they need, when they need it.
+Cyntr ships with a curated catalog of skills (currently 8 first-party + 4 OpenClaw community imports) plus a marketplace for installing more. Skills are loaded on demand — agents only load what they need, when they need it.
 
 | Category | Skills |
 |----------|--------|
-| **DevOps & SRE** (5) | `aws-infrastructure-audit`, `incident-commander`, `deployment-checker`, `cost-optimizer`, `log-analyzer` |
-| **Security** (4) | `security-audit`, `dependency-scanner`, `secret-detector`, `access-reviewer` |
-| **Engineering** (5) | `code-reviewer-pro`, `test-generator`, `documentation-generator`, `refactoring-assistant`, `git-analyst` |
-| **Data & Analytics** (4) | `database-analyst`, `csv-analyzer`, `api-monitor`, `report-generator` |
-| **Management** (4) | `standup-reporter`, `meeting-summarizer`, `status-dashboard`, `onboarding-guide` |
-| **Compliance** (3) | `compliance-checker`, `change-tracker`, `data-classifier` |
+| **First-party** | `cloud-diagnostics`, `code-review`, `incident-response`, `document-summarizer`, `data-analyst`, `customer-support`, `security-scanner`, `api-tester` |
+| **OpenClaw community** | `openclaw-weather-checker`, `openclaw-code-reviewer`, `openclaw-doc-writer`, `openclaw-cyntr-security` |
 
-Each skill bundles a system prompt, tool permissions, and configuration. Agents activate skills via the `skill_router` tool or through the dashboard.
+Each skill bundles a system prompt, tool permissions, and configuration. Agents activate skills via the `skill_router` tool, the dashboard, or by browsing the marketplace.
 
 ### Skill Marketplace
 
 Browse, search, and install skills from multiple sources:
 
-- **Built-in catalog** — 25 enterprise skills ready to activate
+- **Built-in catalog** — curated skills ready to activate
 - **GitHub search** — discover community skills from public repositories
 - **OpenClaw import** — install skills from the OpenClaw ecosystem
 - **Dashboard UI** — install, uninstall, and configure skills from the Skills page
@@ -389,7 +385,26 @@ Connect multiple Cyntr instances for cross-site agent communication:
 
 - **Policy sync** — rules propagated across peers
 - **Federated audit** — query logs across all connected nodes
-- **Agent delegation** — agents on one node can delegate to agents on another
+- **Cross-node delegation** — agents on one node delegate to agents on another, with the receiving node enforcing its own policy on every inbound request
+
+**Runnable demo:** [`demos/federation/`](demos/federation/) — two cyntr nodes,
+two tenants, one cross-node delegation. The receiving node's policy
+explicitly authorises the call; a second call to a non-allowed agent is
+denied before the agent runtime runs.
+
+**Full explainer:** [`docs/federation.md`](docs/federation.md) — architecture,
+trust model, limits, security considerations.
+
+```bash
+# in-process, no infra
+go test ./demos/federation/ -v
+
+# two real cyntr processes
+./demos/federation/run.sh
+
+# docker
+cd demos/federation && docker compose up --build
+```
 
 ---
 
@@ -560,6 +575,9 @@ All endpoints return: `{"data": ..., "meta": {"request_id", "timestamp"}, "error
 | GET | `/api/v1/federation/peers` | List federation peers |
 | POST | `/api/v1/federation/peers` | Join federation |
 | DELETE | `/api/v1/federation/peers/{name}` | Remove peer |
+| POST | `/api/v1/federation/delegate` | Send a delegation request to a peer (cross-node agent call) |
+| POST | `/api/v1/federation/inbound/delegate` | Peer-facing inbound delegation endpoint |
+| GET | `/api/v1/federation/health` | Liveness probe for peers |
 
 ### MCP Servers
 | Method | Endpoint | Description |

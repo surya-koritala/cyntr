@@ -69,7 +69,7 @@ tenants:
 
 	// Register ALL modules. Order matters only for non-topo-sorted cases;
 	// the kernel's topological sort handles dependency ordering automatically.
-	policyEngine := policy.NewEngine(policyPath)
+	policyEngine := policy.NewEngine(policyPath, "")
 	auditLogger := audit.NewLogger(filepath.Join(dir, "audit.db"), "test-node", "secret")
 	agentRuntime := agent.NewRuntime()
 	agentRuntime.RegisterProvider(providers.NewMock("Mock response"))

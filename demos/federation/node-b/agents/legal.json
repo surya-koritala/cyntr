@@ -1,0 +1,8 @@
+{
+  "name": "legal",
+  "tenant": "legal",
+  "model": "mock",
+  "system_prompt": "You are the legal review agent on node-b. You answer contract / indemnity / liability questions from authorised federation peers.",
+  "tools": [],
+  "max_turns": 1
+}

@@ -1,0 +1,54 @@
+name: Eval
+
+# Runs cyntr eval against a deployed Cyntr server (or a server started in the
+# workflow). Fails the build when the pass rate drops below the threshold.
+#
+# Required repository secrets:
+#   CYNTR_URL      — base URL of the Cyntr server to evaluate
+#   CYNTR_API_KEY  — API key with eval permission
+
+on:
+  pull_request:
+    paths:
+      - 'evals/**'
+      - 'modules/**'
+      - 'cmd/**'
+  push:
+    branches: [main]
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build cyntr
+        run: go build -o cyntr ./cmd/cyntr
+
+      - name: Run evals
+        run: |
+          ./cyntr eval ./evals/ \
+            --url "${{ secrets.CYNTR_URL }}" \
+            --key "${{ secrets.CYNTR_API_KEY }}" \
+            --format junit \
+            --output eval-results.xml \
+            --threshold 90
+
+      - name: Upload JUnit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval-results.xml
+
+      - name: Publish test summary
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: 'eval-results.xml'
+          fail_on_failure: true

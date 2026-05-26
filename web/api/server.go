@@ -77,6 +77,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/v1/tenants/{tid}/users/{uid}", s.handleUserDelete)
 	s.mux.HandleFunc("GET /api/v1/auth/me", s.handleAuthMe)
 
+	// User curated profile (USER.md / SOUL.md equivalent)
+	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/users/{uid}/profile", s.handleUserProfileGet)
+	s.mux.HandleFunc("PUT /api/v1/tenants/{tid}/users/{uid}/profile", s.handleUserProfilePut)
+
 	// Search
 	s.mux.HandleFunc("GET /api/v1/search", s.handleAgentSearch)
 
@@ -103,6 +107,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/federation/peers", s.handleFederationPeers)
 	s.mux.HandleFunc("POST /api/v1/federation/peers", s.handleFederationJoin)
 	s.mux.HandleFunc("DELETE /api/v1/federation/peers/{name}", s.handleFederationRemove)
+	s.mux.HandleFunc("POST /api/v1/federation/delegate", s.handleFederationDelegate)
+	// Inbound endpoints hit by peer nodes.
+	s.mux.HandleFunc("POST /api/v1/federation/inbound/delegate", s.handleFederationDelegateInbound)
+	s.mux.HandleFunc("GET /api/v1/federation/health", s.handleFederationHealth)
 
 	// Approvals
 	s.mux.HandleFunc("GET /api/v1/approvals", s.handleApprovalList)
@@ -162,9 +170,16 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/eval/runs/{id}", s.handleEvalStatus)
 	s.mux.HandleFunc("GET /api/v1/eval/runs", s.handleEvalList)
 
+	// Curator (F3 — skill scoring & prune suggestions)
+	s.mux.HandleFunc("GET /api/v1/curator/scores", s.handleCuratorScores)
+
 	// Usage
 	s.mux.HandleFunc("GET /api/v1/usage", s.handleUsageQuery)
 	s.mux.HandleFunc("GET /api/v1/usage/summary", s.handleUsageSummary)
+
+	// Quotas (per-tenant token/rate/concurrency/session caps)
+	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/quota", s.handleQuotaGet)
+	s.mux.HandleFunc("PUT /api/v1/tenants/{tid}/quota", s.handleQuotaSet)
 
 	// SLA Monitoring
 	s.mux.HandleFunc("POST /api/v1/sla/rules", s.handleSLAAddRule)

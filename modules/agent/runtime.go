@@ -12,6 +12,7 @@ import (
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/policy"
+	"github.com/cyntr-dev/cyntr/modules/usermodel"
 )
 
 var logger = log.Default().WithModule("agent_runtime")
@@ -242,6 +243,53 @@ func (r *Runtime) LoadSavedAgents() error {
 	return nil
 }
 
+// loadUserProfile fetches the curated profile + preferences for (tenant, user)
+// from the usermodel module via the IPC bus and renders them as system-prompt
+// text. Returns "" when no profile is available, the module isn't registered,
+// or anything else goes wrong — never errors, so a missing user model never
+// breaks an in-flight chat.
+func (r *Runtime) loadUserProfile(tenant, user string) string {
+	if r.bus == nil || tenant == "" || user == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	resp, err := r.bus.Request(ctx, ipc.Message{
+		Source: "agent_runtime", Target: "usermodel", Topic: "usermodel.get",
+		Payload: map[string]string{"tenant": tenant, "user": user},
+	})
+	if err != nil {
+		// ipc.ErrNoHandler is expected when the usermodel module isn't
+		// registered; treat as "no profile" and move on. Other errors are
+		// also swallowed so a transient store failure doesn't block chat.
+		return ""
+	}
+
+	p, ok := resp.Payload.(usermodel.UserProfile)
+	if !ok {
+		return ""
+	}
+	if p.ProfileMD == "" && p.PreferencesMD == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("User profile:\n")
+	if p.ProfileMD == "" {
+		b.WriteString("(none)")
+	} else {
+		b.WriteString(p.ProfileMD)
+	}
+	b.WriteString("\n\nUser preferences:\n")
+	if p.PreferencesMD == "" {
+		b.WriteString("(none)")
+	} else {
+		b.WriteString(p.PreferencesMD)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 // checkToolPolicy checks if a tool execution is allowed.
 // Returns "allow", "deny", or "require_approval".
 // When no policy module is registered, defaults to "allow" (permissive).
@@ -297,6 +345,29 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 
+	// Enforce per-tenant quotas via the quota module. When the quota module is
+	// not registered (ipc.ErrNoHandler), every check is treated as "allowed" so
+	// existing deployments behave unchanged.
+	//
+	// Order matters: rate first (cheap), then concurrency-slot acquire (carries
+	// a release we must defer). We treat quota denials like denied policies —
+	// returning a normal ChatResponse rather than an error so channel adapters
+	// surface the message to the end user.
+	if ok, reason := quotaCheck(r.bus, req.Tenant, "rate", 1); !ok {
+		return ipc.Message{
+			Type:    ipc.MessageTypeResponse,
+			Payload: ChatResponse{Agent: req.Agent, Content: "quota exceeded: " + reason},
+		}, nil
+	}
+	release, ok, reason := quotaAcquireSlot(r.bus, req.Tenant)
+	if !ok {
+		return ipc.Message{
+			Type:    ipc.MessageTypeResponse,
+			Payload: ChatResponse{Agent: req.Agent, Content: "quota exceeded: " + reason},
+		}, nil
+	}
+	defer release()
+
 	chatStart := time.Now()
 
 	r.publishActivity(req.Agent, req.Tenant, "chat_start", "User: "+req.Message[:min(80, len(req.Message))])
@@ -309,11 +380,27 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("model provider %q not found", inst.config.Model)
 	}
 
-	// Inject long-term memories into session context before the agentic loop
+	// Build the system-context prelude: curated user profile (from the
+	// usermodel module, if registered) followed by the flat long-term memory
+	// stream. The combined string is handed to the session as its "memories"
+	// block so it lands in the system prompt just like before.
+	var contextPrelude string
+	if profileText := r.loadUserProfile(req.Tenant, req.User); profileText != "" {
+		contextPrelude = profileText
+	}
 	if r.memoryStore != nil {
 		if memories, err := r.memoryStore.Recall(req.Agent, req.Tenant); err == nil {
-			inst.session.SetMemories(FormatForContext(memories))
+			if memText := FormatForContext(memories); memText != "" {
+				if contextPrelude != "" {
+					contextPrelude += "\n\n" + memText
+				} else {
+					contextPrelude = memText
+				}
+			}
 		}
+	}
+	if contextPrelude != "" {
+		inst.session.SetMemories(contextPrelude)
 	}
 
 	// Load skill instructions on-demand
@@ -381,6 +468,11 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				TotalTokens:  response.InputTokens + response.OutputTokens,
 				DurationMs:   time.Since(chatStart).Milliseconds(),
 			})
+		}
+
+		// Debit the tenant's token quota (fire-and-forget; survives missing module).
+		if totalTok := int64(response.InputTokens + response.OutputTokens); totalTok > 0 {
+			quotaRecord(r.bus, req.Tenant, totalTok)
 		}
 
 		inst.session.AddMessage(response)
@@ -503,7 +595,8 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				}
 				var execErr error
 				toolStart := time.Now()
-				result, execErr = r.executeToolWithRetry(context.Background(), tc.Name, toolInput)
+				toolCtx := WithToolCaller(context.Background(), req.Tenant, req.Agent, req.User)
+				result, execErr = r.executeToolWithRetry(toolCtx, tc.Name, toolInput)
 				toolDuration := time.Since(toolStart)
 				if toolDuration > 2*time.Second {
 					logger.Warn("slow tool execution", map[string]any{

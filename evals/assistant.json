@@ -1,0 +1,27 @@
+{
+  "agent": "assistant",
+  "tenant": "default",
+  "cases": [
+    {
+      "id": "math-basic",
+      "name": "answers basic arithmetic",
+      "input": "What is 2 + 2?",
+      "expected_output": "4",
+      "match_mode": "contains"
+    },
+    {
+      "id": "greeting",
+      "name": "responds to a greeting",
+      "input": "Hello",
+      "expected_output": "(hi|hello|hey)",
+      "match_mode": "regex"
+    },
+    {
+      "id": "knowledge-claude",
+      "name": "knows what Claude is",
+      "input": "What is Claude?",
+      "expected_output": "anthropic",
+      "match_mode": "contains"
+    }
+  ]
+}

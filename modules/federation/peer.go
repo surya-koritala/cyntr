@@ -77,7 +77,7 @@ func (pm *PeerManager) CheckHealth(name string) error {
 	endpoint := p.Endpoint
 	pm.mu.RUnlock()
 
-	resp, err := pm.client.Get(endpoint + "/federation/health")
+	resp, err := pm.client.Get(endpoint + "/api/v1/federation/health")
 	if err != nil {
 		pm.mu.Lock()
 		if peer, ok := pm.peers[name]; ok {

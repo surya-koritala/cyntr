@@ -43,7 +43,7 @@ rules:
 	}
 
 	// Modules
-	policyEngine := policy.NewEngine(policyPath)
+	policyEngine := policy.NewEngine(policyPath, "")
 	agentRuntime := agent.NewRuntime()
 	agentRuntime.RegisterProvider(providers.NewMock("Hello from Cyntr!"))
 

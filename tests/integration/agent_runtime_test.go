@@ -38,7 +38,7 @@ rules:
 	}
 
 	// Set up modules
-	policyEngine := policy.NewEngine(policyPath)
+	policyEngine := policy.NewEngine(policyPath, "")
 	agentRuntime := agent.NewRuntime()
 	agentRuntime.RegisterProvider(providers.NewMock("I processed your request successfully."))
 
