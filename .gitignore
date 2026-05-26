@@ -1,6 +1,10 @@
 # Binary (root only, not cmd/cyntr/ directory)
 /cyntr
+/bin/
 *.exe
+
+# Demo runtime dirs
+demos/**/.run/
 
 # Runtime data
 *.db
@@ -11,6 +15,9 @@
 cyntr.yaml
 policy.yaml
 cloud-ops-agent.json
+# But always include demo configs
+!demos/**/cyntr.yaml
+!demos/**/policy.yaml
 
 # Environment
 .env

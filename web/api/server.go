@@ -103,6 +103,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/federation/peers", s.handleFederationPeers)
 	s.mux.HandleFunc("POST /api/v1/federation/peers", s.handleFederationJoin)
 	s.mux.HandleFunc("DELETE /api/v1/federation/peers/{name}", s.handleFederationRemove)
+	s.mux.HandleFunc("POST /api/v1/federation/delegate", s.handleFederationDelegate)
+	// Inbound endpoints hit by peer nodes.
+	s.mux.HandleFunc("POST /api/v1/federation/inbound/delegate", s.handleFederationDelegateInbound)
+	s.mux.HandleFunc("GET /api/v1/federation/health", s.handleFederationHealth)
 
 	// Approvals
 	s.mux.HandleFunc("GET /api/v1/approvals", s.handleApprovalList)
