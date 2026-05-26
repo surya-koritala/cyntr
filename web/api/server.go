@@ -162,6 +162,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/eval/runs/{id}", s.handleEvalStatus)
 	s.mux.HandleFunc("GET /api/v1/eval/runs", s.handleEvalList)
 
+	// Curator (F3 — skill scoring & prune suggestions)
+	s.mux.HandleFunc("GET /api/v1/curator/scores", s.handleCuratorScores)
+
 	// Usage
 	s.mux.HandleFunc("GET /api/v1/usage", s.handleUsageQuery)
 	s.mux.HandleFunc("GET /api/v1/usage/summary", s.handleUsageSummary)

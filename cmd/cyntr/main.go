@@ -31,6 +31,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/notify"
 	"github.com/cyntr-dev/cyntr/modules/sla"
 	"github.com/cyntr-dev/cyntr/modules/crew"
+	"github.com/cyntr-dev/cyntr/modules/curator"
 	"github.com/cyntr-dev/cyntr/modules/mcp"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
@@ -515,6 +516,10 @@ func runStart() {
 	// Eval runner
 	evalRunner := eval.New()
 	k.Register(evalRunner)
+
+	// Curator (F3 — records skill invocations, exposes scores + prune suggestions)
+	curatorMod := curator.New("curator.db")
+	k.Register(curatorMod)
 
 	// Notification channels
 	notifierInst := notify.NewNotifier()
