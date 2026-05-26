@@ -3,13 +3,18 @@ package config
 import "time"
 
 type CyntrConfig struct {
-	Version            string                  `yaml:"version"`
-	Listen             ListenConfig            `yaml:"listen"`
-	Tenants            map[string]TenantConfig `yaml:"tenants"`
-	Auth               AuthConfig              `yaml:"auth"`
-	Audit              AuditConfig             `yaml:"audit"`
-	Federation         FederationConfig        `yaml:"federation"`
-	ShellExecPolicies  []ShellExecPolicyConfig `yaml:"shell_exec_policies"`
+	Version           string                  `yaml:"version"`
+	Listen            ListenConfig            `yaml:"listen"`
+	Tenants           map[string]TenantConfig `yaml:"tenants"`
+	Auth              AuthConfig              `yaml:"auth"`
+	Audit             AuditConfig             `yaml:"audit"`
+	Federation        FederationConfig        `yaml:"federation"`
+	ShellExecPolicies []ShellExecPolicyConfig `yaml:"shell_exec_policies"`
+	// Packs gates opt-in tool packs (e.g. "loomfeed"). A pack is enabled when
+	// its key is mapped to true here, or when the equivalent CYNTR_PACK_<NAME>=1
+	// env var is set. Default: all packs disabled — the platform ships core
+	// tools only; vertical packs are opt-in.
+	Packs map[string]bool `yaml:"packs,omitempty"`
 }
 
 // ShellExecPolicyConfig declares which backend the shell_exec tool should use

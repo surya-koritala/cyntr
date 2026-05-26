@@ -46,6 +46,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
 	"github.com/cyntr-dev/cyntr/modules/usermodel"
 	"github.com/cyntr-dev/cyntr/modules/workflow"
+	"github.com/cyntr-dev/cyntr/packs/loomfeed"
 	"github.com/cyntr-dev/cyntr/tenant"
 	"github.com/cyntr-dev/cyntr/web"
 	webapi "github.com/cyntr-dev/cyntr/web/api"
@@ -225,11 +226,17 @@ func runStart() {
 	// AWS tools
 	toolReg.Register(agenttools.NewAWSTool())
 	toolReg.Register(agenttools.NewCostExplorerTool())
-	alatirokTool := agenttools.NewAlatirokTool()
-	newsTool := agenttools.NewNewsAggregatorTool()
-	toolReg.Register(alatirokTool)
-	toolReg.Register(newsTool)
-	toolReg.Register(agenttools.NewAlatirokPipelineTool(newsTool, alatirokTool))
+
+	// Optional packs — opt-in only. Default: no vertical packs registered, so
+	// the binary ships as a pure enterprise agent platform.
+	if packEnabled(cfg.Packs, "loomfeed", "CYNTR_PACK_LOOMFEED") {
+		alatirokTool := loomfeed.NewAlatirokTool()
+		newsTool := loomfeed.NewNewsAggregatorTool()
+		toolReg.Register(alatirokTool)
+		toolReg.Register(newsTool)
+		toolReg.Register(loomfeed.NewAlatirokPipelineTool(newsTool, alatirokTool))
+		log.Info("pack registered", map[string]any{"pack": "loomfeed", "tools": []string{"alatirok", "news_aggregator", "alatirok_pipeline"}})
+	}
 
 	agentRuntime.SetToolRegistry(toolReg)
 
@@ -855,4 +862,16 @@ func buildShellPolicies(in []config.ShellExecPolicyConfig) []agenttools.ShellExe
 		})
 	}
 	return out
+}
+
+// packEnabled returns true when the named pack is opted in via cyntr.yaml
+// (packs.<name>: true) or via the matching environment variable set to "1".
+func packEnabled(packs map[string]bool, name, envVar string) bool {
+	if packs[name] {
+		return true
+	}
+	if v := os.Getenv(envVar); v == "1" || strings.EqualFold(v, "true") {
+		return true
+	}
+	return false
 }
