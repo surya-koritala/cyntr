@@ -10,14 +10,29 @@ import (
 
 // Module exposes the user-profile store over the IPC bus.
 type Module struct {
-	bus   *ipc.Bus
-	store *Store
+	bus       *ipc.Bus
+	store     *Store
+	distiller *Distiller
 }
 
 // New constructs a Module backed by store. store must already be open.
 func New(store *Store) *Module {
 	return &Module{store: store}
 }
+
+// SetDistiller attaches the narrative distiller. When unset, the distill
+// IPC topic returns an error and record_activity is still recorded but no
+// background distillation runs.
+func (m *Module) SetDistiller(d *Distiller) {
+	m.distiller = d
+}
+
+// Store returns the underlying store, mainly so main.go can plumb it into
+// the scheduler tick and HTTP handlers without re-opening the db.
+func (m *Module) Store() *Store { return m.store }
+
+// Distiller returns the configured distiller, if any.
+func (m *Module) Distiller() *Distiller { return m.distiller }
 
 func (m *Module) Name() string           { return "usermodel" }
 func (m *Module) Dependencies() []string { return nil }
@@ -31,6 +46,10 @@ func (m *Module) Start(ctx context.Context) error {
 	m.bus.Handle("usermodel", TopicGet, m.handleGet)
 	m.bus.Handle("usermodel", TopicUpsertProfile, m.handleUpsertProfile)
 	m.bus.Handle("usermodel", TopicUpsertPreferences, m.handleUpsertPreferences)
+	m.bus.Handle("usermodel", TopicDistill, m.handleDistill)
+	// record_activity is fire-and-forget — agents shouldn't wait on us to
+	// finish writing the row before their chat returns to the user.
+	m.bus.Subscribe("usermodel", TopicRecordActivity, m.handleRecordActivity)
 	return nil
 }
 
@@ -112,4 +131,42 @@ func (m *Module) handleUpsertPreferences(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "ok"}, nil
+}
+
+// handleDistill triggers a synchronous distillation pass for a single user.
+// Returns a DistillResult so callers can surface size deltas and skip
+// reasons. Manual triggers (this path) bypass the per-user rate limit —
+// the assumption is that a human (or an explicit reset endpoint) is asking.
+func (m *Module) handleDistill(msg ipc.Message) (ipc.Message, error) {
+	args, err := payloadMap(msg.Payload)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	tenant, user := args["tenant"], args["user"]
+	if tenant == "" || user == "" {
+		return ipc.Message{}, fmt.Errorf("usermodel.distill: tenant and user are required")
+	}
+	if m.distiller == nil {
+		return ipc.Message{}, fmt.Errorf("usermodel.distill: distiller not configured")
+	}
+	// Manual triggers use the foreground context — the IPC bus already
+	// enforces its own timeout on the round-trip. Distiller.DistillUserForce
+	// applies a 30s inner timeout to the LLM call.
+	res, _ := m.distiller.DistillUserForce(context.Background(), tenant, user)
+	if res == nil {
+		res = &DistillResult{Tenant: tenant, User: user, Error: "no result"}
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: *res}, nil
+}
+
+// handleRecordActivity is the fire-and-forget sink for chat-level activity
+// summaries. Errors are swallowed — the chat path must never depend on the
+// usermodel database being writable.
+func (m *Module) handleRecordActivity(msg ipc.Message) (ipc.Message, error) {
+	args, err := payloadMap(msg.Payload)
+	if err != nil {
+		return ipc.Message{}, nil
+	}
+	m.store.RecordActivity(args["tenant"], args["user"], args["summary"])
+	return ipc.Message{}, nil
 }

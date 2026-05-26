@@ -680,11 +680,79 @@ func runStart() {
 	// User-model module — per-(tenant,user) curated profile + preferences
 	// loaded into every chat's system context and editable via tools/API.
 	userModelStore, err := usermodel.NewStore(dataPath("usermodel.db"))
+	var userModelModule *usermodel.Module
 	if err != nil {
 		log.Warn("usermodel store disabled", map[string]any{"error": err.Error()})
 	} else {
-		k.Register(usermodel.New(userModelStore))
+		userModelModule = usermodel.New(userModelStore)
+		k.Register(userModelModule)
 	}
+
+	// Distiller: best-effort narrative profile updates from session history.
+	// Opt-in per tenant (off by default). Runs on a cron schedule (default
+	// 04:00 UTC daily, overridable via CYNTR_USERMODEL_DISTILL_CRON) and
+	// can be invoked manually via POST /profile/distill.
+	var distillTicker *usermodel.Ticker
+	if userModelModule != nil {
+		distillModelName := os.Getenv("CYNTR_USERMODEL_DISTILL_MODEL")
+		if distillModelName == "" {
+			distillModelName = usermodel.DefaultDistillModel
+		}
+		// Pick the cheapest registered provider matching the configured
+		// name; fall back to any registered provider so distillation works
+		// even when haiku isn't wired up. Skipped entirely when no
+		// provider is available.
+		var chosen agent.ModelProvider
+		for _, name := range agentRuntime.Providers() {
+			if name == distillModelName {
+				chosen = agentRuntime.Provider(name)
+				break
+			}
+		}
+		if chosen == nil {
+			// Best-effort fallback so dev environments without haiku still
+			// see the path exercised. In production with a haiku key set,
+			// this branch is never taken.
+			for _, name := range agentRuntime.Providers() {
+				if p := agentRuntime.Provider(name); p != nil {
+					chosen = p
+					break
+				}
+			}
+		}
+		if chosen == nil {
+			log.Warn("usermodel distiller disabled", map[string]any{"reason": "no LLM provider registered"})
+		} else {
+			adapter := agent.NewDistillProviderAdapter(chosen)
+			emitter := agent.NewBusAuditEmitter(k.Bus(), nodeID)
+			d, derr := usermodel.NewDistiller(usermodel.DistillerOptions{
+				Store:       userModelStore,
+				Provider:    adapter,
+				Model:       distillModelName,
+				Audit:       emitter,
+				Concurrency: 5,
+				Logger: func(msg string, kv map[string]any) {
+					log.Info(msg, kv)
+				},
+			})
+			if derr != nil {
+				log.Warn("usermodel distiller init failed", map[string]any{"error": derr.Error()})
+			} else {
+				userModelModule.SetDistiller(d)
+				cronExpr := os.Getenv("CYNTR_USERMODEL_DISTILL_CRON")
+				ticker, tickerErr := usermodel.NewTicker(d, cronExpr, func(msg string, kv map[string]any) {
+					log.Info(msg, kv)
+				})
+				if tickerErr != nil {
+					log.Warn("usermodel distill cron invalid", map[string]any{"error": tickerErr.Error()})
+				} else {
+					distillTicker = ticker
+					log.Info("usermodel distiller registered", map[string]any{"model": distillModelName, "cron": cronExpr})
+				}
+			}
+		}
+	}
+	_ = distillTicker // started after kernel boot below
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -695,6 +763,11 @@ func runStart() {
 	}
 
 	log.Info("kernel started", map[string]any{"modules": len(k.Modules())})
+
+	// Kick off the usermodel distill cron loop now that the kernel is up.
+	if distillTicker != nil {
+		distillTicker.Start()
+	}
 
 	// Real-time event streaming for dashboard
 	eventBroker := web.NewEventBroker()

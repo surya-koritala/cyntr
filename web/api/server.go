@@ -152,6 +152,7 @@ func (s *Server) registerRoutes() {
 	// User curated profile (USER.md / SOUL.md equivalent)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/users/{uid}/profile", s.handleUserProfileGet)
 	s.mux.HandleFunc("PUT /api/v1/tenants/{tid}/users/{uid}/profile", s.handleUserProfilePut)
+	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/users/{uid}/profile/distill", s.handleUserProfileDistill)
 
 	// Search
 	s.mux.HandleFunc("GET /api/v1/search", s.handleAgentSearch)

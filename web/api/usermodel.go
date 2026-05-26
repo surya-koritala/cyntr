@@ -10,6 +10,39 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/usermodel"
 )
 
+// handleUserProfileDistill triggers a manual distillation pass for one
+// (tid, uid). Returns the DistillResult unchanged so callers can see
+// whether the operation actually ran (Skipped/SkipReason) versus produced
+// a new profile.
+//
+// POST /api/v1/tenants/{tid}/users/{uid}/profile/distill
+func (s *Server) handleUserProfileDistill(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	uid := r.PathValue("uid")
+	if tid == "" || uid == "" {
+		RespondError(w, 400, "INVALID_REQUEST", "tenant and user are required")
+		return
+	}
+	// Distillation can take a few seconds with a real LLM. Allow up to 60s
+	// — well under the API server's own request-timeout but enough head-
+	// room for cold provider connections.
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	resp, err := s.bus.Request(ctx, ipc.Message{
+		Source: "api", Target: "usermodel", Topic: usermodel.TopicDistill,
+		Payload: map[string]string{"tenant": tid, "user": uid},
+	})
+	if err != nil {
+		if err == ipc.ErrNoHandler {
+			RespondError(w, 503, "UNAVAILABLE", "usermodel module not registered")
+			return
+		}
+		RespondError(w, 500, "DISTILL_FAILED", err.Error())
+		return
+	}
+	Respond(w, 200, resp.Payload)
+}
+
 // handleUserProfileGet returns the curated profile for (tid, uid).
 //
 // GET /api/v1/tenants/{tid}/users/{uid}/profile
