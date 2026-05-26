@@ -34,6 +34,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/eval"
 	"github.com/cyntr-dev/cyntr/modules/federation"
 	"github.com/cyntr-dev/cyntr/modules/notify"
+	"github.com/cyntr-dev/cyntr/modules/observability"
 	"github.com/cyntr-dev/cyntr/modules/sla"
 	"github.com/cyntr-dev/cyntr/modules/crew"
 	"github.com/cyntr-dev/cyntr/modules/curator"
@@ -625,6 +626,12 @@ func runStart() {
 		}
 	}
 
+	// Observability is registered first so its Init runs before any other
+	// module's, configuring the global OTel providers in time for those
+	// modules to grab tracers/meters via the global accessors.
+	obsModule := observability.New()
+	k.Register(obsModule)
+
 	k.Register(policyEngine)
 	k.Register(auditLogger)
 	k.Register(agentRuntime)
@@ -722,6 +729,12 @@ func runStart() {
 	}
 	apiServer.SetTenantManager(tenantMgr)
 	apiServer.SetNotifier(notifierInst)
+	// When observability is enabled the module exposes a Prometheus exposition
+	// handler; mount it on the API server. When disabled this is a no-op (the
+	// handler is nil and the endpoint returns 404).
+	if promHandler := obsModule.PrometheusHandler(); promHandler != nil {
+		apiServer.SetPrometheusHandler(promHandler)
+	}
 	webapi.SetSessionStore(sessionStore)
 	webapi.SetUsageStore(usageStore)
 	dashboard := web.NewDashboardHandler()
