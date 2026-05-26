@@ -7,7 +7,8 @@
     <a href="https://github.com/surya-koritala/cyntr/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
     <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go" alt="Go">
     <img src="https://img.shields.io/badge/tests-37%20packages%20passing-brightgreen" alt="Tests">
-    <img src="https://img.shields.io/badge/tools-29-orange" alt="Tools">
+    <img src="https://img.shields.io/badge/core%20tools-28-orange" alt="Core Tools">
+    <img src="https://img.shields.io/badge/optional%20packs-1-lightgrey" alt="Optional Packs">
     <img src="https://img.shields.io/badge/skills-12%2B%20catalog-red" alt="Skills">
     <img src="https://img.shields.io/badge/providers-7-purple" alt="Providers">
     <img src="https://img.shields.io/badge/channels-7-blue" alt="Channels">
@@ -22,7 +23,7 @@
 
 Most AI agent frameworks are libraries — you build around them. Cyntr is a **platform** — you deploy it and it runs your agents. Single Go binary. Zero external dependencies. Self-hosted.
 
-- **34 tools, 12+ curated skills** — agents get shell, web, cloud, Kubernetes, data analysis, and enterprise skills out of the box, plus a marketplace for more.
+- **28 core tools, 12+ curated skills** — agents get shell, web, cloud, Kubernetes, data analysis, and enterprise skills out of the box, plus a marketplace for more. Vertical capabilities (RSS aggregation, content posting, etc.) ship as opt-in [packs](packs/README.md).
 - **Multi-agent crews** — pipeline, parallel, and sequential multi-agent collaboration with delegation and orchestration.
 - **MCP support** — 8 built-in Model Context Protocol servers with marketplace. Connect to the standard AI tool ecosystem.
 - **Skill marketplace** — browse a built-in catalog, search GitHub, or import OpenClaw skills. Agents load skills on demand mid-conversation.
@@ -84,6 +85,8 @@ The setup wizard configures your AI provider, messaging channels, cloud CLI acce
 | **Knowledge** | `runbook_search` (search runbooks from knowledge base) |
 | **Orchestration** | `delegate_agent`, `orchestrate_agents` (parallel multi-agent), `skill_router` (dynamically load skills mid-conversation) |
 | **Custom** | Define tools in `tools/*.yaml` — no Go code required |
+
+> **Optional packs.** Vertical tools — RSS aggregation, content dedup, and posting to the Loomfeed discussion platform — ship as the opt-in [`loomfeed` pack](packs/loomfeed/README.md). They are not registered by default; enable with `CYNTR_PACK_LOOMFEED=1` or `packs.loomfeed: true` in `cyntr.yaml`. See [packs/README.md](packs/README.md) for the pack convention.
 
 ### Curated Skill Catalog
 

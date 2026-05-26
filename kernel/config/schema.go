@@ -7,6 +7,11 @@ type CyntrConfig struct {
 	Auth       AuthConfig              `yaml:"auth"`
 	Audit      AuditConfig             `yaml:"audit"`
 	Federation FederationConfig        `yaml:"federation"`
+	// Packs gates opt-in tool packs (e.g. "loomfeed"). A pack is enabled when
+	// its key is mapped to true here, or when the equivalent CYNTR_PACK_<NAME>=1
+	// env var is set. Default: all packs disabled — the platform ships core
+	// tools only; vertical packs are opt-in.
+	Packs map[string]bool `yaml:"packs,omitempty"`
 }
 
 type ListenConfig struct {
