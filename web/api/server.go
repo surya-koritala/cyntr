@@ -152,6 +152,7 @@ func (s *Server) registerRoutes() {
 	// User curated profile (USER.md / SOUL.md equivalent)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/users/{uid}/profile", s.handleUserProfileGet)
 	s.mux.HandleFunc("PUT /api/v1/tenants/{tid}/users/{uid}/profile", s.handleUserProfilePut)
+	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/users/{uid}/profile/distill", s.handleUserProfileDistill)
 
 	// Search
 	s.mux.HandleFunc("GET /api/v1/search", s.handleAgentSearch)
@@ -247,8 +248,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/eval/runs/{id}", s.handleEvalStatus)
 	s.mux.HandleFunc("GET /api/v1/eval/runs", s.handleEvalList)
 
-	// Curator (F3 — skill scoring & prune suggestions)
+	// Curator (F3 — skill scoring & prune suggestions; T3.6 — judge/prune/consolidate)
 	s.mux.HandleFunc("GET /api/v1/curator/scores", s.handleCuratorScores)
+	s.mux.HandleFunc("POST /api/v1/curator/judge", s.handleCuratorJudge)
+	s.mux.HandleFunc("POST /api/v1/curator/prune", s.handleCuratorPrune)
+	s.mux.HandleFunc("GET /api/v1/curator/consolidate", s.handleCuratorConsolidate)
 
 	// Usage
 	s.mux.HandleFunc("GET /api/v1/usage", s.handleUsageQuery)

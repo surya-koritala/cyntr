@@ -1,0 +1,29 @@
+name: cloud-ops
+version: 1.0.0
+description: Pre-built agents for AWS cost anomalies, Kubernetes troubleshooting, and security audits.
+author: cyntr
+license: Apache-2.0
+homepage: https://github.com/surya-koritala/cyntr/tree/main/skills/cloud-ops
+category: vertical
+skills:
+  - cost-anomaly-investigator
+  - k8s-troubleshooter
+  - security-audit-runner
+runbooks_dir: runbooks/
+runbooks:
+  - aws-cost-spike-checklist.md
+  - k8s-pod-crashloopbackoff.md
+  - k8s-pending-pod.md
+  - aws-s3-public-access.md
+  - aws-iam-mfa-enforcement.md
+requires:
+  cyntr_version: ">=1.1.0"
+  tools:
+    - aws_cross_account
+    - aws_cost_explorer
+    - kubectl
+    - json_query
+    - knowledge_search
+    - runbook_search
+    - send_message
+    - send_notification

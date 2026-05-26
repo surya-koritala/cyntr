@@ -53,4 +53,11 @@ type InstalledSkill struct {
 	Instructions string // contents of skill.md
 	Path         string // directory path on disk
 	Signature    string // contents of SIGNATURE file
+	// Disabled is set by the curator's auto-prune loop when a skill
+	// has been failing for >7 days. Disabled skills are skipped by
+	// the skill_router list/load paths and from marketplace surfaces
+	// but remain in the registry so an operator can re-enable them
+	// via the existing skills API.
+	Disabled       bool   `json:"disabled,omitempty"`
+	DisabledReason string `json:"disabled_reason,omitempty"`
 }

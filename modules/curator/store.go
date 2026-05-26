@@ -62,6 +62,15 @@ func (s *Store) Close() error {
 // fill in time.Now() so callers can fire-and-forget without setting
 // it explicitly.
 func (s *Store) Record(inv Invocation) error {
+	_, err := s.RecordID(inv)
+	return err
+}
+
+// RecordID inserts an invocation and returns the new row id. The
+// id is what the LLM judge uses to write its score back to the row
+// later. Keeping Record() as the convenience wrapper preserves all
+// existing v0 callers (skill_router etc.).
+func (s *Store) RecordID(inv Invocation) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -72,7 +81,7 @@ func (s *Store) Record(inv Invocation) error {
 	if inv.Success {
 		successInt = 1
 	}
-	_, err := s.db.Exec(
+	res, err := s.db.Exec(
 		`INSERT INTO invocations (skill_name, tenant, agent, success, error, duration_ms, timestamp, llm_judge_score)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		inv.SkillName,
@@ -85,9 +94,85 @@ func (s *Store) Record(inv Invocation) error {
 		nullableFloat(inv.LLMJudgeScore),
 	)
 	if err != nil {
-		return fmt.Errorf("insert invocation: %w", err)
+		return 0, fmt.Errorf("insert invocation: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// SetJudgeScore writes an LLM judge score onto a previously
+// recorded invocation. Returns an error if the row doesn't exist.
+func (s *Store) SetJudgeScore(invocationID int64, score float64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	res, err := s.db.Exec(
+		`UPDATE invocations SET llm_judge_score = ? WHERE id = ?`,
+		score, invocationID,
+	)
+	if err != nil {
+		return fmt.Errorf("update judge score: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("invocation id %d not found", invocationID)
 	}
 	return nil
+}
+
+// CountInvocations returns the total invocations on record for a
+// skill. Used by the judge rate-limiter to skip skills that haven't
+// accumulated enough calls since the last judgment.
+func (s *Store) CountInvocations(skillName string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM invocations WHERE skill_name = ?`, skillName).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count invocations: %w", err)
+	}
+	return n, nil
+}
+
+// CountJudged returns the number of invocations for a skill that
+// already have an LLM judge score. Combined with CountInvocations,
+// this gives the rate-limiter what it needs.
+func (s *Store) CountJudged(skillName string) (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM invocations WHERE skill_name = ? AND llm_judge_score IS NOT NULL`,
+		skillName,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count judged: %w", err)
+	}
+	return n, nil
+}
+
+// RecentFailureSamples returns up to `limit` non-empty error strings
+// from the most recent failed invocations of a skill. Used to
+// populate the prune report so operators can see *why* a skill is
+// failing without diffing logs.
+func (s *Store) RecentFailureSamples(skillName string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	rows, err := s.db.Query(
+		`SELECT error FROM invocations
+		 WHERE skill_name = ? AND success = 0 AND error IS NOT NULL AND error != ''
+		 ORDER BY timestamp DESC LIMIT ?`,
+		skillName, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent failures: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // ListSkillNames returns every distinct skill_name that has at

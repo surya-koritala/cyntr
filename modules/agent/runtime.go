@@ -146,6 +146,15 @@ func (r *Runtime) Providers() []string {
 	return names
 }
 
+// Provider returns the registered ModelProvider with the given name, or nil
+// if none. Exposed so external wiring (e.g. the usermodel distiller) can
+// reuse the runtime's already-configured providers without re-instantiating.
+func (r *Runtime) Provider(name string) ModelProvider {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.providers[name]
+}
+
 func (r *Runtime) Name() string           { return "agent_runtime" }
 func (r *Runtime) Dependencies() []string { return nil }
 
@@ -296,6 +305,20 @@ func (r *Runtime) loadUserProfile(tenant, user string) string {
 		return ""
 	}
 	if p.ProfileMD == "" && p.PreferencesMD == "" {
+		// Cold-start nudge: kick off an async first-time distill if there's
+		// any recorded activity. The distiller itself will no-op if the
+		// tenant hasn't opted in or activity is below the minimum, so this
+		// is safe to fire unconditionally. We dispatch on a goroutine so
+		// the chat path doesn't block on the LLM call.
+		bus := r.bus
+		go func() {
+			asyncCtx, asyncCancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer asyncCancel()
+			bus.Request(asyncCtx, ipc.Message{
+				Source: "agent_runtime", Target: "usermodel", Topic: "usermodel.distill",
+				Payload: map[string]string{"tenant": tenant, "user": user},
+			})
+		}()
 		return ""
 	}
 
@@ -548,6 +571,22 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 			if inst.config.AutoMemory && r.memoryStore != nil && len(toolsUsed) > 0 {
 				go r.extractMemories(req, inst, response.Content, toolsUsed)
 			}
+
+			// Record an activity summary for the user-model distiller. We
+			// publish on a fire-and-forget Subscribe topic so the chat
+			// returns immediately — durable write happens in the usermodel
+			// module's goroutine. We deliberately keep the body short and
+			// scrub it through the same secret/PII filters as the user-
+			// visible response so leaked secrets don't end up in the
+			// activity log.
+			activitySummary := MaskSecrets(req.Message)
+			activitySummary = RedactPII(activitySummary)
+			activitySummary = truncate(activitySummary, 200) + " -> " + truncate(MaskSecrets(RedactPII(response.Content)), 200)
+			r.bus.Publish(ipc.Message{
+				Source: "agent_runtime", Target: "usermodel", Topic: "usermodel.record_activity",
+				Type:    ipc.MessageTypeEvent,
+				Payload: map[string]string{"tenant": req.Tenant, "user": req.User, "summary": activitySummary},
+			})
 
 			// Apply security filters: mask secrets and redact PII
 			sanitized := MaskSecrets(response.Content)

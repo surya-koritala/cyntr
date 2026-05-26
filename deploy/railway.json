@@ -1,0 +1,53 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "_comment": "Railway template config for cyntr-try. Import via 'New Project > Deploy from GitHub' then point at this file. Railway will read the build + deploy stanzas and provision a Dockerfile-built service.",
+
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "deploy/Dockerfile.prod",
+    "buildCommand": null
+  },
+
+  "deploy": {
+    "_comment": "Cyntr exposes 7700; Railway auto-detects via PORT env, but we override the listen address explicitly so the binary doesn't fall back to localhost.",
+    "startCommand": "cyntr start /cyntr/hosted.cyntr.yaml.example",
+    "healthcheckPath": "/api/v1/system/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3,
+    "numReplicas": 1,
+    "region": "us-east4"
+  },
+
+  "_envVars": {
+    "_comment": "Set these in the Railway dashboard under Variables. Secrets stay out of this file.",
+    "required": {
+      "ANTHROPIC_API_KEY": "sk-ant-... (Anthropic console)"
+    },
+    "defaults": {
+      "CYNTR_LISTEN": "0.0.0.0:7700",
+      "CYNTR_DATA_DIR": "/cyntr/data",
+      "CYNTR_NODE_ID": "cyntr-railway",
+      "ANTHROPIC_MODEL": "claude-sonnet-4-20250514",
+      "OTEL_SERVICE_NAME": "cyntr-try"
+    },
+    "optional": {
+      "CYNTR_API_KEY": "bearer token to gate the public API",
+      "OTEL_EXPORTER_OTLP_ENDPOINT": "https://api.honeycomb.io",
+      "OPENAI_API_KEY": "fallback provider",
+      "CYNTR_PACK_LOOMFEED": "0"
+    }
+  },
+
+  "_volumes": {
+    "_comment": "Attach a Railway Volume to /cyntr/data via the dashboard. SQLite stores won't persist across deploys without it.",
+    "mountPath": "/cyntr/data",
+    "sizeMB": 1024
+  },
+
+  "_costEstimate": {
+    "_comment": "Railway charges per-resource-second. Trickle traffic on the smallest pod:",
+    "monthly_usd": "~$5",
+    "breakdown": "0.5 vCPU * 512 MB * 24h * 30d = $5-7/mo. Volume adds ~$0.25/GB-mo. No free tier as of 2026, but $5/mo credit on the Hobby plan covers a small cyntr-try."
+  }
+}

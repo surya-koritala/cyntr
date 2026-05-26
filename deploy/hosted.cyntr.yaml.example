@@ -1,0 +1,89 @@
+# deploy/hosted.cyntr.yaml.example
+#
+# Free-tier hosted Cyntr config — try.cyntr.dev / cyntr.cloud.
+#
+# Design goals:
+#   - One shared tenant (`public`). Every visitor's session lives here. The
+#     audit log + session.session_id is the actual unit of isolation; we
+#     do NOT spin up a tenant per visitor (that would balloon resource use
+#     and complicate quotas).
+#   - shell_exec is docker-only — random users on a shared host must not
+#     be able to bash on the underlying box.
+#   - Vertical packs OFF. Loomfeed is the consumer product; tools targeting
+#     internal Cyntr operations don't belong on a public free-tier.
+#   - Channels OFF. Slack/Telegram/Twilio listeners would bind ports the
+#     reverse proxy isn't expecting and leak secrets in env vars.
+#
+# Quotas (50k tokens/day, 10 req/min, 5 concurrent, 20 sessions/day),
+# retention TTLs (sessions 7d / memories 30d), and observability flags
+# are NOT yet first-class fields in kernel/config/schema.go. They are
+# either set at startup in cmd/cyntr/main.go or via env vars. See
+# deploy/STATUS.md for the gap list and remediation plan.
+
+version: "1"
+
+listen:
+  # Bind 0.0.0.0 — the proxy / Caddy fronts this; we're inside a container.
+  address: "0.0.0.0:8080"   # internal API + proxy gateway
+  webui:   "0.0.0.0:7700"   # dashboard + public API (proxied by Caddy/Fly)
+
+tenants:
+  # Single shared tenant. ALL hosted sessions land here; the session ID
+  # (issued per-browser via cookie) is the per-visitor identity, not the
+  # tenant. This keeps quota math simple — one bucket for the whole site.
+  public:
+    isolation: "process"
+    cgroup:
+      memory_limit: "256M"
+      cpu_shares: 512
+    policy: "policy.yaml"
+
+auth:
+  # Free-tier is anonymous-by-default. The platform-level CYNTR_API_KEY env
+  # var (if set) gates the API behind a single bearer token while the beta
+  # is private. Once the platform is public, add proper session auth via
+  # the policy engine + per-IP rate limit at the proxy layer (see
+  # deploy/auth-public.md for the gap analysis).
+  provider: ""
+  issuer:   ""
+  client_id: ""
+
+audit:
+  # Audit DB lives in the data volume so it survives restarts. 30d retention
+  # is conservative for a free-tier — long enough to investigate abuse, short
+  # enough to keep the SQLite file small.
+  storage_path: "audit.db"
+  retention:    "30d"
+
+federation:
+  # No outbound federation from the free-tier — we don't want try.cyntr.dev
+  # to be a relay into anyone's private cyntr node.
+  enabled: false
+  peers: []
+
+# Vertical packs default to OFF. Setting any to true here registers the
+# pack's tools at startup. Loomfeed is a consumer product; it has no
+# business on the shared hosted free-tier.
+packs:
+  loomfeed: false
+
+# ---------------------------------------------------------------------------
+# shell_exec_policies — CRITICAL on a public shared host.
+#
+# The `public` tenant routes shell_exec through Docker, NOT in-process.
+# Without this, an agent that calls `shell_exec({"command": "cat /etc/shadow"})`
+# would run as the cyntr container user on the host. With docker backend it
+# spins up a transient throwaway container with:
+#   --network none --read-only --tmpfs /tmp --memory 256m --cpus 0.5
+# stdout/stderr capped at 64KB, 30s timeout.
+#
+# If the host's Docker daemon is unreachable at startup, cyntr logs a warning
+# and falls back to in-process — **which on a hosted free-tier is unsafe**.
+# Surya: confirm `docker info` works inside the container (or on the host)
+# before exposing try.cyntr.dev publicly. See deploy/auth-public.md §3.
+# ---------------------------------------------------------------------------
+shell_exec_policies:
+  - tenant:  "public"
+    backend: "docker"
+    image:   "alpine:latest"
+    timeout: "30s"

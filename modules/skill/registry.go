@@ -43,8 +43,28 @@ func (r *Registry) Get(name string) (*InstalledSkill, bool) {
 	return s, ok
 }
 
-// List returns all installed skill names sorted alphabetically.
+// List returns all installed, enabled skill names sorted
+// alphabetically. Disabled skills are skipped so the agent's
+// skill_router doesn't surface them. Use ListAll for an
+// admin-style view that includes disabled.
 func (r *Registry) List() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.skills))
+	for name, s := range r.skills {
+		if s.Disabled {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// ListAll returns every installed skill including those the curator
+// has disabled. Admin / management UIs use this so disabled skills
+// remain discoverable for re-enable.
+func (r *Registry) ListAll() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	names := make([]string, 0, len(r.skills))
@@ -53,6 +73,49 @@ func (r *Registry) List() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Disable marks a skill as disabled. Idempotent in spirit but
+// returns an error containing "already disabled" so the curator's
+// prune loop can distinguish a first-time disable from a retry.
+func (r *Registry) Disable(name, reason string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.skills[name]
+	if !ok {
+		return fmt.Errorf("skill %q not found", name)
+	}
+	if s.Disabled {
+		return fmt.Errorf("skill %q already disabled", name)
+	}
+	s.Disabled = true
+	s.DisabledReason = reason
+	return nil
+}
+
+// Enable clears the disabled flag on a skill. Returns an error if
+// the skill is unknown; succeeds (no-op) if it's already enabled.
+func (r *Registry) Enable(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.skills[name]
+	if !ok {
+		return fmt.Errorf("skill %q not found", name)
+	}
+	s.Disabled = false
+	s.DisabledReason = ""
+	return nil
+}
+
+// IsDisabled reports whether a skill is currently disabled.
+func (r *Registry) IsDisabled(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	s, ok := r.skills[name]
+	if !ok {
+		return false
+	}
+	return s.Disabled
 }
 
 // Uninstall removes a skill from the registry.
@@ -78,13 +141,14 @@ func (r *Registry) InstallDirect(s *InstalledSkill) error {
 }
 
 // GetInstructions returns the instructions (skill.md content) for the given skill names.
-// Returns a map of name -> instructions. Missing skills are skipped.
+// Returns a map of name -> instructions. Missing or disabled skills are skipped so the
+// agent's skill_router cannot accidentally load a skill the curator has pruned.
 func (r *Registry) GetInstructions(names []string) map[string]string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	result := make(map[string]string)
 	for _, name := range names {
-		if s, ok := r.skills[name]; ok {
+		if s, ok := r.skills[name]; ok && !s.Disabled {
 			result[name] = s.Instructions
 		}
 	}
