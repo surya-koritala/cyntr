@@ -1,12 +1,27 @@
 package config
 
+import "time"
+
 type CyntrConfig struct {
-	Version    string                  `yaml:"version"`
-	Listen     ListenConfig            `yaml:"listen"`
-	Tenants    map[string]TenantConfig `yaml:"tenants"`
-	Auth       AuthConfig              `yaml:"auth"`
-	Audit      AuditConfig             `yaml:"audit"`
-	Federation FederationConfig        `yaml:"federation"`
+	Version            string                  `yaml:"version"`
+	Listen             ListenConfig            `yaml:"listen"`
+	Tenants            map[string]TenantConfig `yaml:"tenants"`
+	Auth               AuthConfig              `yaml:"auth"`
+	Audit              AuditConfig             `yaml:"audit"`
+	Federation         FederationConfig        `yaml:"federation"`
+	ShellExecPolicies  []ShellExecPolicyConfig `yaml:"shell_exec_policies"`
+}
+
+// ShellExecPolicyConfig declares which backend the shell_exec tool should use
+// for a given tenant. Backend is "inprocess" (default, runs bash -c on host)
+// or "docker" (runs inside an isolated tenant.DockerSandbox container with
+// --network none, read-only filesystem, /tmp tmpfs, 256m memory, 0.5 CPU).
+// Image and Timeout only apply when Backend == "docker".
+type ShellExecPolicyConfig struct {
+	Tenant  string        `yaml:"tenant"`
+	Backend string        `yaml:"backend"`
+	Image   string        `yaml:"image"`
+	Timeout time.Duration `yaml:"timeout"`
 }
 
 type ListenConfig struct {

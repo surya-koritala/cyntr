@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
+	"github.com/cyntr-dev/cyntr/kernel/config"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/agent"
@@ -156,7 +157,22 @@ func runStart() {
 
 	// Register tools
 	toolReg := agent.NewToolRegistry()
-	toolReg.Register(&agenttools.ShellTool{})
+
+	// Build shell tool. If shell_exec_policies is configured (and at least
+	// one entry asks for the docker backend), wire in a per-tenant selector
+	// so those tenants get container-isolated execution. Otherwise the tool
+	// keeps its legacy in-process behavior — opt-in, no breaking change.
+	shellTool := &agenttools.ShellTool{}
+	if policies := buildShellPolicies(cfg.ShellExecPolicies); len(policies) > 0 {
+		selector, err := agenttools.NewDockerBackendSelector(policies)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: shell_exec_policies: %v\n", err)
+		} else {
+			shellTool.BackendSelector = selector
+			log.Info("shell exec backend selector wired", map[string]any{"policies": len(policies)})
+		}
+	}
+	toolReg.Register(shellTool)
 	toolReg.Register(agenttools.NewHTTPTool())
 	toolReg.Register(&agenttools.FileReadTool{})
 	toolReg.Register(&agenttools.FileWriteTool{})
@@ -820,4 +836,23 @@ func runStart() {
 			return
 		}
 	}
+}
+
+// buildShellPolicies converts the YAML config form to the tools-package form.
+// Returns nil when no policies are declared so callers can cheaply skip the
+// selector wiring entirely.
+func buildShellPolicies(in []config.ShellExecPolicyConfig) []agenttools.ShellExecPolicy {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]agenttools.ShellExecPolicy, 0, len(in))
+	for _, p := range in {
+		out = append(out, agenttools.ShellExecPolicy{
+			Tenant:  p.Tenant,
+			Backend: p.Backend,
+			Image:   p.Image,
+			Timeout: p.Timeout,
+		})
+	}
+	return out
 }
