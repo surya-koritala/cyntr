@@ -72,7 +72,7 @@ tenants:
 	sm := auth.NewSessionManager("test-secret-key-minimum-32-bytes!")
 	rbac := auth.NewRBAC()
 	authMod := auth.NewModule(sm, rbac)
-	policyEngine := policy.NewEngine(policyPath)
+	policyEngine := policy.NewEngine(policyPath, "")
 
 	if err := k.Register(policyEngine); err != nil { t.Fatalf("register policy: %v", err) }
 	if err := k.Register(authMod); err != nil { t.Fatalf("register auth: %v", err) }

@@ -44,7 +44,7 @@ rules:
 		t.Fatalf("config: %v", err)
 	}
 
-	policyEngine := policy.NewEngine(policyPath)
+	policyEngine := policy.NewEngine(policyPath, "")
 	gateway := proxy.NewGateway("127.0.0.1:0")
 
 	if err := k.Register(policyEngine); err != nil {

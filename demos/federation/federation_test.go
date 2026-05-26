@@ -89,7 +89,7 @@ tenants:
 		t.Fatalf("%s: load config: %v", id, err)
 	}
 
-	policyEngine := policy.NewEngine(policyPath)
+	policyEngine := policy.NewEngine(policyPath, "")
 	agentRuntime := agent.NewRuntime()
 	// Embed the node ID in the mock response so the test can prove which
 	// node actually served the request.

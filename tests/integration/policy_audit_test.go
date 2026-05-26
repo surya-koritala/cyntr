@@ -36,7 +36,7 @@ rules:
 		t.Fatalf("load config: %v", err)
 	}
 
-	policyEngine := policy.NewEngine(policyPath)
+	policyEngine := policy.NewEngine(policyPath, "")
 	auditLogger := audit.NewLogger(filepath.Join(dir, "audit.db"), "test-instance", "test-secret")
 
 	if err := k.Register(policyEngine); err != nil {

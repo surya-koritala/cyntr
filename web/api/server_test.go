@@ -36,7 +36,7 @@ func setupKernel(t *testing.T) (*kernel.Kernel, *ipc.Bus) {
 	k := kernel.New()
 	k.LoadConfig(cfgPath)
 
-	policyEngine := policy.NewEngine(policyPath)
+	policyEngine := policy.NewEngine(policyPath, "")
 	agentRuntime := agent.NewRuntime()
 	agentRuntime.RegisterProvider(agentproviders.NewMock("Test response"))
 
