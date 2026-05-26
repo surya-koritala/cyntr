@@ -12,6 +12,7 @@ import (
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/policy"
+	"github.com/cyntr-dev/cyntr/modules/usermodel"
 )
 
 var logger = log.Default().WithModule("agent_runtime")
@@ -242,6 +243,53 @@ func (r *Runtime) LoadSavedAgents() error {
 	return nil
 }
 
+// loadUserProfile fetches the curated profile + preferences for (tenant, user)
+// from the usermodel module via the IPC bus and renders them as system-prompt
+// text. Returns "" when no profile is available, the module isn't registered,
+// or anything else goes wrong — never errors, so a missing user model never
+// breaks an in-flight chat.
+func (r *Runtime) loadUserProfile(tenant, user string) string {
+	if r.bus == nil || tenant == "" || user == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	resp, err := r.bus.Request(ctx, ipc.Message{
+		Source: "agent_runtime", Target: "usermodel", Topic: "usermodel.get",
+		Payload: map[string]string{"tenant": tenant, "user": user},
+	})
+	if err != nil {
+		// ipc.ErrNoHandler is expected when the usermodel module isn't
+		// registered; treat as "no profile" and move on. Other errors are
+		// also swallowed so a transient store failure doesn't block chat.
+		return ""
+	}
+
+	p, ok := resp.Payload.(usermodel.UserProfile)
+	if !ok {
+		return ""
+	}
+	if p.ProfileMD == "" && p.PreferencesMD == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("User profile:\n")
+	if p.ProfileMD == "" {
+		b.WriteString("(none)")
+	} else {
+		b.WriteString(p.ProfileMD)
+	}
+	b.WriteString("\n\nUser preferences:\n")
+	if p.PreferencesMD == "" {
+		b.WriteString("(none)")
+	} else {
+		b.WriteString(p.PreferencesMD)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 // checkToolPolicy checks if a tool execution is allowed.
 // Returns "allow", "deny", or "require_approval".
 // When no policy module is registered, defaults to "allow" (permissive).
@@ -332,11 +380,27 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("model provider %q not found", inst.config.Model)
 	}
 
-	// Inject long-term memories into session context before the agentic loop
+	// Build the system-context prelude: curated user profile (from the
+	// usermodel module, if registered) followed by the flat long-term memory
+	// stream. The combined string is handed to the session as its "memories"
+	// block so it lands in the system prompt just like before.
+	var contextPrelude string
+	if profileText := r.loadUserProfile(req.Tenant, req.User); profileText != "" {
+		contextPrelude = profileText
+	}
 	if r.memoryStore != nil {
 		if memories, err := r.memoryStore.Recall(req.Agent, req.Tenant); err == nil {
-			inst.session.SetMemories(FormatForContext(memories))
+			if memText := FormatForContext(memories); memText != "" {
+				if contextPrelude != "" {
+					contextPrelude += "\n\n" + memText
+				} else {
+					contextPrelude = memText
+				}
+			}
 		}
+	}
+	if contextPrelude != "" {
+		inst.session.SetMemories(contextPrelude)
 	}
 
 	// Load skill instructions on-demand

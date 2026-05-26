@@ -39,6 +39,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/scheduler"
 	"github.com/cyntr-dev/cyntr/modules/skill"
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
+	"github.com/cyntr-dev/cyntr/modules/usermodel"
 	"github.com/cyntr-dev/cyntr/modules/workflow"
 	"github.com/cyntr-dev/cyntr/tenant"
 	"github.com/cyntr-dev/cyntr/web"
@@ -177,6 +178,8 @@ func runStart() {
 	toolReg.Register(agenttools.NewCSVQueryTool())
 	toolReg.Register(agenttools.NewSendNotificationTool())
 	toolReg.Register(agenttools.NewToolPlanTool(toolReg, k.Bus()))
+	toolReg.Register(agenttools.NewUserModelReadTool(k.Bus()))
+	toolReg.Register(agenttools.NewUserModelWriteTool(k.Bus()))
 
 	// Load custom YAML tools from tools/ directory
 	yamlTools, err := agenttools.LoadToolsFromDir("tools")
@@ -551,6 +554,15 @@ func runStart() {
 	slaMonitor := sla.New()
 	slaMonitor.SetNotifier(notifierInst)
 	k.Register(slaMonitor)
+
+	// User-model module — per-(tenant,user) curated profile + preferences
+	// loaded into every chat's system context and editable via tools/API.
+	userModelStore, err := usermodel.NewStore("usermodel.db")
+	if err != nil {
+		log.Warn("usermodel store disabled", map[string]any{"error": err.Error()})
+	} else {
+		k.Register(usermodel.New(userModelStore))
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

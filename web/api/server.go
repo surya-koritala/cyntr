@@ -77,6 +77,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/v1/tenants/{tid}/users/{uid}", s.handleUserDelete)
 	s.mux.HandleFunc("GET /api/v1/auth/me", s.handleAuthMe)
 
+	// User curated profile (USER.md / SOUL.md equivalent)
+	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/users/{uid}/profile", s.handleUserProfileGet)
+	s.mux.HandleFunc("PUT /api/v1/tenants/{tid}/users/{uid}/profile", s.handleUserProfilePut)
+
 	// Search
 	s.mux.HandleFunc("GET /api/v1/search", s.handleAgentSearch)
 
