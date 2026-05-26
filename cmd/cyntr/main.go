@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"os/signal"
 	"syscall"
@@ -128,23 +129,23 @@ func runStart() {
 
 	// Register all modules
 	policyEngine := policy.NewEngine(policyPath, regoPath)
-	auditLogger := audit.NewLogger("audit.db", "cyntr-local", "audit-secret")
+	auditLogger := audit.NewLogger(dataPath("audit.db"), "cyntr-local", "audit-secret")
 	agentRuntime := agent.NewRuntime()
 
-	sessionStore, err := agent.NewSessionStore("sessions.db")
+	sessionStore, err := agent.NewSessionStore(dataPath("sessions.db"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "session store error: %v\n", err)
 		os.Exit(1)
 	}
 	agentRuntime.SetSessionStore(sessionStore)
 
-	memoryStore, err := agent.NewMemoryStore("memory.db")
+	memoryStore, err := agent.NewMemoryStore(dataPath("memory.db"))
 	if err != nil {
 		log.Warn("memory store disabled", map[string]any{"error": err.Error()})
 	}
 	agentRuntime.SetMemoryStore(memoryStore)
 
-	usageStore, _ := agent.NewUsageStore("usage.db")
+	usageStore, _ := agent.NewUsageStore(dataPath("usage.db"))
 	agentRuntime.SetUsageStore(usageStore)
 
 	// Start data retention scheduler (cleans up old sessions/memories/usage)
@@ -215,7 +216,7 @@ func runStart() {
 	}
 
 	// Knowledge base tool
-	knowledgeTool, err := agenttools.NewKnowledgeTool("knowledge_base.db")
+	knowledgeTool, err := agenttools.NewKnowledgeTool(dataPath("knowledge_base.db"))
 	if err == nil {
 		toolReg.Register(knowledgeTool)
 		webapi.SetKnowledgeTool(knowledgeTool)
@@ -613,7 +614,7 @@ func runStart() {
 		nodeID = "cyntr-local"
 	}
 	federationMod := federation.NewModule(nodeID)
-	schedulerMod := scheduler.New("scheduler_jobs.json")
+	schedulerMod := scheduler.New(dataPath("scheduler_jobs.json"))
 	workflowEngine := workflow.New()
 
 	// MCP module
@@ -637,7 +638,7 @@ func runStart() {
 	k.Register(agentRuntime)
 	k.Register(channelMgr)
 	k.Register(proxyGateway)
-	k.Register(quota.New("quota.db"))
+	k.Register(quota.New(dataPath("quota.db")))
 	k.Register(skillRuntime)
 	k.Register(federationMod)
 	k.Register(schedulerMod)
@@ -653,7 +654,7 @@ func runStart() {
 	k.Register(evalRunner)
 
 	// Curator (F3 — records skill invocations, exposes scores + prune suggestions)
-	curatorMod := curator.New("curator.db")
+	curatorMod := curator.New(dataPath("curator.db"))
 	k.Register(curatorMod)
 
 	// Notification channels
@@ -678,7 +679,7 @@ func runStart() {
 
 	// User-model module — per-(tenant,user) curated profile + preferences
 	// loaded into every chat's system context and editable via tools/API.
-	userModelStore, err := usermodel.NewStore("usermodel.db")
+	userModelStore, err := usermodel.NewStore(dataPath("usermodel.db"))
 	if err != nil {
 		log.Warn("usermodel store disabled", map[string]any{"error": err.Error()})
 	} else {
@@ -875,6 +876,23 @@ func buildShellPolicies(in []config.ShellExecPolicyConfig) []agenttools.ShellExe
 		})
 	}
 	return out
+}
+
+// dataPath resolves a relative store filename against the CYNTR_DATA_DIR
+// env var. When unset (the legacy default) it returns the name unchanged so
+// SQLite stores land in the current working directory — exactly the
+// behaviour pre-T2.5. When set (typical for hosted/container deployments)
+// the directory is created on first use, and all store files live there so
+// a single mounted volume covers durable state.
+func dataPath(name string) string {
+	dir := os.Getenv("CYNTR_DATA_DIR")
+	if dir == "" {
+		return name
+	}
+	// Best-effort: if MkdirAll fails the store opens will surface a clearer
+	// error than a silent fallback would. Ignore the error here.
+	_ = os.MkdirAll(dir, 0o755)
+	return filepath.Join(dir, name)
 }
 
 // packEnabled returns true when the named pack is opted in via cyntr.yaml

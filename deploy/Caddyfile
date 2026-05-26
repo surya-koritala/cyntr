@@ -1,0 +1,68 @@
+# deploy/Caddyfile
+#
+# Sits in front of cyntr in docker-compose.hosted.yml. Two responsibilities:
+#   1. terminate TLS via Let's Encrypt (Caddy handles ACME automatically)
+#   2. cap per-IP request rates so try.cyntr.dev can't be DOS'd by a single
+#      curl-in-a-loop attacker.
+#
+# Caddy's stock rate-limit handler is the community plugin `mholt/caddy-ratelimit`.
+# The default caddy:2.8-alpine image does NOT include it — if you want the
+# rate-limit handler active, swap the docker-compose `image:` for a custom
+# build, e.g.:
+#
+#   FROM caddy:2.8-builder AS builder
+#   RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+#
+#   FROM caddy:2.8-alpine
+#   COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+#
+# Until then the `rate_limit` block below is commented out; raw Caddy will
+# still serve traffic, just without per-IP throttling. The cyntr quota module
+# (configured in hosted.cyntr.yaml.example) provides a second layer of defense
+# even without this.
+
+{
+    email {$CYNTR_TLS_EMAIL}
+    # Uncomment to use Let's Encrypt staging while debugging cert issuance:
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+
+    # order rate_limit before reverse_proxy
+}
+
+{$CYNTR_DOMAIN} {
+    encode zstd gzip
+
+    # -------- per-IP rate limit (requires caddy-ratelimit plugin) --------
+    # rate_limit {
+    #     zone hosted_per_ip {
+    #         key    {client_ip}
+    #         events 60
+    #         window 1m
+    #     }
+    #     zone hosted_per_ip_burst {
+    #         key    {client_ip}
+    #         events 10
+    #         window 1s
+    #     }
+    # }
+
+    # Block obvious bot paths early to save backend cycles.
+    @bad path /.env /.git/* /wp-admin/* /phpmyadmin/*
+    respond @bad "not found" 404
+
+    # Real client IPs in cyntr's audit log.
+    reverse_proxy cyntr:7700 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        transport http {
+            keepalive 30s
+        }
+    }
+
+    log {
+        output stdout
+        format json
+        level  INFO
+    }
+}

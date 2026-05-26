@@ -1,0 +1,96 @@
+# syntax=docker/dockerfile:1.7
+#
+# deploy/Dockerfile.prod — production image for cyntr.cloud / try.cyntr.dev.
+#
+# Multi-stage build:
+#   1. golang:1.26-alpine compiles a fully static binary (CGO_ENABLED=0).
+#   2. alpine:3.21 runtime hosts the binary, dashboard assets, and a non-root
+#      user. Distroless was considered but alpine wins because we still want
+#      `wget` for the HEALTHCHECK and `ca-certificates` for outbound TLS.
+#
+# Build from the repository root:
+#   docker build -f deploy/Dockerfile.prod -t cyntr:prod .
+#
+# The legacy top-level Dockerfile is left intact for developers running
+# `docker compose up` — this file is the one fly.io / Render / Railway use.
+
+# ---------- stage 1: build ----------
+FROM golang:1.26-alpine AS builder
+
+ARG VERSION=dev
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /src
+
+# Cache module downloads as a separate layer.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Static, stripped binary. -trimpath strips build paths for reproducibility.
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build \
+      -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION}" \
+      -o /out/cyntr \
+      ./cmd/cyntr
+
+# ---------- stage 2: runtime ----------
+FROM alpine:3.21
+
+# Runtime deps:
+#   ca-certificates — outbound TLS (Anthropic, OTel collectors, etc.)
+#   tzdata          — correct timestamps in audit log
+#   wget            — HEALTHCHECK probe (busybox wget is already in alpine,
+#                     but we make the dependency explicit for clarity)
+#   bash            — shell_exec inprocess backend (only used by trusted tenants)
+RUN apk add --no-cache ca-certificates tzdata wget bash \
+    && addgroup -S cyntr \
+    && adduser  -S -G cyntr -h /cyntr -s /sbin/nologin cyntr
+
+WORKDIR /cyntr
+
+# Binary + dashboard static assets. The dashboard is embedded into the binary
+# via go:embed (see web/dashboard.go) so we don't need to copy web/static/ at
+# runtime — but we copy the example configs so an operator who shells into
+# the container has them on hand.
+COPY --from=builder /out/cyntr           /usr/local/bin/cyntr
+COPY --from=builder /src/cyntr.yaml.example  /cyntr/cyntr.yaml.example
+COPY --from=builder /src/policy.rego.example /cyntr/policy.rego.example
+COPY --from=builder /src/deploy/hosted.cyntr.yaml.example /cyntr/hosted.cyntr.yaml.example
+
+# Pre-create the data dir and chown to the non-root user so the volume mount
+# inherits the right ownership on platforms that respect VOLUME ownership
+# (fly.io does; Docker Desktop on macOS does not — operators may need to chown
+# manually after `docker volume create`).
+RUN mkdir -p /cyntr/data && chown -R cyntr:cyntr /cyntr
+
+USER cyntr
+
+# ---------- environment defaults ----------
+# CYNTR_LISTEN binds the dashboard + public API. 0.0.0.0 so the container is
+# reachable from outside without an extra flag.
+ENV CYNTR_LISTEN=0.0.0.0:7700 \
+    CYNTR_DATA_DIR=/cyntr/data \
+    CYNTR_NODE_ID=cyntr-cloud \
+    GOTRACEBACK=single
+
+# Persistent state lives here: sessions.db, memory.db, audit.db, usage.db,
+# quota.db, knowledge_base.db, curator.db, usermodel.db, scheduler_jobs.json.
+# Mount this as a fly volume / docker named volume to survive restarts.
+VOLUME ["/cyntr/data"]
+
+# Dashboard + public API port. Internal proxy/IPC stays loopback-only.
+EXPOSE 7700
+
+# Health check hits the cyntr system-health endpoint every 30s after a 20s
+# grace period for startup (config load + module init).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+  CMD wget -q --spider http://127.0.0.1:7700/api/v1/system/health || exit 1
+
+ENTRYPOINT ["cyntr"]
+CMD ["start", "/cyntr/hosted.cyntr.yaml.example"]

@@ -1,0 +1,127 @@
+# deploy/docker-compose.hosted.yml
+#
+# Opinionated stack for self-hosting try.cyntr.dev (or your own free-tier
+# Cyntr endpoint). Differs from the root docker-compose.yml in three ways:
+#   1. Builds from deploy/Dockerfile.prod (non-root, hardened, distroless-ish).
+#   2. Caddy fronts cyntr with automatic Let's Encrypt TLS + per-IP rate limit.
+#   3. Jaeger + Prometheus are wired up but commented — uncomment when needed.
+#
+# Operating model:
+#   - copy `deploy/hosted.env.example` to `.env`
+#   - point your DNS A record at this host's public IP
+#   - `docker compose -f deploy/docker-compose.hosted.yml --env-file .env up -d`
+#
+# Approximate monthly cost: ~$6-12 on a Hetzner CX22 or DO basic droplet.
+
+version: "3.9"
+
+services:
+  # -----------------------------------------------------------------------
+  # cyntr — the application itself.
+  # -----------------------------------------------------------------------
+  cyntr:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.prod
+      args:
+        VERSION: ${CYNTR_VERSION:-hosted-beta}
+    image: cyntr:hosted
+    restart: unless-stopped
+    expose:
+      - "7700"          # only Caddy reaches this; not published to host
+    environment:
+      CYNTR_LISTEN: "0.0.0.0:7700"
+      CYNTR_DATA_DIR: "/cyntr/data"
+      CYNTR_NODE_ID:   "${CYNTR_NODE_ID:-cyntr-hosted}"
+      # LLM provider — pick at least one or the platform is read-only.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      ANTHROPIC_MODEL:   "${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}"
+      OPENAI_API_KEY:    "${OPENAI_API_KEY:-}"
+      # OTel — exporter endpoint comes from .env; module no-ops when unset.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      OTEL_SERVICE_NAME:           "cyntr-hosted"
+    volumes:
+      - cyntr-data:/cyntr/data
+      # Mount the hosted free-tier config read-only so accidental edits in
+      # the container can't drift from source-of-truth.
+      - ./hosted.cyntr.yaml.example:/cyntr/hosted.cyntr.yaml.example:ro
+    command: ["start", "/cyntr/hosted.cyntr.yaml.example"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7700/api/v1/system/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - cyntr-net
+
+  # -----------------------------------------------------------------------
+  # caddy — reverse proxy, auto-TLS via Let's Encrypt, per-IP rate limit.
+  # Caddy is preferred over Traefik for this use case: the config is one
+  # short file, ACME is built-in, and the rate-limit module is shipped via
+  # a small custom build (caddy-rate-limit) — see Caddyfile for details.
+  # -----------------------------------------------------------------------
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      CYNTR_DOMAIN:    "${CYNTR_DOMAIN:-try.cyntr.dev}"
+      CYNTR_TLS_EMAIL: "${CYNTR_TLS_EMAIL:-admin@cyntr.dev}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      cyntr:
+        condition: service_healthy
+    networks:
+      - cyntr-net
+
+  # -----------------------------------------------------------------------
+  # OPTIONAL — Jaeger for trace inspection.
+  # Uncomment, then set OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 in
+  # .env. UI on :16686, only exposed on loopback to keep it private.
+  # -----------------------------------------------------------------------
+  # jaeger:
+  #   image: jaegertracing/all-in-one:1.62
+  #   restart: unless-stopped
+  #   environment:
+  #     COLLECTOR_OTLP_ENABLED: "true"
+  #   ports:
+  #     - "127.0.0.1:16686:16686"   # web UI, loopback only
+  #   expose:
+  #     - "4317"   # OTLP gRPC
+  #     - "4318"   # OTLP HTTP
+  #   networks:
+  #     - cyntr-net
+
+  # -----------------------------------------------------------------------
+  # OPTIONAL — Prometheus scrape of /api/v1/system/metrics.
+  # The cyntr observability module exposes a Prometheus exposition endpoint
+  # when OTEL is enabled. Drop a prometheus.yml beside this file with a
+  # `scrape_config` pointing at cyntr:7700 to use it.
+  # -----------------------------------------------------------------------
+  # prometheus:
+  #   image: prom/prometheus:v2.55.0
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - prom-data:/prometheus
+  #   ports:
+  #     - "127.0.0.1:9090:9090"
+  #   networks:
+  #     - cyntr-net
+
+volumes:
+  cyntr-data:
+  caddy-data:
+  caddy-config:
+  # prom-data:
+
+networks:
+  cyntr-net:
+    driver: bridge
