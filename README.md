@@ -19,6 +19,27 @@
 
 ---
 
+## What you can build with Cyntr
+
+Cyntr is a platform; you ship verticals on top of it. Each vertical is a small
+pack of pre-built agents, runbook content, and a Slack-native surface.
+
+- **Cyntr for Cloud Ops** — three pre-built agents that diagnose AWS cost
+  spikes, troubleshoot Kubernetes workloads, and run point-in-time security
+  audits. Slack-native, read-only by default, every tool call audit-logged.
+  See [demos/cloud-ops/](demos/cloud-ops/) for the install (3 commands) and
+  example conversations.
+- **Cyntr for Customer Support** *(coming soon)* — Zendesk-aware triage agent
+  that classifies tickets, searches the KB, and drafts a reply for a human to
+  approve before send.
+- **Cyntr for Compliance** *(coming soon)* — quarterly evidence-collection
+  agent that pulls IAM, GitHub, and Okta state into a SOC 2 / ISO 27001
+  control-matrix-shaped report.
+
+Each vertical ships as YAML — no fork of Cyntr core required.
+
+---
+
 ## Why Cyntr?
 
 Most AI agent frameworks are libraries — you build around them. Cyntr is a **platform** — you deploy it and it runs your agents. Single Go binary. Zero external dependencies. Self-hosted.
