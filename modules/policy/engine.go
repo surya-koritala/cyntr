@@ -14,13 +14,22 @@ var logger = log.Default().WithModule("policy")
 
 type Engine struct {
 	policyPath string
+	regoPath   string
 	ruleSet    *RuleSet
+	rego       *RegoEvaluator
 	bus        *ipc.Bus
 	approvals  *ApprovalQueue
 }
 
-func NewEngine(policyPath string) *Engine {
-	return &Engine{policyPath: policyPath}
+// NewEngine constructs a policy engine.
+//
+//   - yamlPath: path to the YAML PolicyConfig (required)
+//   - regoPath: path to a .rego file or directory of .rego files; "" disables Rego.
+//
+// When both are loaded, YAML is evaluated first. If YAML returns Allow and
+// Rego denies, the deny wins (fail-closed composition). YAML denies short-circuit.
+func NewEngine(yamlPath, regoPath string) *Engine {
+	return &Engine{policyPath: yamlPath, regoPath: regoPath}
 }
 
 func (e *Engine) Name() string           { return "policy" }
@@ -33,6 +42,11 @@ func (e *Engine) Init(ctx context.Context, svc *kernel.Services) error {
 		return fmt.Errorf("policy engine init: %w", err)
 	}
 	e.ruleSet = rs
+	rg, err := LoadRegoPolicy(e.regoPath)
+	if err != nil {
+		return fmt.Errorf("policy engine init (rego): %w", err)
+	}
+	e.rego = rg
 	e.approvals = NewApprovalQueue(0)
 	return nil
 }
@@ -55,7 +69,11 @@ func (e *Engine) Health(ctx context.Context) kernel.HealthStatus {
 	if e.ruleSet == nil {
 		return kernel.HealthStatus{Healthy: false, Message: "rules not loaded"}
 	}
-	return kernel.HealthStatus{Healthy: true, Message: fmt.Sprintf("%d rules loaded", len(e.ruleSet.Rules))}
+	msg := fmt.Sprintf("%d rules loaded", len(e.ruleSet.Rules))
+	if e.rego != nil {
+		msg += fmt.Sprintf(" + rego (%d files)", len(e.rego.Sources()))
+	}
+	return kernel.HealthStatus{Healthy: true, Message: msg}
 }
 
 func (e *Engine) handleListRules(msg ipc.Message) (ipc.Message, error) {
@@ -130,6 +148,19 @@ func (e *Engine) handleConfigReload(msg ipc.Message) (ipc.Message, error) {
 	}
 	e.ruleSet = rs
 	logger.Info("policy rules reloaded", map[string]any{"count": len(rs.Rules)})
+
+	rg, err := LoadRegoPolicy(e.regoPath)
+	if err != nil {
+		logger.Error("rego policy reload failed", map[string]any{"error": err.Error()})
+		// keep existing rego evaluator on failure — fail closed against broken reload
+		return ipc.Message{}, nil
+	}
+	e.rego = rg
+	if rg != nil {
+		logger.Info("rego policy reloaded", map[string]any{"files": len(rg.Sources())})
+	} else {
+		logger.Info("rego policy disabled after reload", nil)
+	}
 	return ipc.Message{}, nil
 }
 
@@ -139,7 +170,7 @@ func (e *Engine) handleCheck(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("expected CheckRequest, got %T", msg.Payload)
 	}
 	start := time.Now()
-	resp := e.ruleSet.Evaluate(req)
+	resp := e.evaluate(req)
 	dur := time.Since(start)
 	if dur > 100*time.Millisecond {
 		logger.Warn("slow policy evaluation", map[string]any{
@@ -147,4 +178,32 @@ func (e *Engine) handleCheck(msg ipc.Message) (ipc.Message, error) {
 		})
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: resp}, nil
+}
+
+// evaluate composes YAML and Rego decisions with fail-closed semantics:
+//   - YAML evaluates first.
+//   - If YAML denies → short-circuit, return YAML deny.
+//   - If YAML allows or requires approval AND a Rego evaluator is loaded,
+//     run Rego. If Rego denies, deny wins. Otherwise the stricter of the
+//     two decisions stands (RequireApproval > Allow).
+func (e *Engine) evaluate(req CheckRequest) CheckResponse {
+	yamlResp := e.ruleSet.Evaluate(req)
+	if yamlResp.Decision == Deny {
+		return yamlResp
+	}
+	if e.rego == nil {
+		return yamlResp
+	}
+	regoResp := e.rego.Evaluate(context.Background(), req)
+	if regoResp.Decision == Deny {
+		return regoResp
+	}
+	// Both non-deny: pick the stricter (RequireApproval wins over Allow).
+	if regoResp.Decision == RequireApproval || yamlResp.Decision == RequireApproval {
+		if yamlResp.Decision == RequireApproval {
+			return yamlResp
+		}
+		return regoResp
+	}
+	return yamlResp
 }
