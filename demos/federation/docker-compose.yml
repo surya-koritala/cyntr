@@ -1,0 +1,54 @@
+# Federation demo: two cyntr nodes with independent tenants and policies.
+# node-a (port 7700) runs the `research` agent.
+# node-b (port 7800) runs the `legal` agent.
+# After `docker compose up`, run ./run.sh to peer them and trigger a
+# cross-node delegation; node-b's policy decides whether to honour it.
+
+services:
+  node-a:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: cyntr-node-a
+    ports:
+      - "7700:7700"   # dashboard / API
+      - "8080:8080"   # api address from cyntr.yaml
+    volumes:
+      - ./node-a/cyntr.yaml:/app/cyntr.yaml:ro
+      - ./node-a/policy.yaml:/app/policy.yaml:ro
+      - ./node-a/agents/research.json:/app/research-agent.json:ro
+    environment:
+      CYNTR_NODE_ID: node-a
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7700/api/v1/federation/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - federation
+
+  node-b:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: cyntr-node-b
+    ports:
+      - "7800:7800"   # dashboard / API
+      - "8081:8080"   # api address from cyntr.yaml (remap to avoid clash)
+    volumes:
+      - ./node-b/cyntr.yaml:/app/cyntr.yaml:ro
+      - ./node-b/policy.yaml:/app/policy.yaml:ro
+      - ./node-b/agents/legal.json:/app/legal-agent.json:ro
+    environment:
+      CYNTR_NODE_ID: node-b
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7800/api/v1/federation/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - federation
+
+networks:
+  federation:
+    driver: bridge

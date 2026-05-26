@@ -584,7 +584,11 @@ func runStart() {
 	proxyGateway.SetUpstreamURL(proxyUpstream)
 	skillRuntime := skill.NewRuntime()
 	skillRuntime.SetOpenClawLoader(compat.LoadOpenClawSkillFromFile)
-	federationMod := federation.NewModule("cyntr-local")
+	nodeID := os.Getenv("CYNTR_NODE_ID")
+	if nodeID == "" {
+		nodeID = "cyntr-local"
+	}
+	federationMod := federation.NewModule(nodeID)
 	schedulerMod := scheduler.New("scheduler_jobs.json")
 	workflowEngine := workflow.New()
 

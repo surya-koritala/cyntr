@@ -385,7 +385,26 @@ Connect multiple Cyntr instances for cross-site agent communication:
 
 - **Policy sync** — rules propagated across peers
 - **Federated audit** — query logs across all connected nodes
-- **Agent delegation** — agents on one node can delegate to agents on another
+- **Cross-node delegation** — agents on one node delegate to agents on another, with the receiving node enforcing its own policy on every inbound request
+
+**Runnable demo:** [`demos/federation/`](demos/federation/) — two cyntr nodes,
+two tenants, one cross-node delegation. The receiving node's policy
+explicitly authorises the call; a second call to a non-allowed agent is
+denied before the agent runtime runs.
+
+**Full explainer:** [`docs/federation.md`](docs/federation.md) — architecture,
+trust model, limits, security considerations.
+
+```bash
+# in-process, no infra
+go test ./demos/federation/ -v
+
+# two real cyntr processes
+./demos/federation/run.sh
+
+# docker
+cd demos/federation && docker compose up --build
+```
 
 ---
 
@@ -556,6 +575,9 @@ All endpoints return: `{"data": ..., "meta": {"request_id", "timestamp"}, "error
 | GET | `/api/v1/federation/peers` | List federation peers |
 | POST | `/api/v1/federation/peers` | Join federation |
 | DELETE | `/api/v1/federation/peers/{name}` | Remove peer |
+| POST | `/api/v1/federation/delegate` | Send a delegation request to a peer (cross-node agent call) |
+| POST | `/api/v1/federation/inbound/delegate` | Peer-facing inbound delegation endpoint |
+| GET | `/api/v1/federation/health` | Liveness probe for peers |
 
 ### MCP Servers
 | Method | Endpoint | Description |

@@ -1,0 +1,31 @@
+# node-b is the receiving node — this policy controls who may invoke our
+# agents via federation. The point of the demo: node-b's owners decide
+# their own boundary, regardless of what node-a wants.
+rules:
+  # Federation: only the `legal` agent in the `legal` tenant may be invoked
+  # by remote peers. Any other federated request is denied.
+  - name: allow-federated-legal
+    tenant: legal
+    action: federation_inbound
+    tool: "*"
+    agent: legal
+    decision: allow
+    priority: 50
+
+  - name: deny-federated-other
+    tenant: "*"
+    action: federation_inbound
+    tool: "*"
+    agent: "*"
+    decision: deny
+    priority: 40
+
+  # Local agent activity is permissive — federation policy is what we care
+  # about in this demo.
+  - name: allow-local
+    tenant: "*"
+    action: "*"
+    tool: "*"
+    agent: "*"
+    decision: allow
+    priority: 1

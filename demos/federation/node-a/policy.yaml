@@ -1,0 +1,28 @@
+# node-a policy.
+# Permissive on outbound — node-a's research agent is allowed to call other tools
+# and to invoke the federation_delegate path. The receiving node (node-b) enforces
+# its own policy on what we may invoke.
+rules:
+  - name: allow-research-delegate
+    tenant: research
+    action: tool_call
+    tool: delegate_agent
+    agent: research
+    decision: allow
+    priority: 50
+
+  - name: allow-model-calls
+    tenant: "*"
+    action: model_call
+    tool: "*"
+    agent: "*"
+    decision: allow
+    priority: 10
+
+  - name: allow-default
+    tenant: "*"
+    action: "*"
+    tool: "*"
+    agent: "*"
+    decision: allow
+    priority: 1
