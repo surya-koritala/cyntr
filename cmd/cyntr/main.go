@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
+	"github.com/cyntr-dev/cyntr/kernel/config"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/agent"
@@ -33,6 +34,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/eval"
 	"github.com/cyntr-dev/cyntr/modules/federation"
 	"github.com/cyntr-dev/cyntr/modules/notify"
+	"github.com/cyntr-dev/cyntr/modules/observability"
 	"github.com/cyntr-dev/cyntr/modules/sla"
 	"github.com/cyntr-dev/cyntr/modules/crew"
 	"github.com/cyntr-dev/cyntr/modules/curator"
@@ -45,6 +47,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
 	"github.com/cyntr-dev/cyntr/modules/usermodel"
 	"github.com/cyntr-dev/cyntr/modules/workflow"
+	"github.com/cyntr-dev/cyntr/packs/loomfeed"
 	"github.com/cyntr-dev/cyntr/tenant"
 	"github.com/cyntr-dev/cyntr/web"
 	webapi "github.com/cyntr-dev/cyntr/web/api"
@@ -156,7 +159,22 @@ func runStart() {
 
 	// Register tools
 	toolReg := agent.NewToolRegistry()
-	toolReg.Register(&agenttools.ShellTool{})
+
+	// Build shell tool. If shell_exec_policies is configured (and at least
+	// one entry asks for the docker backend), wire in a per-tenant selector
+	// so those tenants get container-isolated execution. Otherwise the tool
+	// keeps its legacy in-process behavior — opt-in, no breaking change.
+	shellTool := &agenttools.ShellTool{}
+	if policies := buildShellPolicies(cfg.ShellExecPolicies); len(policies) > 0 {
+		selector, err := agenttools.NewDockerBackendSelector(policies)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: shell_exec_policies: %v\n", err)
+		} else {
+			shellTool.BackendSelector = selector
+			log.Info("shell exec backend selector wired", map[string]any{"policies": len(policies)})
+		}
+	}
+	toolReg.Register(shellTool)
 	toolReg.Register(agenttools.NewHTTPTool())
 	toolReg.Register(&agenttools.FileReadTool{})
 	toolReg.Register(&agenttools.FileWriteTool{})
@@ -209,11 +227,17 @@ func runStart() {
 	// AWS tools
 	toolReg.Register(agenttools.NewAWSTool())
 	toolReg.Register(agenttools.NewCostExplorerTool())
-	alatirokTool := agenttools.NewAlatirokTool()
-	newsTool := agenttools.NewNewsAggregatorTool()
-	toolReg.Register(alatirokTool)
-	toolReg.Register(newsTool)
-	toolReg.Register(agenttools.NewAlatirokPipelineTool(newsTool, alatirokTool))
+
+	// Optional packs — opt-in only. Default: no vertical packs registered, so
+	// the binary ships as a pure enterprise agent platform.
+	if packEnabled(cfg.Packs, "loomfeed", "CYNTR_PACK_LOOMFEED") {
+		alatirokTool := loomfeed.NewAlatirokTool()
+		newsTool := loomfeed.NewNewsAggregatorTool()
+		toolReg.Register(alatirokTool)
+		toolReg.Register(newsTool)
+		toolReg.Register(loomfeed.NewAlatirokPipelineTool(newsTool, alatirokTool))
+		log.Info("pack registered", map[string]any{"pack": "loomfeed", "tools": []string{"alatirok", "news_aggregator", "alatirok_pipeline"}})
+	}
 
 	agentRuntime.SetToolRegistry(toolReg)
 
@@ -602,6 +626,12 @@ func runStart() {
 		}
 	}
 
+	// Observability is registered first so its Init runs before any other
+	// module's, configuring the global OTel providers in time for those
+	// modules to grab tracers/meters via the global accessors.
+	obsModule := observability.New()
+	k.Register(obsModule)
+
 	k.Register(policyEngine)
 	k.Register(auditLogger)
 	k.Register(agentRuntime)
@@ -699,6 +729,12 @@ func runStart() {
 	}
 	apiServer.SetTenantManager(tenantMgr)
 	apiServer.SetNotifier(notifierInst)
+	// When observability is enabled the module exposes a Prometheus exposition
+	// handler; mount it on the API server. When disabled this is a no-op (the
+	// handler is nil and the endpoint returns 404).
+	if promHandler := obsModule.PrometheusHandler(); promHandler != nil {
+		apiServer.SetPrometheusHandler(promHandler)
+	}
 	webapi.SetSessionStore(sessionStore)
 	webapi.SetUsageStore(usageStore)
 	dashboard := web.NewDashboardHandler()
@@ -820,4 +856,35 @@ func runStart() {
 			return
 		}
 	}
+}
+
+// buildShellPolicies converts the YAML config form to the tools-package form.
+// Returns nil when no policies are declared so callers can cheaply skip the
+// selector wiring entirely.
+func buildShellPolicies(in []config.ShellExecPolicyConfig) []agenttools.ShellExecPolicy {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]agenttools.ShellExecPolicy, 0, len(in))
+	for _, p := range in {
+		out = append(out, agenttools.ShellExecPolicy{
+			Tenant:  p.Tenant,
+			Backend: p.Backend,
+			Image:   p.Image,
+			Timeout: p.Timeout,
+		})
+	}
+	return out
+}
+
+// packEnabled returns true when the named pack is opted in via cyntr.yaml
+// (packs.<name>: true) or via the matching environment variable set to "1".
+func packEnabled(packs map[string]bool, name, envVar string) bool {
+	if packs[name] {
+		return true
+	}
+	if v := os.Getenv(envVar); v == "1" || strings.EqualFold(v, "true") {
+		return true
+	}
+	return false
 }

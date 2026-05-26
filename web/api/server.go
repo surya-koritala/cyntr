@@ -2,12 +2,22 @@ package api
 
 import (
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/modules/notify"
+	"github.com/cyntr-dev/cyntr/modules/observability"
 	"github.com/cyntr-dev/cyntr/tenant"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
+
+// httpTracer is the tracer used for inbound HTTP requests served by Server.
+// When observability is disabled this is a no-op tracer; spans cost ~nothing.
+var httpTracer = observability.Tracer("github.com/cyntr-dev/cyntr/web/api")
 
 // Server is the REST API server.
 type Server struct {
@@ -16,6 +26,10 @@ type Server struct {
 	kernel    *kernel.Kernel
 	tenantMgr *tenant.Manager
 	notifier  *notify.Notifier
+	// promHandler, if non-nil, is served at /api/v1/metrics/prom. The
+	// observability module installs it via SetPrometheusHandler when an OTLP
+	// endpoint is configured; otherwise the endpoint returns 404.
+	promHandler http.Handler
 }
 
 // SetTenantManager sets the tenant manager after construction.
@@ -27,6 +41,23 @@ func (s *Server) SetTenantManager(tm *tenant.Manager) {
 // SetNotifier sets the notification manager.
 func (s *Server) SetNotifier(n *notify.Notifier) {
 	s.notifier = n
+}
+
+// SetPrometheusHandler wires the OTel-backed Prometheus exposition handler.
+// Pass nil to disable the /api/v1/metrics/prom endpoint.
+func (s *Server) SetPrometheusHandler(h http.Handler) {
+	s.promHandler = h
+}
+
+// handleMetricsProm serves the OTel Prometheus exposition, or 404 if the
+// observability module isn't enabled (in which case no handler is installed).
+func (s *Server) handleMetricsProm(w http.ResponseWriter, r *http.Request) {
+	if s.promHandler == nil {
+		RespondError(w, http.StatusNotFound, "OBSERVABILITY_DISABLED",
+			"Prometheus exposition requires OTEL_EXPORTER_OTLP_ENDPOINT to be set")
+		return
+	}
+	s.promHandler.ServeHTTP(w, r)
 }
 
 // NewServer creates an API server wired to the kernel IPC bus.
@@ -41,7 +72,48 @@ func NewServer(bus *ipc.Bus, k *kernel.Kernel) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	// http.request span wraps every API call. Path is the raw request path —
+	// for routes with parameters this is high-cardinality, but for v0 we
+	// accept that; templating requires running through the mux first and
+	// pulling the matched pattern, which net/http doesn't expose cleanly.
+	ctx, span := httpTracer.Start(r.Context(), "http.request")
+	span.SetAttributes(
+		attribute.String("method", r.Method),
+		attribute.String("path", r.URL.Path),
+	)
+
+	// Capture the status code via a wrapper. We deliberately don't reuse
+	// statusWriter from metrics.go to keep the dependency explicit and to
+	// avoid coupling the two middlewares' internals.
+	tw := &tracingWriter{ResponseWriter: w, status: http.StatusOK}
+	start := time.Now()
+	s.mux.ServeHTTP(tw, r.WithContext(ctx))
+	span.SetAttributes(
+		attribute.Int("status_code", tw.status),
+		attribute.Int64("duration_ms", time.Since(start).Milliseconds()),
+	)
+	if tw.status >= 500 {
+		span.SetStatus(codes.Error, strconv.Itoa(tw.status))
+	}
+	span.End()
+}
+
+// tracingWriter captures the response status code for the http.request span.
+// It also forwards Flush() so SSE streaming routes keep working.
+type tracingWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *tracingWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *tracingWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (s *Server) registerRoutes() {
@@ -149,6 +221,11 @@ func (s *Server) registerRoutes() {
 
 	// Metrics
 	s.mux.HandleFunc("GET /api/v1/metrics", s.handleMetrics)
+	// Prometheus exposition of OTel-managed metrics (cyntr.* instruments) lives
+	// at a separate path so the existing JSON metrics endpoint stays
+	// backward-compatible. Returns 404 until SetPrometheusHandler is called by
+	// main, which only happens when the observability module is enabled.
+	s.mux.HandleFunc("GET /api/v1/metrics/prom", s.handleMetricsProm)
 
 	// MCP Servers
 	s.mux.HandleFunc("GET /api/v1/mcp/servers", s.handleMCPServerList)

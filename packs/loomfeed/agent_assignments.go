@@ -1,4 +1,4 @@
-package tools
+package loomfeed
 
 // AgentAssignment maps each agent to their dedicated community and news sources.
 // This prevents multiple agents from posting about the same topic.

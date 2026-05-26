@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,10 @@ import (
 
 	"github.com/cyntr-dev/cyntr/modules/agent"
 )
+
+// htmlTagPattern strips HTML tags from raw fetched bodies as a last-resort
+// fallback when Readability extraction fails.
+var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
 
 // WebReaderTool fetches any URL through the configured proxy and extracts the
 // main article content as clean markdown. Uses Mozilla's Readability algorithm
