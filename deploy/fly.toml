@@ -1,0 +1,86 @@
+# deploy/fly.toml
+#
+# Fly.io manifest for try.cyntr.dev. This is the recommended hosting path:
+# Fly handles TLS, anycast, fast region cuts, and the auto-stop knob below
+# means the free-tier app costs ~$0 when idle, ~$5-15/mo at trickle traffic.
+#
+# Day-zero deploy:
+#   fly launch --copy-config --no-deploy --name cyntr-try
+#   fly volumes create cyntr_data --region iad --size 1
+#   fly secrets set ANTHROPIC_API_KEY=sk-ant-...
+#   fly deploy
+#
+# See deploy/fly-launch.md for the full runbook.
+
+app            = "cyntr-try"
+primary_region = "iad"
+
+# ---------- build ----------
+[build]
+  dockerfile = "deploy/Dockerfile.prod"
+  # Build args propagate the version into the binary so /version reports it.
+  [build.args]
+    VERSION = "hosted-beta"
+
+# ---------- runtime defaults ----------
+# Honored by the cyntr binary directly. Fly does NOT inject these as
+# container env unless we name them here.
+[env]
+  CYNTR_LISTEN              = "0.0.0.0:7700"
+  CYNTR_DATA_DIR            = "/cyntr/data"
+  CYNTR_NODE_ID             = "cyntr-fly-iad"
+  OTEL_SERVICE_NAME         = "cyntr-try"
+  # ANTHROPIC_API_KEY is set via `fly secrets set` — never commit a key here.
+
+# ---------- volume ----------
+# SQLite stores. 1 GB covers ~weeks of trickle traffic; resize via
+#   fly volumes extend <id> --size 5
+[[mounts]]
+  source      = "cyntr_data"
+  destination = "/cyntr/data"
+  # The volume is the durability boundary. Snapshots are automatic on Fly
+  # (daily, retained 5 days) — see CYNTR-CLOUD.md for restore steps.
+
+# ---------- HTTP service ----------
+[http_service]
+  internal_port       = 7700
+  force_https         = true
+  auto_stop_machines  = "stop"      # idle → stopped (cost = $0 compute)
+  auto_start_machines = true        # first request → cold-start (~2-4s)
+  min_machines_running = 0          # set to 1 if you want zero cold-start latency
+  processes           = ["app"]
+
+  [http_service.concurrency]
+    type      = "requests"
+    soft_limit = 30                 # start backing off above this
+    hard_limit = 50                 # 429 above this — defense in depth
+                                    # cyntr's quota module is the *primary* rate cap
+
+  # Built-in health probe — Fly only routes traffic to machines that pass.
+  [[http_service.checks]]
+    interval         = "30s"
+    timeout          = "5s"
+    grace_period     = "20s"
+    method           = "GET"
+    path             = "/api/v1/system/health"
+    protocol         = "http"
+
+# ---------- compute size ----------
+# shared-cpu-1x / 256 MB is the cheapest. cyntr starts in ~80 MB; SQLite +
+# Anthropic client adds another ~80 MB under typical load. If you see OOMs
+# in `fly logs`, bump memory to 512 first (still <$5/mo on shared-cpu).
+[[vm]]
+  cpu_kind = "shared"
+  cpus     = 1
+  memory   = "256mb"
+
+# ---------- multi-region (commented) ----------
+# Cyntr's SQLite stores aren't multi-writer safe. For multi-region, you need
+# either (a) one writer region + LiteFS replicas, or (b) per-region tenant
+# sharding. For the beta, leave at single-region IAD and revisit when traffic
+# warrants it.
+#
+# [[regions]]
+#   code = "iad"   # us-east
+# [[regions]]
+#   code = "lhr"   # europe

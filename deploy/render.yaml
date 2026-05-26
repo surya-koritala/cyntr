@@ -1,0 +1,59 @@
+# deploy/render.yaml
+#
+# Render.com Blueprint — single-file definition of the cyntr-try service.
+# Push to a repo, click "New Blueprint" in Render, point at the repo, and
+# Render reads this file to provision everything.
+#
+# Render's free web-service tier is a fit for try.cyntr.dev only with a
+# major caveat: it spins down after 15 min of inactivity and the cold start
+# is 30-60s. Fine for a "try it" demo, painful for a public product. Bump
+# to `starter` ($7/mo) once traffic is real.
+#
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: cyntr-try
+    runtime: docker
+    plan: free                      # see note above; consider `starter` for prod
+    region: oregon                  # closest free-tier region to Anthropic's us-west
+    branch: feat/hosted             # change to `main` once feat/hosted is merged
+    dockerfilePath: ./deploy/Dockerfile.prod
+    dockerContext: .
+    healthCheckPath: /api/v1/system/health
+    autoDeploy: true
+    # Render terminates TLS automatically on render.com subdomains; for a
+    # custom domain (try.cyntr.dev), add it via the dashboard — Render
+    # provisions a Let's Encrypt cert in a few minutes.
+
+    # ---------- non-secret env (committed) ----------
+    envVars:
+      - key: CYNTR_LISTEN
+        value: 0.0.0.0:7700
+      - key: CYNTR_DATA_DIR
+        value: /cyntr/data
+      - key: CYNTR_NODE_ID
+        value: cyntr-render-oregon
+      - key: OTEL_SERVICE_NAME
+        value: cyntr-try
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-20250514
+
+      # ---------- secrets (set in Render dashboard) ----------
+      # Render's blueprint spec uses `sync: false` to mark a var as
+      # "set this in the dashboard, not via the blueprint". Anyone who
+      # imports this YAML gets prompted for the value on first deploy.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CYNTR_API_KEY
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+
+    # ---------- disk (persistent volume) ----------
+    # Required for SQLite stores to survive deploys. Render `free` tier does
+    # NOT support disks — you must be on `starter` ($7/mo) or higher.
+    disk:
+      name: cyntr-data
+      mountPath: /cyntr/data
+      sizeGB: 1

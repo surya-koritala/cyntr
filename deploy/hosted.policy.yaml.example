@@ -1,0 +1,103 @@
+# deploy/hosted.policy.yaml.example
+#
+# Policy bundle for the hosted free-tier (`tenant: public`).
+#
+# Cyntr requires the policy file at the path named in cyntr.yaml's
+# `tenants.<name>.policy` — for this config, that's `policy.yaml` (relative
+# to cyntr's working dir). On Fly.io / Render / Railway the build pipeline
+# copies this file in as `policy.yaml`. For docker-compose, mount it
+# explicitly:
+#
+#   volumes:
+#     - ./deploy/hosted.policy.yaml.example:/cyntr/policy.yaml:ro
+#
+# Philosophy: deny-by-default for anything destructive; allow chat + safe
+# read-only tools; surface anything ambiguous as `decision: require_approval`
+# so it lands in the dashboard's approval queue rather than just running.
+rules:
+  # ---- explicitly blocked tools on the shared free-tier --------------
+  # No outbound mail, SMS, or Slack from random user sessions — every one
+  # of those is a phishing/spam vector.
+  - name: deny-channel-send
+    tenant: public
+    action: tool_call
+    tool: send_message
+    agent: "*"
+    decision: deny
+    priority: 100
+
+  - name: deny-send-notification
+    tenant: public
+    action: tool_call
+    tool: send_notification
+    agent: "*"
+    decision: deny
+    priority: 100
+
+  # No arbitrary HTTP POST/PUT/DELETE — read-only HTTP gets through via
+  # web_reader and web_search. The HTTP tool itself is too broad.
+  - name: deny-http-tool
+    tenant: public
+    action: tool_call
+    tool: http
+    agent: "*"
+    decision: deny
+    priority: 100
+
+  # No writing to the host filesystem from inside the free-tier. file_read
+  # is allowed (next rule); file_write is not.
+  - name: deny-file-write
+    tenant: public
+    action: tool_call
+    tool: file_write
+    agent: "*"
+    decision: deny
+    priority: 100
+
+  # Shell exec only via the docker backend (enforced by shell_exec_policies
+  # in cyntr.yaml). Even with that backend, require approval — it's the
+  # most-abused tool on a shared host.
+  - name: approve-shell-exec
+    tenant: public
+    action: tool_call
+    tool: shell_exec
+    agent: "*"
+    decision: require_approval
+    priority: 90
+
+  # Kubectl / AWS / database / GitHub / Jira / chromium — all require an
+  # API key the free-tier doesn't provide; they'll fail naturally. But
+  # deny them explicitly so users get a clear error rather than a stack.
+  - name: deny-cloud-tools
+    tenant: public
+    action: tool_call
+    tool: kubectl
+    agent: "*"
+    decision: deny
+    priority: 80
+
+  - name: deny-aws-tool
+    tenant: public
+    action: tool_call
+    tool: aws
+    agent: "*"
+    decision: deny
+    priority: 80
+
+  # ---- model calls — allow for the public tenant ---------------------
+  - name: allow-model-calls
+    tenant: public
+    action: model_call
+    tool: "*"
+    agent: "*"
+    decision: allow
+    priority: 10
+
+  # ---- safe default for everything else (read-only browse, search, etc.)
+  - name: allow-default
+    tenant: public
+    action: "*"
+    tool: "*"
+    agent: "*"
+    decision: allow
+    priority: 1
