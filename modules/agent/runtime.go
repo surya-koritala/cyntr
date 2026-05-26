@@ -297,6 +297,29 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 
+	// Enforce per-tenant quotas via the quota module. When the quota module is
+	// not registered (ipc.ErrNoHandler), every check is treated as "allowed" so
+	// existing deployments behave unchanged.
+	//
+	// Order matters: rate first (cheap), then concurrency-slot acquire (carries
+	// a release we must defer). We treat quota denials like denied policies —
+	// returning a normal ChatResponse rather than an error so channel adapters
+	// surface the message to the end user.
+	if ok, reason := quotaCheck(r.bus, req.Tenant, "rate", 1); !ok {
+		return ipc.Message{
+			Type:    ipc.MessageTypeResponse,
+			Payload: ChatResponse{Agent: req.Agent, Content: "quota exceeded: " + reason},
+		}, nil
+	}
+	release, ok, reason := quotaAcquireSlot(r.bus, req.Tenant)
+	if !ok {
+		return ipc.Message{
+			Type:    ipc.MessageTypeResponse,
+			Payload: ChatResponse{Agent: req.Agent, Content: "quota exceeded: " + reason},
+		}, nil
+	}
+	defer release()
+
 	chatStart := time.Now()
 
 	r.publishActivity(req.Agent, req.Tenant, "chat_start", "User: "+req.Message[:min(80, len(req.Message))])
@@ -381,6 +404,11 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				TotalTokens:  response.InputTokens + response.OutputTokens,
 				DurationMs:   time.Since(chatStart).Milliseconds(),
 			})
+		}
+
+		// Debit the tenant's token quota (fire-and-forget; survives missing module).
+		if totalTok := int64(response.InputTokens + response.OutputTokens); totalTok > 0 {
+			quotaRecord(r.bus, req.Tenant, totalTok)
 		}
 
 		inst.session.AddMessage(response)

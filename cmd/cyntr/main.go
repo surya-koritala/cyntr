@@ -34,6 +34,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/mcp"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
+	"github.com/cyntr-dev/cyntr/modules/quota"
 	"github.com/cyntr-dev/cyntr/modules/scheduler"
 	"github.com/cyntr-dev/cyntr/modules/skill"
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
@@ -502,6 +503,7 @@ func runStart() {
 	k.Register(agentRuntime)
 	k.Register(channelMgr)
 	k.Register(proxyGateway)
+	k.Register(quota.New("quota.db"))
 	k.Register(skillRuntime)
 	k.Register(federationMod)
 	k.Register(schedulerMod)

@@ -166,6 +166,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/usage", s.handleUsageQuery)
 	s.mux.HandleFunc("GET /api/v1/usage/summary", s.handleUsageSummary)
 
+	// Quotas (per-tenant token/rate/concurrency/session caps)
+	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/quota", s.handleQuotaGet)
+	s.mux.HandleFunc("PUT /api/v1/tenants/{tid}/quota", s.handleQuotaSet)
+
 	// SLA Monitoring
 	s.mux.HandleFunc("POST /api/v1/sla/rules", s.handleSLAAddRule)
 	s.mux.HandleFunc("GET /api/v1/sla/rules", s.handleSLAListRules)
