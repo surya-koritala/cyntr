@@ -22,7 +22,11 @@ import (
 	discordpkg "github.com/cyntr-dev/cyntr/modules/channel/discord"
 	emailpkg "github.com/cyntr-dev/cyntr/modules/channel/email"
 	googlechatpkg "github.com/cyntr-dev/cyntr/modules/channel/googlechat"
+	matrixpkg "github.com/cyntr-dev/cyntr/modules/channel/matrix"
+	mattermostpkg "github.com/cyntr-dev/cyntr/modules/channel/mattermost"
+	signalpkg "github.com/cyntr-dev/cyntr/modules/channel/signal"
 	slackpkg "github.com/cyntr-dev/cyntr/modules/channel/slack"
+	smspkg "github.com/cyntr-dev/cyntr/modules/channel/sms"
 	teamspkg "github.com/cyntr-dev/cyntr/modules/channel/teams"
 	telegrampkg "github.com/cyntr-dev/cyntr/modules/channel/telegram"
 	whatsapppkg "github.com/cyntr-dev/cyntr/modules/channel/whatsapp"
@@ -487,6 +491,89 @@ func runStart() {
 		gchatAdapter := googlechatpkg.New(gchatAddr, gchatWebhook, gchatTenant, gchatAgent)
 		channelMgr.AddAdapter(gchatAdapter)
 		log.Info("channel adapter registered", map[string]any{"adapter": "google_chat", "tenant": gchatTenant, "agent": gchatAgent, "listen": gchatAddr})
+	}
+
+	// Register Mattermost adapter if configured
+	mmWebhook := os.Getenv("MATTERMOST_WEBHOOK_URL")
+	if mmWebhook != "" {
+		mmTenant := os.Getenv("MATTERMOST_TENANT")
+		if mmTenant == "" {
+			mmTenant = "default"
+		}
+		mmAgent := os.Getenv("MATTERMOST_AGENT")
+		if mmAgent == "" {
+			mmAgent = "assistant"
+		}
+		mmAddr := os.Getenv("MATTERMOST_LISTEN_ADDR")
+		if mmAddr == "" {
+			mmAddr = "127.0.0.1:3007"
+		}
+		mmAdapter := mattermostpkg.New(mmAddr, mmWebhook, mmTenant, mmAgent)
+		channelMgr.AddAdapter(mmAdapter)
+		log.Info("channel adapter registered", map[string]any{"adapter": "mattermost", "tenant": mmTenant, "agent": mmAgent, "listen": mmAddr})
+	}
+
+	// Register Signal adapter if configured
+	signalURL := os.Getenv("SIGNAL_CLI_URL")
+	if signalURL != "" {
+		signalTenant := os.Getenv("SIGNAL_TENANT")
+		if signalTenant == "" {
+			signalTenant = "default"
+		}
+		signalAgent := os.Getenv("SIGNAL_AGENT")
+		if signalAgent == "" {
+			signalAgent = "assistant"
+		}
+		signalAddr := os.Getenv("SIGNAL_LISTEN_ADDR")
+		if signalAddr == "" {
+			signalAddr = "127.0.0.1:3008"
+		}
+		signalAdapter := signalpkg.New(signalAddr, signalURL, signalTenant, signalAgent)
+		channelMgr.AddAdapter(signalAdapter)
+		log.Info("channel adapter registered", map[string]any{"adapter": "signal", "tenant": signalTenant, "agent": signalAgent, "listen": signalAddr})
+	}
+
+	// Register Matrix adapter if configured
+	matrixHomeserver := os.Getenv("MATRIX_HOMESERVER_URL")
+	matrixToken := os.Getenv("MATRIX_ACCESS_TOKEN")
+	if matrixHomeserver != "" && matrixToken != "" {
+		matrixTenant := os.Getenv("MATRIX_TENANT")
+		if matrixTenant == "" {
+			matrixTenant = "default"
+		}
+		matrixAgent := os.Getenv("MATRIX_AGENT")
+		if matrixAgent == "" {
+			matrixAgent = "assistant"
+		}
+		matrixAddr := os.Getenv("MATRIX_LISTEN_ADDR")
+		if matrixAddr == "" {
+			matrixAddr = "127.0.0.1:3009"
+		}
+		matrixAdapter := matrixpkg.New(matrixAddr, matrixHomeserver, matrixToken, matrixTenant, matrixAgent)
+		channelMgr.AddAdapter(matrixAdapter)
+		log.Info("channel adapter registered", map[string]any{"adapter": "matrix", "tenant": matrixTenant, "agent": matrixAgent, "listen": matrixAddr})
+	}
+
+	// Register SMS (Twilio) adapter if configured
+	twilioSID := os.Getenv("TWILIO_ACCOUNT_SID")
+	twilioToken := os.Getenv("TWILIO_AUTH_TOKEN")
+	twilioFrom := os.Getenv("TWILIO_FROM")
+	if twilioSID != "" && twilioToken != "" && twilioFrom != "" {
+		smsTenant := os.Getenv("SMS_TENANT")
+		if smsTenant == "" {
+			smsTenant = "default"
+		}
+		smsAgent := os.Getenv("SMS_AGENT")
+		if smsAgent == "" {
+			smsAgent = "assistant"
+		}
+		smsAddr := os.Getenv("SMS_LISTEN_ADDR")
+		if smsAddr == "" {
+			smsAddr = "127.0.0.1:3010"
+		}
+		smsAdapter := smspkg.New(smsAddr, twilioSID, twilioToken, twilioFrom, smsTenant, smsAgent)
+		channelMgr.AddAdapter(smsAdapter)
+		log.Info("channel adapter registered", map[string]any{"adapter": "sms", "tenant": smsTenant, "agent": smsAgent, "listen": smsAddr})
 	}
 
 	proxyGateway := proxy.NewGateway(cfg.Listen.Address)
