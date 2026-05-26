@@ -1,9 +1,16 @@
 {
   "name": "@cyntr/sdk",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "description": "JavaScript SDK for Cyntr AI Agent Platform",
   "main": "src/index.js",
+  "types": "src/index.d.ts",
   "repository": "https://github.com/surya-koritala/cyntr",
   "license": "MIT",
-  "keywords": ["cyntr", "ai", "agent", "sdk"]
+  "keywords": ["cyntr", "ai", "agent", "sdk"],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
 }
