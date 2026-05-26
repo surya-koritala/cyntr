@@ -1,16 +1,26 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/modules/agent"
 )
 
-type ShellTool struct{}
+// shellDefaultTimeout is the upper bound for any single shell command,
+// regardless of which backend runs it.
+const shellDefaultTimeout = 120 * time.Second
+
+// ShellTool executes shell commands. By default it runs `bash -c` in-process,
+// but a BackendSelector can route specific tenants through an isolated
+// backend (e.g. tenant.DockerSandbox) without changing the tool API.
+type ShellTool struct {
+	// BackendSelector picks the ShellBackend for a given tenant. If nil,
+	// the tool falls back to InProcessBackend for every call — preserving
+	// the legacy single-tenant behavior used by existing deployments.
+	BackendSelector func(tenant string) ShellBackend
+}
 
 func (t *ShellTool) Name() string { return "shell_exec" }
 func (t *ShellTool) Description() string {
@@ -28,31 +38,21 @@ func (t *ShellTool) Execute(ctx context.Context, input map[string]string) (strin
 		return "", fmt.Errorf("command is required")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
+	tenant, _, _ := agent.ToolCaller(ctx)
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	backend := t.selectBackend(tenant)
+	return backend.Run(ctx, tenant, command, shellDefaultTimeout)
+}
 
-	err := cmd.Run()
-
-	output := stdout.String()
-	if stderr.Len() > 0 {
-		if output != "" {
-			output += "\n"
-		}
-		output += stderr.String()
+// selectBackend returns the backend for the given tenant. nil BackendSelector
+// (the default) means "always in-process" — guaranteeing backwards compat
+// with deployments that don't configure shell_exec_policies.
+func (t *ShellTool) selectBackend(tenant string) ShellBackend {
+	if t.BackendSelector == nil {
+		return InProcessBackend{}
 	}
-
-	// Truncate to 64KB
-	if len(output) > 65536 {
-		output = output[:65536] + "\n... (truncated)"
+	if b := t.BackendSelector(tenant); b != nil {
+		return b
 	}
-
-	if err != nil {
-		return output, fmt.Errorf("command failed: %w", err)
-	}
-	return output, nil
+	return InProcessBackend{}
 }

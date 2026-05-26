@@ -1,0 +1,71 @@
+# cyntr.yaml — example configuration
+#
+# Copy to cyntr.yaml and edit. Most fields have sensible defaults; the only
+# section you'll commonly touch on day one is `tenants` (and `shell_exec_policies`
+# if you're hardening untrusted agents).
+
+version: "1"
+
+listen:
+  address: "127.0.0.1:8080"   # internal API / proxy gateway
+  webui:   ":7700"            # dashboard + public API
+
+tenants:
+  default:
+    isolation: "process"
+    cgroup:
+      memory_limit: "1G"
+      cpu_shares: 1024
+    policy: "policy.yaml"
+
+  # An untrusted / agentic tenant — we'll lock its shell_exec down below.
+  research:
+    isolation: "process"
+    cgroup:
+      memory_limit: "512M"
+      cpu_shares: 512
+    policy: "policy.yaml"
+
+auth:
+  provider: ""        # "oidc" enables ID-token verification
+  issuer:   ""
+  client_id: ""
+
+audit:
+  storage_path: "audit.db"
+  retention:    "90d"
+
+federation:
+  enabled: false
+  peers: []
+
+# ---------------------------------------------------------------------------
+# shell_exec_policies — per-tenant sandboxing for the shell_exec tool.
+#
+# `backend: inprocess` (default if omitted) runs commands directly on the host
+# via `bash -c`. This is fast and has full host access — appropriate for
+# trusted operators and the legacy single-tenant deployment.
+#
+# `backend: docker` routes the command through tenant.DockerSandbox, which
+# launches a transient container with:
+#   --network none          (no outbound or inbound network)
+#   --read-only             (root filesystem is immutable)
+#   --tmpfs /tmp:rw,size=64m (only /tmp is writable, capped at 64MB)
+#   --memory 256m --cpus 0.5 (resource caps)
+# Stdout+stderr are merged and truncated to 64KB to match the in-process
+# backend's response shape, so swapping backends is transparent to agents.
+#
+# If `backend: docker` is requested but Docker isn't available on the host
+# at startup, cyntr logs a warning and silently falls back to in-process —
+# the process never crashes because of a missing docker daemon.
+#
+# Tenants not listed here keep the default in-process behavior.
+# ---------------------------------------------------------------------------
+shell_exec_policies:
+  - tenant:  "research"
+    backend: "docker"
+    image:   "alpine:latest"
+    timeout: "30s"
+
+  - tenant:  "default"
+    backend: "inprocess"
