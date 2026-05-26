@@ -11,9 +11,35 @@ import (
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/kernel/log"
+	"github.com/cyntr-dev/cyntr/modules/observability"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/usermodel"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
+
+// tracer for the agent runtime — created once, cheap to reuse. When the
+// observability module is in no-op mode this is a no-op tracer.
+var runtimeTracer = observability.Tracer("github.com/cyntr-dev/cyntr/modules/agent")
+
+// busRequestTraced wraps bus.Request in an `ipc.request` span so cross-module
+// hops show up in trace timelines. Drop-in replacement for r.bus.Request that
+// preserves error semantics. When tracing is disabled the span is a no-op and
+// this costs only the closure overhead.
+func (r *Runtime) busRequestTraced(ctx context.Context, msg ipc.Message) (ipc.Message, error) {
+	ctx, span := runtimeTracer.Start(ctx, "ipc.request")
+	span.SetAttributes(
+		attribute.String("target", msg.Target),
+		attribute.String("topic", msg.Topic),
+	)
+	defer span.End()
+	resp, err := r.bus.Request(ctx, msg)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+	}
+	return resp, err
+}
 
 var logger = log.Default().WithModule("agent_runtime")
 
@@ -254,7 +280,7 @@ func (r *Runtime) loadUserProfile(tenant, user string) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	resp, err := r.bus.Request(ctx, ipc.Message{
+	resp, err := r.busRequestTraced(ctx, ipc.Message{
 		Source: "agent_runtime", Target: "usermodel", Topic: "usermodel.get",
 		Payload: map[string]string{"tenant": tenant, "user": user},
 	})
@@ -301,7 +327,7 @@ func (r *Runtime) checkToolPolicy(tenant, user, agentName, toolName string) stri
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	resp, err := r.bus.Request(ctx, ipc.Message{
+	resp, err := r.busRequestTraced(ctx, ipc.Message{
 		Source: "agent_runtime", Target: "policy", Topic: "policy.check",
 		Payload: policy.CheckRequest{
 			Tenant: tenant, Action: "tool_call", Tool: toolName,
@@ -331,17 +357,36 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("expected ChatRequest, got %T", msg.Payload)
 	}
 
+	// Top-level chat span. We use context.Background() because handleChat is
+	// driven off the IPC bus rather than an inbound request context, but the
+	// returned ctx is plumbed into downstream provider/tool calls so child
+	// spans nest correctly.
+	ctx, span := runtimeTracer.Start(context.Background(), "agent.chat",
+		// Attributes are kept low-cardinality (no message body) so this is
+		// safe to enable at 100% sampling in production.
+	)
+	span.SetAttributes(
+		attribute.String("tenant", req.Tenant),
+		attribute.String("agent", req.Agent),
+		attribute.String("user", req.User),
+	)
+	defer span.End()
+
 	key := req.Tenant + "/" + req.Agent
 	r.mu.RLock()
 	inst, exists := r.agents[key]
 	r.mu.RUnlock()
 
 	if !exists {
+		span.SetStatus(codes.Error, "agent not found")
+		observability.RecordChatRequest(ctx, req.Tenant, req.Agent, "error")
 		return ipc.Message{}, fmt.Errorf("agent %q not found in tenant %q", req.Agent, req.Tenant)
 	}
 
 	// Enforce per-agent rate limit
 	if err := checkAgentRateLimit(key, inst.config.RateLimit); err != nil {
+		span.SetStatus(codes.Error, "rate limited")
+		observability.RecordChatRequest(ctx, req.Tenant, req.Agent, "rate_limited")
 		return ipc.Message{}, err
 	}
 
@@ -406,7 +451,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	// Load skill instructions on-demand
 	if len(inst.config.Skills) > 0 {
 		skillCtx, skillCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		skillResp, skillErr := r.bus.Request(skillCtx, ipc.Message{
+		skillResp, skillErr := r.busRequestTraced(skillCtx, ipc.Message{
 			Source: "agent_runtime", Target: "skill_runtime", Topic: "skill.instructions",
 			Payload: inst.config.Skills,
 		})
@@ -470,6 +515,11 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 			})
 		}
 
+		// Emit OTel token counters alongside the usage store write. We split
+		// input/output so dashboards can chart them separately.
+		observability.RecordLLMTokens(ctx, req.Tenant, inst.config.Model, "input", int64(response.InputTokens))
+		observability.RecordLLMTokens(ctx, req.Tenant, inst.config.Model, "output", int64(response.OutputTokens))
+
 		// Debit the tenant's token quota (fire-and-forget; survives missing module).
 		if totalTok := int64(response.InputTokens + response.OutputTokens); totalTok > 0 {
 			quotaRecord(r.bus, req.Tenant, totalTok)
@@ -487,6 +537,12 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				})
 			}
 			r.publishActivity(req.Agent, req.Tenant, "chat_complete", "Response sent")
+
+			// Record final metrics for this chat. We only emit the success
+			// counter/duration once per request, on the terminal turn.
+			observability.RecordChatRequest(ctx, req.Tenant, req.Agent, "ok")
+			observability.RecordChatDuration(ctx, req.Tenant, req.Agent, float64(chatDuration.Milliseconds()))
+			span.SetAttributes(attribute.Int("turns", turn+1))
 
 			// Auto-memory extraction
 			if inst.config.AutoMemory && r.memoryStore != nil && len(toolsUsed) > 0 {
@@ -509,6 +565,33 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 
 		// Execute tool calls
 		for _, tc := range response.ToolCalls {
+			// One span per tool call. We track duration on the span end as well
+			// as in a histogram so OTel-naive backends (Prom) still get latency.
+			// We deliberately don't pipe this span context into the tool's own
+			// execution context (which uses WithToolCaller) because tools
+			// re-anchor on their own caller metadata — not because we couldn't,
+			// just to keep this patch surgical.
+			toolSpanCtx, toolSpan := runtimeTracer.Start(ctx, "tool.call")
+			toolSpan.SetAttributes(
+				attribute.String("tool", tc.Name),
+				attribute.String("agent", req.Agent),
+			)
+			toolSpanStart := time.Now()
+
+			// finishToolSpan ends the span and records the metric set. status is
+			// "ok" | "denied" | "error". Captured as a closure so each early
+			// continue path in the loop body is one-liner clean.
+			finishToolSpan := func(status string) {
+				dur := time.Since(toolSpanStart)
+				observability.RecordToolCall(toolSpanCtx, req.Tenant, req.Agent, tc.Name, status)
+				observability.RecordToolDuration(toolSpanCtx, tc.Name, float64(dur.Milliseconds()))
+				toolSpan.SetAttributes(attribute.String("status", status))
+				if status == "error" || status == "denied" {
+					toolSpan.SetStatus(codes.Error, status)
+				}
+				toolSpan.End()
+			}
+
 			// Check policy before execution
 			decision := r.checkToolPolicy(req.Tenant, req.User, req.Agent, tc.Name)
 			if decision == "deny" {
@@ -517,12 +600,13 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 					ToolResults: []ToolResult{{CallID: tc.ID, Content: "DENIED: Policy does not allow " + tc.Name, IsError: true}},
 				})
 				toolsUsed = append(toolsUsed, tc.Name+"(denied)")
+				finishToolSpan("denied")
 				continue
 			}
 			if decision == "require_approval" {
 				// Submit approval request
 				approvalCtx, approvalCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				approvalResp, submitErr := r.bus.Request(approvalCtx, ipc.Message{
+				approvalResp, submitErr := r.busRequestTraced(approvalCtx, ipc.Message{
 					Source: "agent_runtime", Target: "policy", Topic: "policy.approval.submit",
 					Payload: map[string]string{"tenant": req.Tenant, "agent": req.Agent, "user": req.User, "tool": tc.Name, "action": "tool_call"},
 				})
@@ -544,6 +628,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 						ToolResults: []ToolResult{{CallID: tc.ID, Content: fmt.Sprintf("APPROVAL %s: %s", strings.ToUpper(status), tc.Name), IsError: true}},
 					})
 					toolsUsed = append(toolsUsed, tc.Name+"("+status+")")
+					finishToolSpan("denied")
 					continue
 				}
 				// Approved — fall through to execute the tool below
@@ -619,9 +704,19 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 			})
 
 			r.publishActivity(req.Agent, req.Tenant, "tool_result", tc.Name+" completed")
+
+			// Close out the tool span with terminal status based on isError.
+			if isError {
+				finishToolSpan("error")
+			} else {
+				finishToolSpan("ok")
+			}
 		}
 	}
 
+	// Loop fell through max turns without producing a final assistant message.
+	span.SetStatus(codes.Error, "max turns exceeded")
+	observability.RecordChatRequest(ctx, req.Tenant, req.Agent, "error")
 	return ipc.Message{}, fmt.Errorf("max turns (%d) exceeded", inst.config.MaxTurns)
 }
 
@@ -886,7 +981,7 @@ func (r *Runtime) waitForApproval(approvalID string) string {
 			return "timeout"
 		case <-time.After(2 * time.Second):
 			statusCtx, statusCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			resp, err := r.bus.Request(statusCtx, ipc.Message{
+			resp, err := r.busRequestTraced(statusCtx, ipc.Message{
 				Source: "agent_runtime", Target: "policy", Topic: "approval.get",
 				Payload: approvalID,
 			})
