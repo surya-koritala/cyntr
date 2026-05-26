@@ -503,7 +503,8 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				}
 				var execErr error
 				toolStart := time.Now()
-				result, execErr = r.executeToolWithRetry(context.Background(), tc.Name, toolInput)
+				toolCtx := WithToolCaller(context.Background(), req.Tenant, req.Agent, req.User)
+				result, execErr = r.executeToolWithRetry(toolCtx, tc.Name, toolInput)
 				toolDuration := time.Since(toolStart)
 				if toolDuration > 2*time.Second {
 					logger.Warn("slow tool execution", map[string]any{

@@ -68,6 +68,8 @@ func main() {
 		apiGet("/api/v1/system/health")
 	case "chat":
 		runChat(os.Args[2:])
+	case "eval":
+		runEval(os.Args[2:])
 	case "docs":
 		runDocs(os.Args[2:])
 	case "backup":
@@ -163,6 +165,7 @@ func runStart() {
 	toolReg.Register(agenttools.NewJSONQueryTool())
 	toolReg.Register(agenttools.NewCSVQueryTool())
 	toolReg.Register(agenttools.NewSendNotificationTool())
+	toolReg.Register(agenttools.NewToolPlanTool(toolReg, k.Bus()))
 
 	// Load custom YAML tools from tools/ directory
 	yamlTools, err := agenttools.LoadToolsFromDir("tools")
