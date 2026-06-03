@@ -510,6 +510,10 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 
 	var toolsUsed []string
 
+	// Aggregates spanning the whole agentic loop, snapshotted into the
+	// agent.turn_completed event on the terminal turn.
+	var toolCallCount, totalInputTokens, totalOutputTokens int
+
 	// Agentic loop: call model, execute tools, repeat until no more tool calls
 	for turn := 0; turn < inst.config.MaxTurns; turn++ {
 		if inst.config.MaxTurns > 3 && turn == inst.config.MaxTurns-2 {
@@ -542,6 +546,9 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		// input/output so dashboards can chart them separately.
 		observability.RecordLLMTokens(ctx, req.Tenant, inst.config.Model, "input", int64(response.InputTokens))
 		observability.RecordLLMTokens(ctx, req.Tenant, inst.config.Model, "output", int64(response.OutputTokens))
+
+		totalInputTokens += response.InputTokens
+		totalOutputTokens += response.OutputTokens
 
 		// Debit the tenant's token quota (fire-and-forget; survives missing module).
 		if totalTok := int64(response.InputTokens + response.OutputTokens); totalTok > 0 {
@@ -588,6 +595,29 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				Payload: map[string]string{"tenant": req.Tenant, "user": req.User, "summary": activitySummary},
 			})
 
+			// Broadcast the completed-turn event for asynchronous consumers
+			// (learning loop, recall indexer, trajectory capture). Fire-and-
+			// forget: this returns before any subscriber runs, so it adds no
+			// latency to the user's response.
+			r.publishTurnCompleted(TurnRecord{
+				Tenant:       req.Tenant,
+				User:         req.User,
+				Session:      inst.session.ID(),
+				Agent:        req.Agent,
+				Model:        inst.config.Model,
+				UserMessage:  req.Message,
+				Response:     response.Content,
+				ToolsUsed:    toolsUsed,
+				ToolCalls:    toolCallCount,
+				Turns:        turn + 1,
+				InputTokens:  totalInputTokens,
+				OutputTokens: totalOutputTokens,
+				TotalTokens:  totalInputTokens + totalOutputTokens,
+				Outcome:      "ok",
+				DurationMS:   chatDuration.Milliseconds(),
+				StartedAt:    chatStart,
+			})
+
 			// Apply security filters: mask secrets and redact PII
 			sanitized := MaskSecrets(response.Content)
 			sanitized = RedactPII(sanitized)
@@ -603,6 +633,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		}
 
 		// Execute tool calls
+		toolCallCount += len(response.ToolCalls)
 		for _, tc := range response.ToolCalls {
 			// One span per tool call. We track duration on the span end as well
 			// as in a histogram so OTel-naive backends (Prom) still get latency.
@@ -1005,6 +1036,23 @@ func (r *Runtime) publishActivity(agent, tenant, eventType, detail string) {
 			Type:      eventType,
 			Detail:    detail,
 		},
+	})
+}
+
+// publishTurnCompleted broadcasts a TurnRecord on TopicTurnCompleted for
+// asynchronous consumers (learning loop, recall indexer, trajectory capture).
+// Delivery is fire-and-forget and fans out to every subscriber of the topic,
+// so this never blocks or adds latency to the user's response. The record
+// carries raw text; consumers must sanitize before persisting or displaying.
+func (r *Runtime) publishTurnCompleted(rec TurnRecord) {
+	if r.bus == nil {
+		return
+	}
+	r.bus.Publish(ipc.Message{
+		Source:  "agent_runtime",
+		Topic:   TopicTurnCompleted,
+		Type:    ipc.MessageTypeEvent,
+		Payload: rec,
 	})
 }
 
