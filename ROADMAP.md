@@ -2,6 +2,8 @@
 
 > Current version: **v0.8.0** | 142 Go files | 765 tests | 29 tools | 25 skills | 16 dashboard pages | 55 API routes
 
+> **Exploratory initiative:** [Best of OpenClaw + Hermes](docs/roadmap/best-of-openclaw-hermes.md) — a detailed, ticket-by-ticket sprint plan to fold the strongest features from OpenClaw and Hermes (self-improvement/learning loop, cross-session recall, expanded channels, sandboxed/serverless backends, voice/canvas, broader providers, research tooling) into Cyntr's single-binary, multi-tenant, policy-gated platform.
+
 ---
 
 ## v0.8.1 — Bug Fixes & Polish (Next)
