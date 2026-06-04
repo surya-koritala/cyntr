@@ -612,6 +612,16 @@ func runStart() {
 	proxyGateway.SetUpstreamURL(proxyUpstream)
 	skillRuntime := skill.NewRuntime()
 	skillRuntime.SetOpenClawLoader(compat.LoadOpenClawSkillFromFile)
+	// Autonomous skill creation (A2): persist proposed skills as pending
+	// candidates for approval. CYNTR_SKILL_AUTOACTIVATE_SAFE=true lets the
+	// platform auto-activate proposals with safe capabilities (no shell/
+	// network/filesystem); anything riskier always waits for an operator.
+	if skillCandidates, scErr := skill.NewCandidateStore(dataPath("skill_candidates.db")); scErr != nil {
+		log.Warn("skill candidate store disabled", map[string]any{"error": scErr.Error()})
+	} else {
+		skillRuntime.SetCandidateStore(skillCandidates)
+		skillRuntime.SetAutoActivateSafe(os.Getenv("CYNTR_SKILL_AUTOACTIVATE_SAFE") == "true")
+	}
 	nodeID := os.Getenv("CYNTR_NODE_ID")
 	if nodeID == "" {
 		nodeID = "cyntr-local"

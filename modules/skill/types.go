@@ -41,6 +41,15 @@ func (c Capabilities) HasFilesystem() bool {
 	return len(c.Filesystem) > 0
 }
 
+// IsSafe reports whether the capability set is low-risk enough to be eligible
+// for policy-gated auto-activation: no shell, no network, no filesystem. Such
+// a skill can only read context and call already-granted tools. Anything
+// touching shell/network/filesystem always requires explicit operator
+// approval and is never auto-activated.
+func (c Capabilities) IsSafe() bool {
+	return !c.Shell && !c.HasNetwork() && !c.HasFilesystem()
+}
+
 // SigningInfo holds signature metadata.
 type SigningInfo struct {
 	Registry    string `yaml:"registry"`
