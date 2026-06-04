@@ -47,6 +47,8 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/skill"
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
 	"github.com/cyntr-dev/cyntr/modules/usermodel"
+	"github.com/cyntr-dev/cyntr/modules/recall"
+	"github.com/cyntr-dev/cyntr/kernel/jobs"
 	"github.com/cyntr-dev/cyntr/modules/workflow"
 	"github.com/cyntr-dev/cyntr/packs/loomfeed"
 	"github.com/cyntr-dev/cyntr/tenant"
@@ -203,6 +205,7 @@ func runStart() {
 	toolReg.Register(agenttools.NewToolPlanTool(toolReg, k.Bus()))
 	toolReg.Register(agenttools.NewUserModelReadTool(k.Bus()))
 	toolReg.Register(agenttools.NewUserModelWriteTool(k.Bus()))
+	toolReg.Register(agenttools.NewRecallSearchTool(k.Bus()))
 
 	// Load custom YAML tools from tools/ directory
 	yamlTools, err := agenttools.LoadToolsFromDir("tools")
@@ -754,6 +757,57 @@ func runStart() {
 	}
 	_ = distillTicker // started after kernel boot below
 
+	// Cross-session recall (A5) — full-text index over completed turns plus
+	// per-session LLM summaries. The summary work runs on the shared
+	// background job queue (F0.2); this is its first consumer.
+	var recallJobQueue *jobs.Queue
+	if recallStore, recallErr := recall.NewStore(dataPath("recall.db")); recallErr != nil {
+		log.Warn("recall disabled", map[string]any{"error": recallErr.Error()})
+	} else {
+		// Pick a provider for summaries: the configured model if present,
+		// otherwise any registered provider; nil disables summarization but
+		// leaves search working.
+		var sumProvider agent.ModelProvider
+		if sumModel := os.Getenv("CYNTR_RECALL_SUMMARY_MODEL"); sumModel != "" {
+			sumProvider = agentRuntime.Provider(sumModel)
+		}
+		if sumProvider == nil {
+			for _, name := range agentRuntime.Providers() {
+				if p := agentRuntime.Provider(name); p != nil {
+					sumProvider = p
+					break
+				}
+			}
+		}
+		var summarizeFn recall.SummarizeFunc
+		if sumProvider != nil {
+			summarizeFn = func(c context.Context, conversation string) (string, error) {
+				resp, err := sumProvider.Chat(c, []agent.Message{
+					{Role: agent.RoleSystem, Content: "Summarize the following conversation in 2-4 sentences, focusing on decisions, facts, and open questions. Be concise."},
+					{Role: agent.RoleUser, Content: conversation},
+				}, nil)
+				if err != nil {
+					return "", err
+				}
+				return resp.Content, nil
+			}
+		}
+		if q, qErr := jobs.NewQueue(dataPath("jobs.db"), jobs.WithLogger(func(m string, kv map[string]any) { log.Info(m, kv) })); qErr != nil {
+			log.Warn("job queue disabled; recall summaries off", map[string]any{"error": qErr.Error()})
+		} else {
+			recallJobQueue = q
+		}
+		recallOpts := []recall.Option{recall.WithLogger(func(m string, kv map[string]any) { log.Info(m, kv) })}
+		if recallJobQueue != nil && summarizeFn != nil {
+			recallOpts = append(recallOpts,
+				recall.WithQueue(recallJobQueue),
+				recall.WithSummarizer(recall.NewSummarizer(recallStore, summarizeFn, 50)),
+			)
+		}
+		k.Register(recall.New(recallStore, recallOpts...))
+		log.Info("recall module registered", map[string]any{"summaries": recallJobQueue != nil && summarizeFn != nil})
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -767,6 +821,11 @@ func runStart() {
 	// Kick off the usermodel distill cron loop now that the kernel is up.
 	if distillTicker != nil {
 		distillTicker.Start()
+	}
+
+	// Start the background job queue (drives recall summaries).
+	if recallJobQueue != nil {
+		recallJobQueue.Start()
 	}
 
 	// Real-time event streaming for dashboard
@@ -920,6 +979,11 @@ func runStart() {
 			// Create shutdown context with 30s deadline
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer shutdownCancel()
+
+			// Drain the background job queue before stopping modules.
+			if recallJobQueue != nil {
+				recallJobQueue.Stop()
+			}
 
 			// Stop kernel (stops all modules in reverse order)
 			if err := k.Stop(shutdownCtx); err != nil {
