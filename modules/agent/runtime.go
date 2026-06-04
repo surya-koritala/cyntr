@@ -493,9 +493,10 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	// Add user message to session
 	inst.session.AddMessage(Message{Role: RoleUser, Content: req.Message})
 
-	// Auto-compact history if it exceeds the summarize threshold
+	// Auto-compact history if it exceeds the summarize threshold. Before
+	// dropping older context, nudge the agent to persist anything durable (A4).
 	if inst.config.SummarizeThreshold > 0 && len(inst.session.History()) > inst.config.SummarizeThreshold {
-		inst.session.CompactHistory(inst.config.SummarizeThreshold / 2)
+		nudgeBeforeCompact(inst.session, inst.config.SummarizeThreshold/2)
 	}
 
 	// Get tool definitions for this agent
