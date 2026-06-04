@@ -734,6 +734,7 @@ func runStart() {
 				Model:       distillModelName,
 				Audit:       emitter,
 				Concurrency: 5,
+				EnableFacts: true,
 				Logger: func(msg string, kv map[string]any) {
 					log.Info(msg, kv)
 				},

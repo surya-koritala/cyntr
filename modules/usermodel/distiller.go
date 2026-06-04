@@ -101,6 +101,10 @@ type Distiller struct {
 
 	mu     sync.Mutex
 	logger func(msg string, kv map[string]any) // optional
+
+	// factsEnabled turns on the dialectic facts pass (A6) alongside the
+	// narrative profile distill. Off by default.
+	factsEnabled bool
 }
 
 // DistillerOptions configures a Distiller. Zero values get sensible
@@ -113,6 +117,7 @@ type DistillerOptions struct {
 	Concurrency int            // max simultaneous distills (0 -> unlimited; recommended: 5)
 	Interval    time.Duration  // min spacing per user (0 -> 23h)
 	Logger      func(string, map[string]any)
+	EnableFacts bool           // run the dialectic facts pass (A6) alongside the profile distill
 }
 
 // NewDistiller constructs a Distiller. Returns an error only for hard
@@ -132,6 +137,8 @@ func NewDistiller(opts DistillerOptions) (*Distiller, error) {
 		audit:    opts.Audit,
 		interval: opts.Interval,
 		logger:   opts.Logger,
+
+		factsEnabled: opts.EnableFacts,
 	}
 	if d.audit == nil {
 		d.audit = noopAudit{}
@@ -285,6 +292,15 @@ func (d *Distiller) distillUser(ctx context.Context, tenant, user string, force 
 	// the goal is "don't re-spend tokens on this user for $interval", not
 	// "stamp only on content change".
 	d.store.MarkDistilled(tenant, user)
+
+	// Dialectic facts pass (A6): maintain the structured fact model alongside
+	// the narrative profile. Best-effort — a facts failure must never fail
+	// the profile distill that already succeeded.
+	if d.factsEnabled {
+		if _, ferr := d.DistillFacts(ctx, tenant, user); ferr != nil && d.logger != nil {
+			d.logger("usermodel fact distill failed", map[string]any{"tenant": tenant, "user": user, "error": ferr.Error()})
+		}
+	}
 
 	res.NewSize = len(cleaned)
 	d.audit.Emit("usermodel.distill", tenant, user, "success", map[string]string{

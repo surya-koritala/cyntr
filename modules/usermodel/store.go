@@ -94,6 +94,32 @@ func NewStore(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("usermodel: create user_activity index: %w", err)
 	}
 
+	// user_facts holds the structured, evidence-backed model the dialectic
+	// distiller maintains: discrete claims about the user, each with a
+	// confidence and the session it came from. Facts are revised or retired
+	// across sessions rather than overwritten; retired rows are kept
+	// (status='retired') for auditability rather than deleted.
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_facts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tenant TEXT NOT NULL,
+			user TEXT NOT NULL,
+			fact TEXT NOT NULL,
+			confidence REAL NOT NULL DEFAULT 0.5,
+			source_session TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)
+	`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("usermodel: create user_facts: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_facts_tu ON user_facts(tenant, user, status, confidence)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("usermodel: create user_facts index: %w", err)
+	}
+
 	return &Store{db: db}, nil
 }
 

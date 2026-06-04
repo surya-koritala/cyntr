@@ -60,7 +60,33 @@ func (t *UserModelReadTool) Execute(ctx context.Context, _ map[string]string) (s
 	if !ok {
 		return "", fmt.Errorf("user_model_read: unexpected payload %T", resp.Payload)
 	}
-	return formatProfile(p), nil
+	out := formatProfile(p)
+
+	// Append the structured fact model (A6). Best-effort: if the facts topic
+	// isn't handled or errors, we simply omit the section.
+	if factsResp, ferr := t.bus.Request(callCtx, ipc.Message{
+		Source: "user_model_read", Target: "usermodel", Topic: usermodel.TopicGetFacts,
+		Payload: map[string]string{"tenant": tenant, "user": user},
+	}); ferr == nil {
+		if facts, ok := factsResp.Payload.([]usermodel.Fact); ok {
+			out += formatFacts(facts)
+		}
+	}
+	return out, nil
+}
+
+// formatFacts renders the active fact model as a confidence-annotated list.
+// Retired facts are never returned by the store, so they never appear here.
+func formatFacts(facts []usermodel.Fact) string {
+	if len(facts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n# Known facts\n\n")
+	for _, f := range facts {
+		fmt.Fprintf(&b, "- (%.0f%%) %s\n", f.Confidence*100, f.Text)
+	}
+	return b.String()
 }
 
 // formatProfile renders a UserProfile as a clearly labeled two-section

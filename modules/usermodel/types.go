@@ -35,6 +35,9 @@ const (
 	// TopicRecordActivity appends an activity summary for (tenant, user).
 	// Fire-and-forget (Publish); never returns an error to the caller.
 	TopicRecordActivity = "usermodel.record_activity"
+	// TopicGetFacts returns the active []Fact for (tenant, user). Payload is
+	// map[string]string{"tenant": ..., "user": ...}.
+	TopicGetFacts = "usermodel.get_facts"
 )
 
 // ActivitySummary is one row from the per-user chat activity log used as

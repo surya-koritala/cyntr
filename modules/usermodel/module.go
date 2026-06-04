@@ -44,6 +44,7 @@ func (m *Module) Init(ctx context.Context, svc *kernel.Services) error {
 
 func (m *Module) Start(ctx context.Context) error {
 	m.bus.Handle("usermodel", TopicGet, m.handleGet)
+	m.bus.Handle("usermodel", TopicGetFacts, m.handleGetFacts)
 	m.bus.Handle("usermodel", TopicUpsertProfile, m.handleUpsertProfile)
 	m.bus.Handle("usermodel", TopicUpsertPreferences, m.handleUpsertPreferences)
 	m.bus.Handle("usermodel", TopicDistill, m.handleDistill)
@@ -101,6 +102,24 @@ func (m *Module) handleGet(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: p}, nil
+}
+
+// handleGetFacts returns the active fact list for (tenant, user). An empty
+// list (nil) is a valid response for a user with no facts yet.
+func (m *Module) handleGetFacts(msg ipc.Message) (ipc.Message, error) {
+	args, err := payloadMap(msg.Payload)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	tenant, user := args["tenant"], args["user"]
+	if tenant == "" || user == "" {
+		return ipc.Message{}, fmt.Errorf("usermodel.get_facts: tenant and user are required")
+	}
+	facts, err := m.store.ActiveFacts(tenant, user)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: facts}, nil
 }
 
 func (m *Module) handleUpsertProfile(msg ipc.Message) (ipc.Message, error) {
