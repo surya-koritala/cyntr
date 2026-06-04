@@ -70,6 +70,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("skill_runtime", TopicCandidates, r.handleCandidates)
 	r.bus.Handle("skill_runtime", TopicCandidateApprove, r.handleCandidateApprove)
 	r.bus.Handle("skill_runtime", TopicCandidateReject, r.handleCandidateReject)
+	r.bus.Handle("skill_runtime", TopicRollback, r.handleRollback)
 
 	// Load embedded catalog skills
 	for _, catalogSkill := range LoadEmbeddedCatalog() {
@@ -250,8 +251,27 @@ func (r *Runtime) handleCandidateReject(msg ipc.Message) (ipc.Message, error) {
 
 // activate installs an approved candidate into the registry, where it is
 // indistinguishable from a hand-written skill and loadable by skill_router.
+// When a skill of that name already exists, the candidate is treated as an
+// improved version: it replaces the current one but the prior version is kept
+// for rollback (A3).
 func (r *Runtime) activate(c Candidate) error {
-	return r.registry.InstallDirect(c.toInstalledSkill())
+	s := c.toInstalledSkill()
+	if _, exists := r.registry.Get(s.Manifest.Name); exists {
+		return r.registry.ReplaceWithBackup(s)
+	}
+	return r.registry.InstallDirect(s)
+}
+
+// handleRollback reverts a skill to its most recent prior version.
+func (r *Runtime) handleRollback(msg ipc.Message) (ipc.Message, error) {
+	name, ok := msg.Payload.(string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("skill.rollback: expected skill name, got %T", msg.Payload)
+	}
+	if err := r.registry.Rollback(name); err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "ok"}, nil
 }
 
 // toID coerces an IPC id payload (int64 in-process, float64 across JSON).
