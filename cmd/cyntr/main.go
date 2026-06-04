@@ -152,6 +152,15 @@ func runStart() {
 	usageStore, _ := agent.NewUsageStore(dataPath("usage.db"))
 	agentRuntime.SetUsageStore(usageStore)
 
+	// Per-workspace context files (A7): AGENTS.md / CYNTR.md / SOUL.md /
+	// TOOLS.md under <workspace>/<tenant>/<agent>/ are prepended to every
+	// chat's system context. Root configurable via CYNTR_WORKSPACE_DIR.
+	workspaceRoot := os.Getenv("CYNTR_WORKSPACE_DIR")
+	if workspaceRoot == "" {
+		workspaceRoot = "workspace"
+	}
+	agentRuntime.SetContextLoader(agent.NewContextLoader(workspaceRoot))
+
 	// Start data retention scheduler (cleans up old sessions/memories/usage)
 	agent.StartRetentionScheduler(sessionStore, memoryStore, usageStore, agent.RetentionPolicy{
 		SessionTTL: 90 * 24 * time.Hour,  // 90 days

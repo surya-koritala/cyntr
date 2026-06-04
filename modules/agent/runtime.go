@@ -90,9 +90,10 @@ type Runtime struct {
 	providers   map[string]ModelProvider
 	toolReg     *ToolRegistry
 	agents      map[string]*agentInstance // "tenant/name" -> instance
-	store       *SessionStore
-	memoryStore *MemoryStore
-	usageStore  *UsageStore
+	store         *SessionStore
+	memoryStore   *MemoryStore
+	usageStore    *UsageStore
+	contextLoader *ContextLoader
 }
 
 // SetSessionStore attaches a SessionStore to the runtime for persistent conversations.
@@ -108,6 +109,12 @@ func (r *Runtime) SetMemoryStore(store *MemoryStore) {
 // SetUsageStore attaches a UsageStore to the runtime for token/cost tracking.
 func (r *Runtime) SetUsageStore(store *UsageStore) {
 	r.usageStore = store
+}
+
+// SetContextLoader attaches a per-workspace context-file loader (A7) whose
+// content is prepended to every chat's system context.
+func (r *Runtime) SetContextLoader(cl *ContextLoader) {
+	r.contextLoader = cl
 }
 
 type agentInstance struct {
@@ -454,8 +461,19 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	// stream. The combined string is handed to the session as its "memories"
 	// block so it lands in the system prompt just like before.
 	var contextPrelude string
+	// Per-workspace context files (A7) come first so project conventions frame
+	// everything below them.
+	if r.contextLoader != nil {
+		if ctxFiles := r.contextLoader.Load(req.Tenant, req.Agent); ctxFiles != "" {
+			contextPrelude = ctxFiles
+		}
+	}
 	if profileText := r.loadUserProfile(req.Tenant, req.User); profileText != "" {
-		contextPrelude = profileText
+		if contextPrelude != "" {
+			contextPrelude += "\n\n" + profileText
+		} else {
+			contextPrelude = profileText
+		}
 	}
 	if r.memoryStore != nil {
 		if memories, err := r.memoryStore.Recall(req.Agent, req.Tenant); err == nil {
