@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strconv"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -48,6 +49,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
 	"github.com/cyntr-dev/cyntr/modules/usermodel"
 	"github.com/cyntr-dev/cyntr/modules/recall"
+	"github.com/cyntr-dev/cyntr/modules/learn"
 	"github.com/cyntr-dev/cyntr/kernel/jobs"
 	"github.com/cyntr-dev/cyntr/modules/workflow"
 	"github.com/cyntr-dev/cyntr/packs/loomfeed"
@@ -818,6 +820,42 @@ func runStart() {
 		k.Register(recall.New(recallStore, recallOpts...))
 		log.Info("recall module registered", map[string]any{"summaries": recallJobQueue != nil && summarizeFn != nil})
 	}
+
+	// Closed learning loop (A1) — reflect on complex turns and persist what
+	// was learned (a memory + an approval-gated skill proposal). Off unless
+	// CYNTR_LEARN_ENABLED=true; reuses the shared job queue and a provider.
+	learnEnabled := os.Getenv("CYNTR_LEARN_ENABLED") == "true"
+	var learnReflect learn.ReflectFunc
+	var learnProvider agent.ModelProvider
+	for _, name := range agentRuntime.Providers() {
+		if p := agentRuntime.Provider(name); p != nil {
+			learnProvider = p
+			break
+		}
+	}
+	if learnProvider != nil {
+		learnReflect = func(c context.Context, prompt string) (string, error) {
+			resp, err := learnProvider.Chat(c, []agent.Message{{Role: agent.RoleUser, Content: prompt}}, nil)
+			if err != nil {
+				return "", err
+			}
+			return resp.Content, nil
+		}
+	}
+	learnOpts := []learn.Option{
+		learn.WithReflectFunc(learnReflect),
+		learn.WithLogger(func(m string, kv map[string]any) { log.Info(m, kv) }),
+	}
+	if recallJobQueue != nil {
+		learnOpts = append(learnOpts, learn.WithQueue(recallJobQueue))
+	}
+	if n := os.Getenv("CYNTR_LEARN_MIN_TOOLCALLS"); n != "" {
+		if v, err := strconv.Atoi(n); err == nil {
+			learnOpts = append(learnOpts, learn.WithMinToolCalls(v))
+		}
+	}
+	k.Register(learn.New(learnEnabled, learnOpts...))
+	log.Info("learn module registered", map[string]any{"enabled": learnEnabled})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
