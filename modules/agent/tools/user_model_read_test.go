@@ -92,3 +92,38 @@ func TestUserModelReadNoHandlerIsSoftError(t *testing.T) {
 		t.Fatalf("expected soft-error message, got: %s", out)
 	}
 }
+
+func TestUserModelReadIncludesFacts(t *testing.T) {
+	bus := startUserModelBus(t, usermodel.UserProfile{Tenant: "acme", User: "alice", ProfileMD: "x"})
+	bus.Handle("usermodel", usermodel.TopicGetFacts, func(msg ipc.Message) (ipc.Message, error) {
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: []usermodel.Fact{
+			{Text: "Prefers Go", Confidence: 0.9},
+			{Text: "Works in waste management", Confidence: 0.7},
+		}}, nil
+	})
+	tool := NewUserModelReadTool(bus)
+	ctx := agent.WithToolCaller(context.Background(), "acme", "assistant", "alice")
+	out, err := tool.Execute(ctx, nil)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !strings.Contains(out, "# Known facts") {
+		t.Fatalf("missing facts header: %s", out)
+	}
+	if !strings.Contains(out, "Prefers Go") || !strings.Contains(out, "90%") {
+		t.Fatalf("missing fact/confidence: %s", out)
+	}
+}
+
+func TestUserModelReadOmitsEmptyFacts(t *testing.T) {
+	bus := startUserModelBus(t, usermodel.UserProfile{Tenant: "acme", User: "alice", ProfileMD: "x"})
+	bus.Handle("usermodel", usermodel.TopicGetFacts, func(msg ipc.Message) (ipc.Message, error) {
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: []usermodel.Fact{}}, nil
+	})
+	tool := NewUserModelReadTool(bus)
+	ctx := agent.WithToolCaller(context.Background(), "acme", "assistant", "alice")
+	out, _ := tool.Execute(ctx, nil)
+	if strings.Contains(out, "# Known facts") {
+		t.Fatalf("facts section should be omitted when empty: %s", out)
+	}
+}
