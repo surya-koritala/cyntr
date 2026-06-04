@@ -1,6 +1,42 @@
 package agent
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
+
+// TopicTurnCompleted is the IPC topic on which the runtime broadcasts a
+// TurnRecord after every completed chat turn. Consumers subscribe with
+// bus.Subscribe("<module>", TopicTurnCompleted, handler); delivery is
+// fire-and-forget and fans out to all subscribers.
+const TopicTurnCompleted = "agent.turn_completed"
+
+// TurnRecord is the payload published on TopicTurnCompleted once a chat turn
+// reaches its terminal (no more tool calls) state. It is an in-process,
+// tenant-scoped snapshot intended for asynchronous consumers such as the
+// learning loop, cross-session recall indexer, and trajectory capture.
+//
+// Privacy: UserMessage and Response carry RAW, pre-sanitization text. Any
+// consumer that persists or displays them MUST first run them through
+// MaskSecrets/RedactPII, exactly as the chat response path does.
+type TurnRecord struct {
+	Tenant       string    `json:"tenant"`
+	User         string    `json:"user"`
+	Session      string    `json:"session"`
+	Agent        string    `json:"agent"`
+	Model        string    `json:"model"`
+	UserMessage  string    `json:"user_message"`  // raw message that started the turn
+	Response     string    `json:"response"`      // raw final assistant content
+	ToolsUsed    []string  `json:"tools_used"`    // distinct tool names invoked
+	ToolCalls    int       `json:"tool_calls"`    // total tool invocations across the loop
+	Turns        int       `json:"turns"`         // model turns taken to reach completion
+	InputTokens  int       `json:"input_tokens"`  // summed across all model calls
+	OutputTokens int       `json:"output_tokens"` // summed across all model calls
+	TotalTokens  int       `json:"total_tokens"`
+	Outcome      string    `json:"outcome"` // "ok" (extend with error outcomes later)
+	DurationMS   int64     `json:"duration_ms"`
+	StartedAt    time.Time `json:"started_at"`
+}
 
 // Role identifies the sender of a message in a conversation.
 type Role int

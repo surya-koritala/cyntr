@@ -163,7 +163,14 @@ func (b *Bus) Publish(msg Message) error {
 
 	for _, sub := range subs {
 		sub := sub
-		go func() { sub.handler(msg) }()
+		// Each subscriber runs in its own goroutine so a slow or panicking
+		// consumer can never block the publisher or crash the process. Events
+		// are fire-and-forget: a handler panic is contained here and its
+		// return value/error is intentionally discarded.
+		go func() {
+			defer func() { _ = recover() }()
+			sub.handler(msg)
+		}()
 	}
 	return nil
 }

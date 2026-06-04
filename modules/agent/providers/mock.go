@@ -2,15 +2,18 @@ package providers
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/cyntr-dev/cyntr/modules/agent"
 )
 
 // Mock is a deterministic model provider for testing.
 type Mock struct {
-	response  string
-	toolCall  *agent.ToolCall
-	callCount int
+	response string
+	toolCall *agent.ToolCall
+	// callCount is atomic because a single Mock may serve concurrent chats
+	// (it is also registered as the default "mock" model in production).
+	callCount atomic.Int64
 }
 
 // NewMock creates a mock provider that always returns the given response.
@@ -34,10 +37,10 @@ func NewMockWithToolCall(toolName string, input map[string]string) *Mock {
 func (m *Mock) Name() string { return "mock" }
 
 func (m *Mock) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef) (agent.Message, error) {
-	m.callCount++
+	n := m.callCount.Add(1)
 
 	// If we have a tool call and this is the first request, return tool call
-	if m.toolCall != nil && m.callCount == 1 {
+	if m.toolCall != nil && n == 1 {
 		return agent.Message{
 			Role:      agent.RoleAssistant,
 			ToolCalls: []agent.ToolCall{*m.toolCall},

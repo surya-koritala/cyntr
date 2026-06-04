@@ -197,3 +197,33 @@ func TestBusPublishAfterClose(t *testing.T) {
 		t.Fatalf("expected ErrBusClosed, got %v", err)
 	}
 }
+
+// A panicking subscriber must be contained: Publish returns nil and every
+// other subscriber of the topic still runs. Without the recover() guard the
+// panicking goroutine would crash the whole process.
+func TestBusPublishSubscriberPanicContained(t *testing.T) {
+	bus := NewBus()
+	defer bus.Close()
+
+	var delivered atomic.Int32
+	bus.Subscribe("panicker", "events.panic", func(msg Message) (Message, error) {
+		panic("boom")
+	})
+	bus.Subscribe("survivor", "events.panic", func(msg Message) (Message, error) {
+		delivered.Add(1)
+		return Message{}, nil
+	})
+
+	if err := bus.Publish(Message{Source: "emitter", Type: MessageTypeEvent, Topic: "events.panic"}); err != nil {
+		t.Fatalf("publish returned error: %v", err)
+	}
+
+	deadline := time.After(time.Second)
+	for delivered.Load() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("surviving subscriber never ran after a co-subscriber panicked")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
