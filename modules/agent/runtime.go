@@ -172,6 +172,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("agent_runtime", "agent.sessions", r.handleSessions)
 	r.bus.Handle("agent_runtime", "agent.session.messages", r.handleSessionMessages)
 	r.bus.Handle("agent_runtime", "agent.memories", r.handleMemories)
+	r.bus.Handle("agent_runtime", "agent.memory.save", r.handleMemorySave)
 	r.bus.Handle("agent_runtime", "agent.memory.delete", r.handleMemoryDelete)
 	r.bus.Handle("agent_runtime", "agent.session.clear", r.handleSessionClear)
 	r.bus.Handle("agent_runtime", "agent.update", r.handleUpdate)
@@ -1134,6 +1135,30 @@ func formatSkillInstructions(instructions map[string]string) string {
 		sb.WriteString("\n\n---\n\n")
 	}
 	return sb.String()
+}
+
+// handleMemorySave persists a long-term memory. Used by the learning loop to
+// record what it learned from a completed turn. Content is run through the
+// same secret/PII filters as chat output before it lands on disk.
+func (r *Runtime) handleMemorySave(msg ipc.Message) (ipc.Message, error) {
+	m, ok := msg.Payload.(Memory)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected Memory, got %T", msg.Payload)
+	}
+	if r.memoryStore == nil {
+		return ipc.Message{}, fmt.Errorf("memory store not configured")
+	}
+	if m.Tenant == "" || m.Agent == "" || m.Content == "" {
+		return ipc.Message{}, fmt.Errorf("agent.memory.save: tenant, agent and content are required")
+	}
+	m.Content = RedactPII(MaskSecrets(m.Content))
+	if m.Key == "" {
+		m.Key = "learned"
+	}
+	if err := r.memoryStore.Save(m); err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "ok"}, nil
 }
 
 func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {
