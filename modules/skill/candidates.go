@@ -26,6 +26,7 @@ const (
 	TopicCandidates       = "skill.candidates"        // payload: status string ("" = pending) -> []Candidate
 	TopicCandidateApprove = "skill.candidate_approve" // payload: int64 id -> "ok"
 	TopicCandidateReject  = "skill.candidate_reject"  // payload: RejectRequest -> "ok"
+	TopicRollback         = "skill.rollback"          // payload: string name -> "ok"
 )
 
 // Candidate is a proposed skill awaiting a decision. Candidates are persisted

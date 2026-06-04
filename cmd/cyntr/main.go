@@ -672,6 +672,44 @@ func runStart() {
 	curatorMod := curator.New(dataPath("curator.db"))
 	k.Register(curatorMod)
 
+	// Self-improving skills (A3): let the curator turn a failing skill's recent
+	// failures into an approval-gated improved candidate. The proposal flows
+	// through skill.propose, so it is never auto-applied with risky caps; on
+	// approval the live skill is replaced and the prior version kept for rollback.
+	var improveProvider agent.ModelProvider
+	for _, name := range agentRuntime.Providers() {
+		if p := agentRuntime.Provider(name); p != nil {
+			improveProvider = p
+			break
+		}
+	}
+	if improveProvider != nil {
+		cbus := k.Bus()
+		fetchInstr := func(name string) (string, error) {
+			rctx, rcancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer rcancel()
+			resp, err := cbus.Request(rctx, ipc.Message{Source: "curator", Target: "skill_runtime", Topic: "skill.get", Payload: name})
+			if err != nil {
+				return "", err
+			}
+			s, ok := resp.Payload.(*skill.InstalledSkill)
+			if !ok {
+				return "", fmt.Errorf("skill.get: unexpected payload %T", resp.Payload)
+			}
+			return s.Instructions, nil
+		}
+		proposeImproved := func(name, description, instructions string) error {
+			rctx, rcancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer rcancel()
+			_, err := cbus.Request(rctx, ipc.Message{
+				Source: "curator", Target: "skill_runtime", Topic: skill.TopicPropose,
+				Payload: skill.ProposeRequest{Name: name, Description: description, Instructions: instructions, SourceAgent: "curator"},
+			})
+			return err
+		}
+		curatorMod.SetImprover(curator.NewImprover(improveProvider, "", fetchInstr, proposeImproved))
+	}
+
 	// Notification channels
 	notifierInst := notify.NewNotifier()
 	if pdKey := os.Getenv("PAGERDUTY_ROUTING_KEY"); pdKey != "" {

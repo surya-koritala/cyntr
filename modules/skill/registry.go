@@ -10,11 +10,63 @@ import (
 type Registry struct {
 	mu     sync.RWMutex
 	skills map[string]*InstalledSkill
+	// versions keeps prior versions of a skill (most recent last) so an
+	// approved improvement (A3) can be rolled back.
+	versions map[string][]*InstalledSkill
 }
+
+// maxVersionHistory bounds how many prior versions of a skill we keep for
+// rollback.
+const maxVersionHistory = 10
 
 // NewRegistry creates an empty skill registry.
 func NewRegistry() *Registry {
-	return &Registry{skills: make(map[string]*InstalledSkill)}
+	return &Registry{
+		skills:   make(map[string]*InstalledSkill),
+		versions: make(map[string][]*InstalledSkill),
+	}
+}
+
+// ReplaceWithBackup installs s, pushing the current version (if any) onto the
+// rollback stack so an improvement can be reverted. When no skill of that name
+// exists it behaves like a fresh install.
+func (r *Registry) ReplaceWithBackup(s *InstalledSkill) error {
+	if s == nil || s.Manifest.Name == "" {
+		return fmt.Errorf("skill: ReplaceWithBackup requires a named skill")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if prev, ok := r.skills[s.Manifest.Name]; ok {
+		hist := append(r.versions[s.Manifest.Name], prev)
+		if len(hist) > maxVersionHistory {
+			hist = hist[len(hist)-maxVersionHistory:]
+		}
+		r.versions[s.Manifest.Name] = hist
+	}
+	r.skills[s.Manifest.Name] = s
+	return nil
+}
+
+// Rollback restores the most recent prior version of a skill, returning an
+// error when there is nothing to roll back to.
+func (r *Registry) Rollback(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	hist := r.versions[name]
+	if len(hist) == 0 {
+		return fmt.Errorf("skill %q has no prior version to roll back to", name)
+	}
+	prev := hist[len(hist)-1]
+	r.versions[name] = hist[:len(hist)-1]
+	r.skills[name] = prev
+	return nil
+}
+
+// VersionCount returns how many prior (rollback-able) versions a skill has.
+func (r *Registry) VersionCount(name string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.versions[name])
 }
 
 // Install loads a skill from a directory and adds it to the registry.

@@ -19,6 +19,7 @@ const (
 	TopicJudge            = "curator.judge"
 	TopicPruneRun         = "curator.prune.run"
 	TopicConsolidateRun   = "curator.consolidate.run"
+	TopicImproveRun       = "curator.improve.run"
 	ModuleName            = "curator"
 )
 
@@ -36,6 +37,7 @@ type Module struct {
 	judge       *Judge
 	disabler    PruneSkillDisabler
 	snapshotter ConsolidationSnapshotter
+	improver    *Improver // A3: proposes improved versions of failing skills
 
 	// Background prune loop. Cancel via stopCancel during Stop.
 	stopMu     sync.Mutex
@@ -65,6 +67,59 @@ func (m *Module) SetJudge(j *Judge) {
 // Judge exposes the wired judge for tests.
 func (m *Module) Judge() *Judge { return m.judge }
 
+// SetImprover wires the skill improver (A3). When unset, curator.improve.run
+// returns an error — self-improvement is opt-in.
+func (m *Module) SetImprover(im *Improver) { m.improver = im }
+
+// handleImproveRun proposes improved versions of failing skills. With a
+// non-empty string payload it improves that one skill; otherwise it scans all
+// currently-failing skills. Returns the list of skill names a proposal was
+// raised for.
+func (m *Module) handleImproveRun(msg ipc.Message) (ipc.Message, error) {
+	if m.improver == nil {
+		return ipc.Message{}, fmt.Errorf("curator.improve.run: improver not configured")
+	}
+	if name, ok := msg.Payload.(string); ok && name != "" {
+		proposed, err := m.improver.Improve(context.Background(), m.store, name)
+		if err != nil {
+			return ipc.Message{}, err
+		}
+		var out []string
+		if proposed {
+			out = []string{name}
+		}
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: out}, nil
+	}
+	improved, err := m.runImproveScan(context.Background())
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: improved}, nil
+}
+
+// runImproveScan proposes improvements for every currently-failing skill and
+// returns the names a proposal was raised for.
+func (m *Module) runImproveScan(ctx context.Context) ([]string, error) {
+	scores, err := ComputeAllScores(m.store, m.now())
+	if err != nil {
+		return nil, err
+	}
+	var improved []string
+	for _, s := range scores {
+		if s.Health != HealthFailing {
+			continue
+		}
+		proposed, err := m.improver.Improve(ctx, m.store, s.SkillName)
+		if err != nil {
+			continue // best-effort per skill
+		}
+		if proposed {
+			improved = append(improved, s.SkillName)
+		}
+	}
+	return improved, nil
+}
+
 func (m *Module) Init(ctx context.Context, svc *kernel.Services) error {
 	m.bus = svc.Bus
 	store, err := NewStore(m.dbPath)
@@ -84,6 +139,7 @@ func (m *Module) Start(ctx context.Context) error {
 	m.bus.Handle(ModuleName, TopicJudge, m.handleJudge)
 	m.bus.Handle(ModuleName, TopicPruneRun, m.handlePruneRun)
 	m.bus.Handle(ModuleName, TopicConsolidateRun, m.handleConsolidateRun)
+	m.bus.Handle(ModuleName, TopicImproveRun, m.handleImproveRun)
 
 	// Spin up the background auto-prune loop. We use a goroutine
 	// rather than the heavyweight scheduler module to keep this
