@@ -200,7 +200,39 @@ func runStart() {
 	toolReg.Register(agenttools.NewDelegateTool(k.Bus()))
 	toolReg.Register(agenttools.NewOrchestrateTool(k.Bus()))
 	toolReg.Register(agenttools.NewSkillRouterTool(k.Bus()))
-	toolReg.Register(agenttools.NewCodeInterpreterTool())
+	codeTool := agenttools.NewCodeInterpreterTool()
+	// Tool-RPC bridge (E21): scripts may call cyntr.call_tool(...) in one turn.
+	// Every call re-checks policy and is audited, so scripting can't reach a
+	// tool the agent itself couldn't call.
+	codeAudit := agent.NewBusAuditEmitter(k.Bus(), os.Getenv("CYNTR_NODE_ID"))
+	codeTool.EnableRPC(&agenttools.RPCConfig{
+		Exec: func(c context.Context, name string, args map[string]string) (string, error) {
+			return toolReg.Execute(c, name, args)
+		},
+		PolicyCheck: func(tenant, user, ag, tool string) string {
+			pctx, pcancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer pcancel()
+			resp, perr := k.Bus().Request(pctx, ipc.Message{
+				Source: "code_rpc", Target: "policy", Topic: "policy.check",
+				Payload: policy.CheckRequest{Tenant: tenant, Action: "tool_call", Tool: tool, Agent: ag, User: user},
+			})
+			if perr != nil {
+				if perr == ipc.ErrNoHandler {
+					return "allow"
+				}
+				return "deny"
+			}
+			cr, ok := resp.Payload.(policy.CheckResponse)
+			if !ok {
+				return "deny"
+			}
+			return cr.Decision.String()
+		},
+		Audit: func(tenant, user, ag, tool, decision string) {
+			codeAudit.Emit("tool_call.script", tenant, user, decision, map[string]string{"tool": tool, "agent": ag})
+		},
+	})
+	toolReg.Register(codeTool)
 	toolReg.Register(agenttools.NewTranscribeTool())
 	toolReg.Register(agenttools.NewWebSearchTool())
 	toolReg.Register(agenttools.NewWebReaderTool())
