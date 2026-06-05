@@ -17,20 +17,18 @@ func TestWebSearchToolName(t *testing.T) {
 }
 
 func TestWebSearchToolExecute(t *testing.T) {
+	// The tool posts to Firecrawl's POST /v1/search with a JSON body and
+	// parses {success, data:[{url,title,description,markdown}]}.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("key") != "test-key" {
-			t.Fatal("missing api key")
-		}
-		if r.URL.Query().Get("cx") != "test-cx" {
-			t.Fatal("missing cx")
-		}
-		if r.URL.Query().Get("q") != "golang testing" {
-			t.Fatal("missing query")
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["query"] != "golang testing" {
+			t.Errorf("query in body = %v", body["query"])
 		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"items": []map[string]string{
-				{"title": "Go Testing", "link": "https://go.dev/doc/testing", "snippet": "How to write tests in Go"},
-				{"title": "Testing Package", "link": "https://pkg.go.dev/testing", "snippet": "Package testing provides support"},
+			"success": true,
+			"data": []map[string]string{
+				{"title": "Go Testing", "url": "https://go.dev/doc/testing", "description": "How to write tests in Go"},
 			},
 		})
 	}))
@@ -39,17 +37,12 @@ func TestWebSearchToolExecute(t *testing.T) {
 	tool := NewWebSearchTool()
 	tool.SetAPIURL(server.URL)
 
-	result, err := tool.Execute(context.Background(), map[string]string{
-		"query": "golang testing", "api_key": "test-key", "cx": "test-cx",
-	})
+	result, err := tool.Execute(context.Background(), map[string]string{"query": "golang testing"})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !strings.Contains(result, "Go Testing") {
-		t.Fatalf("expected title, got %q", result)
-	}
-	if !strings.Contains(result, "https://go.dev/doc/testing") {
-		t.Fatalf("expected URL, got %q", result)
+	if !strings.Contains(result, "Go Testing") || !strings.Contains(result, "https://go.dev/doc/testing") {
+		t.Fatalf("expected title+url, got %q", result)
 	}
 }
 
@@ -99,19 +92,19 @@ func TestWebSearchToolAPIError(t *testing.T) {
 }
 
 func TestWebSearchToolNumResults(t *testing.T) {
-	var receivedNum string
+	var receivedLimit float64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedNum = r.URL.Query().Get("num")
-		json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		receivedLimit, _ = body["limit"].(float64)
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "data": []any{}})
 	}))
 	defer server.Close()
 
 	tool := NewWebSearchTool()
 	tool.SetAPIURL(server.URL)
-	tool.Execute(context.Background(), map[string]string{
-		"query": "test", "api_key": "key", "cx": "cx", "num_results": "3",
-	})
-	if receivedNum != "3" {
-		t.Fatalf("expected num=3, got %q", receivedNum)
+	tool.Execute(context.Background(), map[string]string{"query": "test", "num_results": "3"})
+	if receivedLimit != 3 {
+		t.Fatalf("expected limit=3 in body, got %v", receivedLimit)
 	}
 }

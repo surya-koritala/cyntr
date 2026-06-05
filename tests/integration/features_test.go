@@ -135,12 +135,12 @@ func TestWebSearchIntegration(t *testing.T) {
 		t.Fatal("wrong name")
 	}
 	params := tool.Parameters()
-	if !params["query"].Required || !params["api_key"].Required || !params["cx"].Required {
-		t.Fatal("expected required params")
+	if !params["query"].Required {
+		t.Fatal("query should be a required param")
 	}
 
-	// Missing params should error cleanly
-	_, err := tool.Execute(context.Background(), map[string]string{"query": "test"})
+	// Missing the required query should error cleanly.
+	_, err := tool.Execute(context.Background(), map[string]string{})
 	if err == nil || !strings.Contains(err.Error(), "required") {
 		t.Fatalf("expected clear error, got %v", err)
 	}

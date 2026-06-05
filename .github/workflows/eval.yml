@@ -8,13 +8,10 @@ name: Eval
 #   CYNTR_API_KEY  — API key with eval permission
 
 on:
-  pull_request:
-    paths:
-      - 'evals/**'
-      - 'modules/**'
-      - 'cmd/**'
-  push:
-    branches: [main]
+  # Manual-only: eval needs a deployed/running Cyntr server (CYNTR_URL +
+  # CYNTR_API_KEY), so it can't run on every PR/push. Trigger it by hand
+  # against a real instance. Day-to-day CI is the Build workflow.
+  workflow_dispatch:
 
 jobs:
   eval:
