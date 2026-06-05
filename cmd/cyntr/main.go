@@ -396,6 +396,37 @@ func runStart() {
 		log.Info("provider registered", map[string]any{"provider": name, "model": model, "compatible": true})
 	}
 
+	// Model failover (D18): CYNTR_MODEL_FALLBACKS="p1,p2,p3" registers a
+	// "failover" provider that tries each already-registered provider in order,
+	// advancing on transient errors (rate-limit/5xx/timeout) and rotating keys
+	// on auth failures. Agents target it via model: failover.
+	if fb := strings.TrimSpace(os.Getenv("CYNTR_MODEL_FALLBACKS")); fb != "" {
+		var chain []agent.ModelProvider
+		var names []string
+		for _, n := range strings.Split(fb, ",") {
+			n = strings.TrimSpace(n)
+			if n == "" {
+				continue
+			}
+			if p := agentRuntime.Provider(n); p != nil {
+				chain = append(chain, p)
+				names = append(names, n)
+			} else {
+				log.Warn("failover: unknown provider, skipped", map[string]any{"provider": n})
+			}
+		}
+		if len(chain) > 0 {
+			fp := agent.NewFailoverProvider("failover", chain...)
+			fp.SetOnAttempt(func(provider string, err error) {
+				if err != nil {
+					log.Warn("model failover attempt failed", map[string]any{"provider": provider, "error": err.Error()})
+				}
+			})
+			agentRuntime.RegisterProvider(fp)
+			log.Info("model failover registered", map[string]any{"chain": names})
+		}
+	}
+
 	// Register Azure OpenAI providers
 	// Supports single deployment (AZURE_OPENAI_DEPLOYMENT) or multiple (AZURE_OPENAI_DEPLOYMENTS=gpt-4.1,gpt-5-chat,...)
 	azureKey := os.Getenv("AZURE_OPENAI_API_KEY")
