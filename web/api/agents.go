@@ -69,12 +69,23 @@ func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 201, map[string]string{"status": "created", "agent": body.Name, "tenant": tid})
 }
 
+// apiUser returns the request's user identity, falling back to a stable
+// "anonymous" so user-scoped features (recall, the user model) still function
+// for unauthenticated dashboard/API chats instead of silently no-opping.
+func apiUser(u string) string {
+	if u == "" {
+		return "anonymous"
+	}
+	return u
+}
+
 func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
 	agentName := r.PathValue("name")
 
 	var body struct {
 		Message string `json:"message"`
+		User    string `json:"user"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON body")
@@ -89,6 +100,7 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		Payload: agent.ChatRequest{
 			Agent:   agentName,
 			Tenant:  tid,
+			User:    apiUser(body.User),
 			Message: body.Message,
 		},
 		TraceID: traceID(r),
@@ -327,6 +339,7 @@ func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
 	agentName := r.PathValue("name")
 	message := r.URL.Query().Get("message")
+	user := apiUser(r.URL.Query().Get("user"))
 
 	if message == "" {
 		RespondError(w, 400, "INVALID_REQUEST", "message query parameter required")
@@ -371,7 +384,7 @@ func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		resp, err := s.bus.Request(ctx, ipc.Message{
 			Source: "api", Target: "agent_runtime", Topic: "agent.chat",
-			Payload: agent.ChatRequest{Agent: agentName, Tenant: tid, Message: message},
+			Payload: agent.ChatRequest{Agent: agentName, Tenant: tid, User: user, Message: message},
 			TraceID: traceID(r),
 		})
 		if err != nil {
