@@ -164,6 +164,10 @@ func (s *Server) registerRoutes() {
 	// Skills
 	s.mux.HandleFunc("GET /api/v1/skills", s.handleSkillList)
 	s.mux.HandleFunc("POST /api/v1/skills", s.handleSkillInstall)
+	// Autonomous skill proposals (A2): review queue + approve/reject.
+	s.mux.HandleFunc("GET /api/v1/skills/candidates", s.handleSkillCandidates)
+	s.mux.HandleFunc("POST /api/v1/skills/candidates/{id}/approve", s.handleSkillCandidateApprove)
+	s.mux.HandleFunc("POST /api/v1/skills/candidates/{id}/reject", s.handleSkillCandidateReject)
 	s.mux.HandleFunc("POST /api/v1/skills/import/openclaw", s.handleSkillImportOpenClaw)
 	s.mux.HandleFunc("GET /api/v1/skills/marketplace/search", s.handleSkillMarketplaceSearch)
 	s.mux.HandleFunc("GET /api/v1/skills/marketplace", s.handleSkillMarketplaceSearch)
