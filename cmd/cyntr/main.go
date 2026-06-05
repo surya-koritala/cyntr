@@ -2,20 +2,21 @@ package main
 
 import (
 	"context"
-	"strconv"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/config"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/kernel/jobs"
 	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 	agentproviders "github.com/cyntr-dev/cyntr/modules/agent/providers"
@@ -33,24 +34,23 @@ import (
 	teamspkg "github.com/cyntr-dev/cyntr/modules/channel/teams"
 	telegrampkg "github.com/cyntr-dev/cyntr/modules/channel/telegram"
 	whatsapppkg "github.com/cyntr-dev/cyntr/modules/channel/whatsapp"
-	"github.com/cyntr-dev/cyntr/modules/eval"
-	"github.com/cyntr-dev/cyntr/modules/federation"
-	"github.com/cyntr-dev/cyntr/modules/notify"
-	"github.com/cyntr-dev/cyntr/modules/observability"
-	"github.com/cyntr-dev/cyntr/modules/sla"
 	"github.com/cyntr-dev/cyntr/modules/crew"
 	"github.com/cyntr-dev/cyntr/modules/curator"
+	"github.com/cyntr-dev/cyntr/modules/eval"
+	"github.com/cyntr-dev/cyntr/modules/federation"
+	"github.com/cyntr-dev/cyntr/modules/learn"
 	"github.com/cyntr-dev/cyntr/modules/mcp"
+	"github.com/cyntr-dev/cyntr/modules/notify"
+	"github.com/cyntr-dev/cyntr/modules/observability"
 	"github.com/cyntr-dev/cyntr/modules/policy"
 	"github.com/cyntr-dev/cyntr/modules/proxy"
 	"github.com/cyntr-dev/cyntr/modules/quota"
+	"github.com/cyntr-dev/cyntr/modules/recall"
 	"github.com/cyntr-dev/cyntr/modules/scheduler"
 	"github.com/cyntr-dev/cyntr/modules/skill"
 	"github.com/cyntr-dev/cyntr/modules/skill/compat"
+	"github.com/cyntr-dev/cyntr/modules/sla"
 	"github.com/cyntr-dev/cyntr/modules/usermodel"
-	"github.com/cyntr-dev/cyntr/modules/recall"
-	"github.com/cyntr-dev/cyntr/modules/learn"
-	"github.com/cyntr-dev/cyntr/kernel/jobs"
 	"github.com/cyntr-dev/cyntr/modules/workflow"
 	"github.com/cyntr-dev/cyntr/packs/loomfeed"
 	"github.com/cyntr-dev/cyntr/tenant"
@@ -790,6 +790,9 @@ func runStart() {
 	// approval the live skill is replaced and the prior version kept for rollback.
 	var improveProvider agent.ModelProvider
 	for _, name := range agentRuntime.Providers() {
+		if name == "mock" {
+			continue // skip the always-registered mock provider in best-effort fallbacks
+		}
 		if p := agentRuntime.Provider(name); p != nil {
 			improveProvider = p
 			break
@@ -851,6 +854,18 @@ func runStart() {
 	} else {
 		userModelModule = usermodel.New(userModelStore)
 		k.Register(userModelModule)
+		// Per-tenant distillation (narrative profile + dialectic facts) is
+		// opt-in. CYNTR_USERMODEL_DISTILL_TENANTS="default,research" turns it on
+		// — without this there was no way to enable it outside tests.
+		for _, t := range strings.Split(os.Getenv("CYNTR_USERMODEL_DISTILL_TENANTS"), ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				if err := userModelStore.SetTenantDistillEnabled(t, true); err != nil {
+					log.Warn("usermodel: enable distill failed", map[string]any{"tenant": t, "error": err.Error()})
+				} else {
+					log.Info("usermodel distillation enabled", map[string]any{"tenant": t})
+				}
+			}
+		}
 	}
 
 	// Distiller: best-effort narrative profile updates from session history.
@@ -879,6 +894,9 @@ func runStart() {
 			// see the path exercised. In production with a haiku key set,
 			// this branch is never taken.
 			for _, name := range agentRuntime.Providers() {
+				if name == "mock" {
+					continue // skip the always-registered mock provider in best-effort fallbacks
+				}
 				if p := agentRuntime.Provider(name); p != nil {
 					chosen = p
 					break
@@ -936,6 +954,9 @@ func runStart() {
 		}
 		if sumProvider == nil {
 			for _, name := range agentRuntime.Providers() {
+				if name == "mock" {
+					continue // skip the always-registered mock provider in best-effort fallbacks
+				}
 				if p := agentRuntime.Provider(name); p != nil {
 					sumProvider = p
 					break
@@ -978,6 +999,9 @@ func runStart() {
 	var learnReflect learn.ReflectFunc
 	var learnProvider agent.ModelProvider
 	for _, name := range agentRuntime.Providers() {
+		if name == "mock" {
+			continue // skip the always-registered mock provider in best-effort fallbacks
+		}
 		if p := agentRuntime.Provider(name); p != nil {
 			learnProvider = p
 			break
