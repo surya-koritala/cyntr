@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/log"
@@ -34,7 +35,8 @@ func (InProcessBackend) Run(ctx context.Context, _ string, command string, timeo
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	shellName, shellArgs := shellInvocation(runtime.GOOS, command)
+	cmd := exec.CommandContext(ctx, shellName, shellArgs...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
