@@ -127,6 +127,19 @@ func TestModuleSummarizeJobFlow(t *testing.T) {
 	}
 }
 
+func TestModuleSkipsSubagentTurns(t *testing.T) {
+	m, _ := startModule(t)
+	// A subagent turn (spawned by orchestrate/delegate) must NOT pollute the
+	// user's recall index.
+	m.handleTurnCompleted(ipc.Message{Topic: agent.TopicTurnCompleted, Payload: agent.TurnRecord{
+		Tenant: "acme", User: "jane", Session: "s1",
+		UserMessage: "internal child question", Response: "child answer", Subagent: true,
+	}})
+	if n, _ := m.store.MessageCount("acme", "jane", "s1"); n != 0 {
+		t.Fatalf("subagent turn should not be indexed, got %d rows", n)
+	}
+}
+
 func TestModuleIgnoresMalformedAndScopelessEvents(t *testing.T) {
 	m, _ := startModule(t)
 	// Wrong payload type — must not panic or error.

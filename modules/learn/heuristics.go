@@ -10,6 +10,11 @@ func shouldReflect(rec agent.TurnRecord, minToolCalls int) bool {
 	if rec.Tenant == "" || rec.Agent == "" {
 		return false
 	}
+	// Don't reflect on subagent-internal turns — the parent's turn already
+	// captures the overall task (#47).
+	if rec.Subagent {
+		return false
+	}
 	if minToolCalls <= 0 {
 		minToolCalls = DefaultMinToolCalls
 	}

@@ -388,6 +388,11 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("expected ChatRequest, got %T", msg.Payload)
 	}
 
+	// A turn spawned by another agent (orchestrate/delegate) is a subagent
+	// turn; its memory/recall/activity is scoped out of the shared user's
+	// durable state so child-internal work can't contaminate the parent.
+	isSubagent := msg.Source == "orchestrate" || msg.Source == "delegate_tool"
+
 	// Top-level chat span. We use context.Background() because handleChat is
 	// driven off the IPC bus rather than an inbound request context, but the
 	// returned ctx is plumbed into downstream provider/tool calls so child
@@ -613,14 +618,20 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 			// scrub it through the same secret/PII filters as the user-
 			// visible response so leaked secrets don't end up in the
 			// activity log.
-			activitySummary := MaskSecrets(req.Message)
-			activitySummary = RedactPII(activitySummary)
-			activitySummary = truncate(activitySummary, 200) + " -> " + truncate(MaskSecrets(RedactPII(response.Content)), 200)
-			r.bus.Publish(ipc.Message{
-				Source: "agent_runtime", Target: "usermodel", Topic: "usermodel.record_activity",
-				Type:    ipc.MessageTypeEvent,
-				Payload: map[string]string{"tenant": req.Tenant, "user": req.User, "summary": activitySummary},
-			})
+			// Subagent isolation (A1 follow-up): a turn spawned by another
+			// agent (orchestrate/delegate) must not write into the shared
+			// user's durable memory — its internal Q&A is not the user's
+			// activity. Skip the user-model activity record for those.
+			if !isSubagent {
+				activitySummary := MaskSecrets(req.Message)
+				activitySummary = RedactPII(activitySummary)
+				activitySummary = truncate(activitySummary, 200) + " -> " + truncate(MaskSecrets(RedactPII(response.Content)), 200)
+				r.bus.Publish(ipc.Message{
+					Source: "agent_runtime", Target: "usermodel", Topic: "usermodel.record_activity",
+					Type:    ipc.MessageTypeEvent,
+					Payload: map[string]string{"tenant": req.Tenant, "user": req.User, "summary": activitySummary},
+				})
+			}
 
 			// Broadcast the completed-turn event for asynchronous consumers
 			// (learning loop, recall indexer, trajectory capture). Fire-and-
@@ -643,6 +654,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				Outcome:      "ok",
 				DurationMS:   chatDuration.Milliseconds(),
 				StartedAt:    chatStart,
+				Subagent:     isSubagent,
 			})
 
 			// Apply security filters: mask secrets and redact PII

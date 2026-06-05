@@ -64,6 +64,11 @@ func TestShouldReflect(t *testing.T) {
 	if shouldReflect(noScope, 3) {
 		t.Fatal("missing tenant should not qualify")
 	}
+	sub := complexTurn()
+	sub.Subagent = true
+	if shouldReflect(sub, 3) {
+		t.Fatal("subagent turns should not trigger reflection (#47)")
+	}
 }
 
 func TestReflectJobEmitsMemoryAndSkill(t *testing.T) {

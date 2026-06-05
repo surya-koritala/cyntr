@@ -113,6 +113,11 @@ func (m *Module) handleTurnCompleted(msg ipc.Message) (ipc.Message, error) {
 	if rec.Tenant == "" || rec.User == "" || rec.Session == "" {
 		return ipc.Message{}, nil
 	}
+	// Subagent turns are not indexed into the user's recall — their internal
+	// Q&A would pollute what the user actually said (#47).
+	if rec.Subagent {
+		return ipc.Message{}, nil
+	}
 	now := time.Now().UTC()
 
 	// Sanitize before persisting: TurnRecord carries raw text by contract.
