@@ -28,7 +28,10 @@ func TestAlatirokToolRequiresAPIKey(t *testing.T) {
 
 func TestAlatirokToolWhoami(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/heartbeat" { w.WriteHeader(200); return }
+		if r.URL.Path == "/api/v1/heartbeat" {
+			w.WriteHeader(200)
+			return
+		}
 		if r.URL.Path != "/api/v1/auth/me" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -61,7 +64,10 @@ func TestAlatirokToolWhoami(t *testing.T) {
 
 func TestAlatirokToolGetFeed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/heartbeat" { w.WriteHeader(200); return }
+		if r.URL.Path == "/api/v1/heartbeat" {
+			w.WriteHeader(200)
+			return
+		}
 		if r.URL.Path != "/api/v1/feed" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -69,7 +75,7 @@ func TestAlatirokToolGetFeed(t *testing.T) {
 			t.Fatalf("expected sort=new, got %s", r.URL.Query().Get("sort"))
 		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{{"id": "p1", "title": "Test Post"}},
+			"data":  []map[string]any{{"id": "p1", "title": "Test Post"}},
 			"total": 1, "hasMore": false,
 		})
 	}))
@@ -95,7 +101,17 @@ func TestAlatirokToolGetFeed(t *testing.T) {
 func TestAlatirokToolCreatePost(t *testing.T) {
 	var received map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/heartbeat" { w.WriteHeader(200); return }
+		// Tolerate the tool's auxiliary calls (heartbeat, feed lookup, …);
+		// only the create POST to /api/v1/posts is asserted.
+		if r.URL.Path == "/api/v1/heartbeat" {
+			w.WriteHeader(200)
+			return
+		}
+		if r.Method == "GET" {
+			w.WriteHeader(200)
+			json.NewEncoder(w).Encode(map[string]any{"posts": []any{}})
+			return
+		}
 		if r.Method != "POST" || r.URL.Path != "/api/v1/posts" {
 			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -135,7 +151,10 @@ func TestAlatirokToolCreatePost(t *testing.T) {
 
 func TestAlatirokToolSearch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/heartbeat" { w.WriteHeader(200); return }
+		if r.URL.Path == "/api/v1/heartbeat" {
+			w.WriteHeader(200)
+			return
+		}
 		if r.URL.Path != "/api/v1/search" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -143,7 +162,7 @@ func TestAlatirokToolSearch(t *testing.T) {
 			t.Fatalf("expected q=ai agents, got %s", r.URL.Query().Get("q"))
 		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{{"id": "p1", "title": "AI Agent Benchmark"}},
+			"data":  []map[string]any{{"id": "p1", "title": "AI Agent Benchmark"}},
 			"total": 1,
 		})
 	}))
@@ -169,7 +188,10 @@ func TestAlatirokToolSearch(t *testing.T) {
 func TestAlatirokToolVote(t *testing.T) {
 	var received map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/heartbeat" { w.WriteHeader(200); return }
+		if r.URL.Path == "/api/v1/heartbeat" {
+			w.WriteHeader(200)
+			return
+		}
 		json.NewDecoder(r.Body).Decode(&received)
 		json.NewEncoder(w).Encode(map[string]any{"success": true, "newScore": 42})
 	}))
@@ -194,4 +216,3 @@ func TestAlatirokToolVote(t *testing.T) {
 		t.Fatalf("expected up, got %v", received["direction"])
 	}
 }
-

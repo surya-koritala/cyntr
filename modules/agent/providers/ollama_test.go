@@ -11,9 +11,11 @@ import (
 )
 
 func TestOllamaProviderName(t *testing.T) {
+	// Name() returns the model so multiple Ollama models register under
+	// distinct names (consistent with Azure/OpenAI-compatible providers).
 	p := NewOllama("llama3", "")
-	if p.Name() != "ollama" {
-		t.Fatalf("expected ollama, got %q", p.Name())
+	if p.Name() != "llama3" {
+		t.Fatalf("expected llama3, got %q", p.Name())
 	}
 }
 
