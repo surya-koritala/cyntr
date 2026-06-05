@@ -111,6 +111,18 @@ type AgentConfig struct {
 	Skills              []string          `yaml:"skills" json:"skills"`
 	MCPServers          []string          `yaml:"mcp_servers" json:"mcp_servers"`
 	AutoMemory          bool              `yaml:"auto_memory" json:"auto_memory"`
+	Sandbox             SandboxConfig     `yaml:"sandbox" json:"sandbox"` // per-session sandboxing (C15)
+}
+
+// SandboxConfig controls per-session sandboxing of the tool surface (C15).
+type SandboxConfig struct {
+	// Mode is "off" (default), "non-main" (sandbox every agent except the one
+	// named "main"), or "always".
+	Mode string `yaml:"mode" json:"mode"`
+	// Backend is "" / "process" (host) or "docker". Host code-execution tools
+	// (shell_exec, code_interpreter) are stripped from a sandboxed session
+	// unless Backend is "docker", i.e. they run containerized.
+	Backend string `yaml:"backend" json:"backend"`
 }
 
 // ProgressEvent is published during tool execution to inform channels of agent activity.
