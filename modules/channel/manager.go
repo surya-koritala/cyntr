@@ -22,6 +22,7 @@ type Manager struct {
 	mu       sync.RWMutex
 	bus      *ipc.Bus
 	adapters map[string]ChannelAdapter
+	gate     *Gate // DM pairing gate (B12); nil = no gating
 }
 
 // NewManager creates a new Channel Manager.
@@ -30,6 +31,9 @@ func NewManager() *Manager {
 		adapters: make(map[string]ChannelAdapter),
 	}
 }
+
+// SetGate installs the DM-pairing gate. Call before Start.
+func (m *Manager) SetGate(g *Gate) { m.gate = g }
 
 // AddAdapter registers a channel adapter.
 func (m *Manager) AddAdapter(adapter ChannelAdapter) {
@@ -51,6 +55,8 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.bus.Handle("channel", "channel.send", m.handleSend)
 	m.bus.Handle("channel", "channel.list", m.handleList)
 	m.bus.Handle("channel", "channel.details", m.handleDetails)
+	m.bus.Handle("channel", "channel.pairing.approve", m.handlePairingApprove)
+	m.bus.Handle("channel", "channel.pairing.pending", m.handlePairingPending)
 
 	// Subscribe to progress events from agent runtime
 	m.bus.Subscribe("channel", "agent.progress", m.handleProgress)
@@ -94,6 +100,14 @@ func (m *Manager) Health(ctx context.Context) kernel.HealthStatus {
 
 // routeInbound routes an inbound message to the appropriate agent via IPC.
 func (m *Manager) routeInbound(msg InboundMessage) (string, error) {
+	// DM pairing gate (B12): an untrusted/unknown sender never reaches the
+	// agent — they get a pairing code (or rejection) until approved.
+	if m.gate != nil {
+		if ok, reply := m.gate.Check(msg); !ok {
+			return reply, nil
+		}
+	}
+
 	// Check for session control commands
 	cleaned := strings.TrimSpace(strings.ToLower(msg.Text))
 	if cleaned == "clear" || cleaned == "reset" || cleaned == "new conversation" || cleaned == "/clear" || cleaned == "/reset" {
@@ -142,6 +156,37 @@ func (m *Manager) routeInbound(msg InboundMessage) (string, error) {
 	}
 
 	return agent.MaskSecrets(chatResp.Content), nil
+}
+
+// handlePairingApprove approves a pending sender by code. Payload is
+// map[string]string{"tenant","channel","code"}.
+func (m *Manager) handlePairingApprove(msg ipc.Message) (ipc.Message, error) {
+	if m.gate == nil || m.gate.store == nil {
+		return ipc.Message{}, fmt.Errorf("pairing not configured")
+	}
+	args, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("channel.pairing.approve: expected map[string]string, got %T", msg.Payload)
+	}
+	user, err := m.gate.store.ApproveCode(args["tenant"], args["channel"], args["code"])
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: user}, nil
+}
+
+// handlePairingPending lists awaiting-approval requests for a tenant. Payload
+// is map[string]string{"tenant"}.
+func (m *Manager) handlePairingPending(msg ipc.Message) (ipc.Message, error) {
+	if m.gate == nil || m.gate.store == nil {
+		return ipc.Message{}, fmt.Errorf("pairing not configured")
+	}
+	args, _ := msg.Payload.(map[string]string)
+	pending, err := m.gate.store.ListPending(args["tenant"])
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: pending}, nil
 }
 
 func (m *Manager) handleSend(msg ipc.Message) (ipc.Message, error) {

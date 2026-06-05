@@ -455,6 +455,22 @@ func runStart() {
 
 	channelMgr := channel.NewManager()
 
+	// DM pairing (B12): gate untrusted inbound. CYNTR_DM_POLICY sets the
+	// default policy (open|pairing|closed; default open for back-compat) and
+	// CYNTR_DM_POLICIES="slack=pairing,web=open" overrides per channel.
+	if pairingStore, perr := channel.NewPairingStore(dataPath("pairing.db")); perr != nil {
+		log.Warn("DM pairing disabled", map[string]any{"error": perr.Error()})
+	} else {
+		gate := channel.NewGate(pairingStore, os.Getenv("CYNTR_DM_POLICY"))
+		for _, entry := range strings.Split(os.Getenv("CYNTR_DM_POLICIES"), ",") {
+			if kv := strings.SplitN(strings.TrimSpace(entry), "=", 2); len(kv) == 2 && kv[0] != "" {
+				gate.SetPolicy(strings.TrimSpace(kv[0]), strings.TrimSpace(kv[1]), nil)
+			}
+		}
+		channelMgr.SetGate(gate)
+		log.Info("DM pairing gate installed", map[string]any{"default": os.Getenv("CYNTR_DM_POLICY")})
+	}
+
 	// Register Slack adapter if token is set
 	slackToken := os.Getenv("SLACK_BOT_TOKEN")
 	if slackToken != "" {
