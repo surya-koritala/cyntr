@@ -517,15 +517,22 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		nudgeBeforeCompact(inst.session, inst.config.SummarizeThreshold/2)
 	}
 
-	// Get tool definitions for this agent
-	// If tools list contains "*", give access to ALL registered tools
+	// Get tool definitions for this agent.
+	// If tools list contains "*", give access to ALL registered tools.
 	var toolDefs []ToolDef
 	if r.toolReg != nil && len(inst.config.Tools) > 0 {
-		if len(inst.config.Tools) == 1 && inst.config.Tools[0] == "*" {
-			toolDefs = r.toolReg.ToolDefs(r.toolReg.List())
-		} else {
-			toolDefs = r.toolReg.ToolDefs(inst.config.Tools)
+		names := inst.config.Tools
+		if len(names) == 1 && names[0] == "*" {
+			names = r.toolReg.List()
 		}
+		// Per-session sandboxing (C15): an untrusted session's tool surface is
+		// intersected with the sandbox-safe set — network/host-reaching tools
+		// and host code-exec are stripped (the latter unless a docker backend
+		// is declared), so the session can't reach beyond the allowlist.
+		if inst.config.SandboxActive() {
+			names = SafeToolset(names, inst.config.Sandbox.Backend)
+		}
+		toolDefs = r.toolReg.ToolDefs(names)
 	}
 
 	var toolsUsed []string
