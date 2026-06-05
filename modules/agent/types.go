@@ -36,6 +36,11 @@ type TurnRecord struct {
 	Outcome      string    `json:"outcome"` // "ok" (extend with error outcomes later)
 	DurationMS   int64     `json:"duration_ms"`
 	StartedAt    time.Time `json:"started_at"`
+	// Subagent is true when this turn was spawned by another agent
+	// (orchestrate/delegate). Consumers that write into the shared user's
+	// durable state (recall, learning loop) skip subagent turns so child
+	// work doesn't contaminate the parent/user.
+	Subagent bool `json:"subagent"`
 }
 
 // Role identifies the sender of a message in a conversation.
