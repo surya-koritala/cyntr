@@ -17,6 +17,7 @@ import (
 type WebSearchTool struct {
 	client       *http.Client
 	firecrawlURL string
+	apiKey       string // bearer key (per-vendor or gateway); "" = none
 }
 
 func NewWebSearchTool() *WebSearchTool {
@@ -24,9 +25,13 @@ func NewWebSearchTool() *WebSearchTool {
 	if fcURL == "" {
 		fcURL = "http://localhost:3002"
 	}
+	// Route through the bundled tool gateway (D19) when configured and no
+	// explicit Firecrawl key is set; otherwise behave exactly as before.
+	url, key, _ := ToolGatewayFromEnv().Endpoint(CapSearch, fcURL, os.Getenv("FIRECRAWL_API_KEY"))
 	return &WebSearchTool{
 		client:       &http.Client{Timeout: 30 * time.Second},
-		firecrawlURL: fcURL,
+		firecrawlURL: url,
+		apiKey:       key,
 	}
 }
 
@@ -67,6 +72,9 @@ func (t *WebSearchTool) Execute(ctx context.Context, input map[string]string) (s
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if t.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	}
 
 	resp, err := t.client.Do(req)
 	if err != nil {
