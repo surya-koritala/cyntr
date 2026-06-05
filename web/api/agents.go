@@ -33,40 +33,29 @@ func (s *Server) handleAgentList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
 
-	var body struct {
-		Name         string            `json:"name"`
-		Model        string            `json:"model"`
-		SystemPrompt string            `json:"system_prompt"`
-		MaxTurns     int               `json:"max_turns"`
-		Tools        []string          `json:"tools"`
-		Secrets      map[string]string `json:"secrets"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// Decode straight into AgentConfig so every field (sandbox, skills,
+	// mcp_servers, auto_memory, rate_limit, history/summarize thresholds, ...)
+	// flows through — a hand-maintained subset silently dropped new fields.
+	var cfg agent.AgentConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON body")
 		return
 	}
+	cfg.Tenant = tid // tenant always comes from the path, never the body
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
 	_, err := s.bus.Request(ctx, ipc.Message{
 		Source: "api", Target: "agent_runtime", Topic: "agent.create",
-		Payload: agent.AgentConfig{
-			Name:         body.Name,
-			Tenant:       tid,
-			Model:        body.Model,
-			SystemPrompt: body.SystemPrompt,
-			MaxTurns:     body.MaxTurns,
-			Tools:        body.Tools,
-			Secrets:      body.Secrets,
-		},
+		Payload: cfg,
 	})
 	if err != nil {
 		RespondError(w, 500, "CREATE_FAILED", err.Error())
 		return
 	}
 
-	Respond(w, 201, map[string]string{"status": "created", "agent": body.Name, "tenant": tid})
+	Respond(w, 201, map[string]string{"status": "created", "agent": cfg.Name, "tenant": tid})
 }
 
 // apiUser returns the request's user identity, falling back to a stable
