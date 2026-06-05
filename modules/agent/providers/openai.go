@@ -185,6 +185,13 @@ func (o *OpenAI) parseResponse(resp openaiResponse) agent.Message {
 	choice := resp.Choices[0].Message
 	msg.Content = choice.Content
 
+	// Report token usage so the runtime's quota/usage tracking works for every
+	// OpenAI-compatible endpoint (previously these were always 0).
+	if resp.Usage != nil {
+		msg.InputTokens = resp.Usage.PromptTokens
+		msg.OutputTokens = resp.Usage.CompletionTokens
+	}
+
 	for _, tc := range choice.ToolCalls {
 		toolCall := agent.ToolCall{ID: tc.ID, Name: tc.Function.Name}
 		var args map[string]any

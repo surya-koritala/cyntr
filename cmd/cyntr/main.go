@@ -372,6 +372,30 @@ func runStart() {
 		log.Info("provider registered", map[string]any{"provider": "openrouter", "model": openrouterModel})
 	}
 
+	// Generic OpenAI-compatible providers (D17): register any endpoint without
+	// per-vendor code. CYNTR_COMPAT_PROVIDERS is a comma-separated list of
+	// "name|baseURL|model|API_KEY_ENV" entries — e.g. NovitaAI, z.ai/GLM,
+	// Kimi/Moonshot, MiniMax, NVIDIA NIM, vLLM, LM Studio.
+	for _, spec := range strings.Split(os.Getenv("CYNTR_COMPAT_PROVIDERS"), ",") {
+		spec = strings.TrimSpace(spec)
+		if spec == "" {
+			continue
+		}
+		parts := strings.Split(spec, "|")
+		if len(parts) != 4 {
+			log.Warn("invalid CYNTR_COMPAT_PROVIDERS entry (want name|baseURL|model|API_KEY_ENV)", map[string]any{"entry": spec})
+			continue
+		}
+		name, baseURL, model, keyEnv := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2]), strings.TrimSpace(parts[3])
+		key := os.Getenv(keyEnv)
+		if key == "" {
+			log.Warn("OpenAI-compatible provider skipped: API key env not set", map[string]any{"provider": name, "key_env": keyEnv})
+			continue
+		}
+		agentRuntime.RegisterProvider(agentproviders.NewOpenAICompatible(name, key, model, baseURL))
+		log.Info("provider registered", map[string]any{"provider": name, "model": model, "compatible": true})
+	}
+
 	// Register Azure OpenAI providers
 	// Supports single deployment (AZURE_OPENAI_DEPLOYMENT) or multiple (AZURE_OPENAI_DEPLOYMENTS=gpt-4.1,gpt-5-chat,...)
 	azureKey := os.Getenv("AZURE_OPENAI_API_KEY")
