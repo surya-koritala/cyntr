@@ -41,7 +41,9 @@ func TestTeamsAdapterReceivesMessage(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	body := `{"type":"message","text":"Hello Teams","from":{"id":"user1"},"conversation":{"id":"conv1"},"serviceUrl":"` + replyServer.URL + `"}`
-	resp, _ := http.Post("http://"+a.Addr()+"/teams/messages", "application/json", strings.NewReader(body))
+	tReq, _ := http.NewRequest("POST", "http://"+a.Addr()+"/teams/messages", strings.NewReader(body))
+	tReq.Header.Set("Authorization", "Bearer test-token")
+	resp, _ := http.DefaultClient.Do(tReq)
 	resp.Body.Close()
 
 	select {
@@ -54,6 +56,21 @@ func TestTeamsAdapterReceivesMessage(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout")
+	}
+}
+
+func TestTeamsRejectsUnauthenticated(t *testing.T) {
+	a := New("127.0.0.1:0", "app", "secret", "t", "a")
+	ctx := context.Background()
+	a.Start(ctx, func(msg channel.InboundMessage) (string, error) { return "", nil })
+	defer a.Stop(ctx)
+	time.Sleep(100 * time.Millisecond)
+	// No Authorization header -> rejected.
+	resp, _ := http.Post("http://"+a.Addr()+"/teams/messages", "application/json",
+		strings.NewReader(`{"type":"message","text":"x","from":{"id":"u"},"conversation":{"id":"c"}}`))
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("unauthenticated activity should be 401, got %d", resp.StatusCode)
 	}
 }
 

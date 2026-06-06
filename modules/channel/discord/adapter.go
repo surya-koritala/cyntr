@@ -3,6 +3,8 @@ package discord
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +20,7 @@ var logger = log.Default().WithModule("channel_discord")
 type Adapter struct {
 	listenAddr string
 	botToken   string
+	publicKey  ed25519.PublicKey // Discord application public key for verification
 	tenant     string
 	agent      string
 	handler    channel.InboundHandler
@@ -35,6 +38,36 @@ func New(listenAddr, botToken, tenant, agent string) *Adapter {
 }
 
 func (a *Adapter) SetAPIURL(url string) { a.apiURL = url }
+
+// SetPublicKey sets the Discord application public key (hex) used to verify the
+// Ed25519 signature on inbound interactions. Without it, interactions are
+// rejected (fail closed).
+func (a *Adapter) SetPublicKey(hexKey string) error {
+	raw, err := hex.DecodeString(hexKey)
+	if err != nil || len(raw) != ed25519.PublicKeySize {
+		return fmt.Errorf("discord: invalid public key")
+	}
+	a.publicKey = ed25519.PublicKey(raw)
+	return nil
+}
+
+// verifyInteraction checks the Ed25519 signature over (timestamp + body) using
+// the X-Signature-Ed25519 / X-Signature-Timestamp headers. Fails closed when no
+// public key is configured.
+func (a *Adapter) verifyInteraction(r *http.Request, body []byte) bool {
+	if len(a.publicKey) != ed25519.PublicKeySize {
+		return false
+	}
+	sig, err := hex.DecodeString(r.Header.Get("X-Signature-Ed25519"))
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return false
+	}
+	ts := r.Header.Get("X-Signature-Timestamp")
+	if ts == "" {
+		return false
+	}
+	return ed25519.Verify(a.publicKey, append([]byte(ts), body...), sig)
+}
 func (a *Adapter) Addr() string {
 	if a.listener == nil {
 		return ""
@@ -89,7 +122,13 @@ func (a *Adapter) handleInteraction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, _ := io.ReadAll(r.Body)
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	// Verify the Ed25519 signature before trusting any interaction, including
+	// the PING handshake.
+	if !a.verifyInteraction(r, body) {
+		http.Error(w, "invalid request signature", 401)
+		return
+	}
 	var interaction struct {
 		Type int `json:"type"`
 		Data struct {

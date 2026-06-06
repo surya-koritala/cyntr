@@ -2,12 +2,14 @@ package integration
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +58,7 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		received := make(chan string, 1)
 		a := slack.New("127.0.0.1:0", "xoxb-test", "demo", "assistant")
 		a.SetSlackAPI(slackAPI.URL)
+		a.SetSigningSecret("slack-signing-secret")
 		if err := a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
 			received <- msg.Text
 			return "Slack reply", nil
@@ -65,20 +68,29 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		defer a.Stop(ctx)
 		time.Sleep(100 * time.Millisecond)
 
-		// URL verification
-		resp, err := http.Post("http://"+a.Addr()+"/slack/events", "application/json",
-			strings.NewReader(`{"type":"url_verification","challenge":"test"}`))
-		if err != nil {
-			t.Fatalf("verification request: %v", err)
+		slackPost := func(body string) *http.Response {
+			ts := strconv.FormatInt(time.Now().Unix(), 10)
+			mac := hmac.New(sha256.New, []byte("slack-signing-secret"))
+			mac.Write([]byte("v0:" + ts + ":" + body))
+			req, _ := http.NewRequest("POST", "http://"+a.Addr()+"/slack/events", strings.NewReader(body))
+			req.Header.Set("X-Slack-Request-Timestamp", ts)
+			req.Header.Set("X-Slack-Signature", "v0="+hex.EncodeToString(mac.Sum(nil)))
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("slack post: %v", err)
+			}
+			return resp
 		}
+
+		// URL verification (signed)
+		resp := slackPost(`{"type":"url_verification","challenge":"test"}`)
 		resp.Body.Close()
 		if resp.StatusCode != 200 {
 			t.Fatalf("verification failed: status %d", resp.StatusCode)
 		}
 
-		// Send inbound message
-		http.Post("http://"+a.Addr()+"/slack/events", "application/json",
-			strings.NewReader(`{"type":"event_callback","event":{"type":"message","user":"U1","text":"Hello Slack","channel":"C1"}}`))
+		// Send signed inbound message
+		slackPost(`{"type":"event_callback","event":{"type":"message","user":"U1","text":"Hello Slack","channel":"C1"}}`).Body.Close()
 
 		select {
 		case txt := <-received:
@@ -109,8 +121,13 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		defer a.Stop(ctx)
 		time.Sleep(100 * time.Millisecond)
 
-		http.Post("http://"+a.Addr()+"/teams/messages", "application/json",
+		// Authorization header now required.
+		tReq, _ := http.NewRequest("POST", "http://"+a.Addr()+"/teams/messages",
 			strings.NewReader(`{"type":"message","text":"Hello Teams","from":{"id":"U1"},"conversation":{"id":"C1"},"serviceUrl":"`+teamsAPI.URL+`"}`))
+		tReq.Header.Set("Authorization", "Bearer test-bot-token")
+		if _, err := http.DefaultClient.Do(tReq); err != nil {
+			t.Fatalf("teams post: %v", err)
+		}
 
 		select {
 		case txt := <-received:
@@ -151,20 +168,33 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 
 	// === Discord ===
 	t.Run("Discord", func(t *testing.T) {
+		pub, priv, _ := ed25519.GenerateKey(nil)
+		discordPost := func(addr, body string) *http.Response {
+			ts := strconv.FormatInt(time.Now().Unix(), 10)
+			sig := ed25519.Sign(priv, append([]byte(ts), []byte(body)...))
+			req, _ := http.NewRequest("POST", "http://"+addr+"/discord/interactions", strings.NewReader(body))
+			req.Header.Set("X-Signature-Timestamp", ts)
+			req.Header.Set("X-Signature-Ed25519", hex.EncodeToString(sig))
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("discord post: %v", err)
+			}
+			return resp
+		}
+
 		// PING verification
 		a1 := discord.New("127.0.0.1:0", "bot-token", "demo", "assistant")
 		a1.SetAPIURL(discordAPI.URL)
+		if err := a1.SetPublicKey(hex.EncodeToString(pub)); err != nil {
+			t.Fatalf("set public key: %v", err)
+		}
 		if err := a1.Start(ctx, func(msg channel.InboundMessage) (string, error) { return "Discord reply", nil }); err != nil {
 			t.Fatalf("start: %v", err)
 		}
 		defer a1.Stop(ctx)
 		time.Sleep(100 * time.Millisecond)
 
-		resp, err := http.Post("http://"+a1.Addr()+"/discord/interactions", "application/json",
-			strings.NewReader(`{"type":1}`))
-		if err != nil {
-			t.Fatalf("ping request: %v", err)
-		}
+		resp := discordPost(a1.Addr(), `{"type":1}`)
 		var pingResult map[string]int
 		json.NewDecoder(resp.Body).Decode(&pingResult)
 		resp.Body.Close()
@@ -176,6 +206,7 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		received := make(chan string, 1)
 		a2 := discord.New("127.0.0.1:0", "bot-token", "demo", "assistant")
 		a2.SetAPIURL(discordAPI.URL)
+		a2.SetPublicKey(hex.EncodeToString(pub))
 		if err := a2.Start(ctx, func(msg channel.InboundMessage) (string, error) {
 			received <- msg.Text
 			return "reply", nil
@@ -185,8 +216,7 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		defer a2.Stop(ctx)
 		time.Sleep(100 * time.Millisecond)
 
-		http.Post("http://"+a2.Addr()+"/discord/interactions", "application/json",
-			strings.NewReader(`{"type":2,"data":{"name":"ask"},"channel_id":"C1","member":{"user":{"id":"U1"}}}`))
+		discordPost(a2.Addr(), `{"type":2,"data":{"name":"ask"},"channel_id":"C1","member":{"user":{"id":"U1"}}}`).Body.Close()
 
 		select {
 		case txt := <-received:

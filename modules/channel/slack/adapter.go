@@ -3,13 +3,18 @@ package slack
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/channel"
@@ -21,18 +26,20 @@ var logger = log.Default().WithModule("channel_slack")
 // Would require SLACK_WORKSPACES JSON env, per-workspace tokens,
 // and team_id-based routing in handleEvents.
 type Adapter struct {
-	listenAddr string
-	botToken   string
-	tenant     string // default tenant for this Slack workspace
-	agent      string // default agent name
-	routes     map[string]string // channel ID -> agent name overrides
-	useThreads bool   // reply in threads instead of top-level messages
-	handler    channel.InboundHandler
-	listener   net.Listener
-	server     *http.Server
-	client     *http.Client
-	slackAPI   string // base URL for Slack API (override for testing)
-	seen       sync.Map // event deduplication: event_id -> true
+	listenAddr    string
+	botToken      string
+	signingSecret string            // Slack signing secret for request verification
+	tenant        string            // default tenant for this Slack workspace
+	agent         string            // default agent name
+	routes        map[string]string // channel ID -> agent name overrides
+	routesMu      sync.RWMutex      // guards routes
+	useThreads    bool              // reply in threads instead of top-level messages
+	handler       channel.InboundHandler
+	listener      net.Listener
+	server        *http.Server
+	client        *http.Client
+	slackAPI      string   // base URL for Slack API (override for testing)
+	seen          sync.Map // event deduplication: event_id -> true
 }
 
 func New(listenAddr, botToken, tenant, agent string) *Adapter {
@@ -48,10 +55,52 @@ func New(listenAddr, botToken, tenant, agent string) *Adapter {
 
 // SetRoutes configures per-channel agent routing overrides.
 // The map keys are Slack channel IDs and values are agent names.
-func (a *Adapter) SetRoutes(routes map[string]string) { a.routes = routes }
+func (a *Adapter) SetRoutes(routes map[string]string) {
+	a.routesMu.Lock()
+	defer a.routesMu.Unlock()
+	a.routes = routes
+}
+
+// routeFor returns the agent override for a channel, if any (concurrency-safe).
+func (a *Adapter) routeFor(channelID string) (string, bool) {
+	a.routesMu.RLock()
+	defer a.routesMu.RUnlock()
+	if a.routes == nil {
+		return "", false
+	}
+	v, ok := a.routes[channelID]
+	return v, ok
+}
 
 // SetSlackAPI overrides the Slack API URL (for testing with httptest).
 func (a *Adapter) SetSlackAPI(url string) { a.slackAPI = url }
+
+// SetSigningSecret sets the Slack signing secret used to verify that inbound
+// requests genuinely came from Slack. Without it, inbound requests are rejected.
+func (a *Adapter) SetSigningSecret(secret string) { a.signingSecret = secret }
+
+// verifySlackSignature validates the X-Slack-Signature header: it must equal
+// "v0=" + hex(HMAC-SHA256(secret, "v0:"+timestamp+":"+body)), with the
+// timestamp within 5 minutes (replay protection). Fails closed when no signing
+// secret is configured.
+func (a *Adapter) verifySlackSignature(r *http.Request, body []byte) bool {
+	if a.signingSecret == "" {
+		return false
+	}
+	ts := r.Header.Get("X-Slack-Request-Timestamp")
+	n, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		return false
+	}
+	if d := time.Now().Unix() - n; d > 300 || d < -300 {
+		return false // stale or future-dated → likely a replay
+	}
+	mac := hmac.New(sha256.New, []byte(a.signingSecret))
+	mac.Write([]byte("v0:" + ts + ":"))
+	mac.Write(body)
+	expected := "v0=" + hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(r.Header.Get("X-Slack-Signature")), []byte(expected))
+}
 
 // SetUseThreads enables replying in threads instead of top-level messages.
 func (a *Adapter) SetUseThreads(use bool) { a.useThreads = use }
@@ -169,9 +218,15 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "read error", 500)
+		return
+	}
+	// Verify the request genuinely came from Slack before processing anything,
+	// including the url_verification challenge.
+	if !a.verifySlackSignature(r, body) {
+		http.Error(w, "unauthorized", 401)
 		return
 	}
 
@@ -180,7 +235,7 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 		Type      string `json:"type"`
 		Challenge string `json:"challenge"`
 		EventID   string `json:"event_id"`
-		Event struct {
+		Event     struct {
 			Type        string `json:"type"`
 			Subtype     string `json:"subtype"`
 			User        string `json:"user"`
@@ -289,8 +344,8 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 		a.addReaction(eventChannel, eventTS, "hourglass_flowing_sand")
 
 		agentName := a.agent
-		if a.routes != nil {
-			if routed, ok := a.routes[eventChannel]; ok {
+		{
+			if routed, ok := a.routeFor(eventChannel); ok {
 				agentName = routed
 			}
 		}
@@ -373,6 +428,17 @@ func (a *Adapter) handleSlashCommands(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
+	// Verify the Slack signature over the raw body before parsing the form.
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "read error", 500)
+		return
+	}
+	if !a.verifySlackSignature(r, body) {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ParseForm()
 	command := r.FormValue("command")
 	text := strings.TrimSpace(r.FormValue("text"))
@@ -383,11 +449,13 @@ func (a *Adapter) handleSlashCommands(w http.ResponseWriter, r *http.Request) {
 		response = "Cyntr is running. Use the dashboard for full status."
 	case strings.HasPrefix(text, "switch "):
 		agentName := strings.TrimPrefix(text, "switch ")
+		channelID := r.FormValue("channel_id")
+		a.routesMu.Lock()
 		if a.routes == nil {
 			a.routes = make(map[string]string)
 		}
-		channelID := r.FormValue("channel_id")
 		a.routes[channelID] = agentName
+		a.routesMu.Unlock()
 		response = fmt.Sprintf("Switched this channel to agent: %s", agentName)
 	case text == "clear" || text == "reset":
 		response = "Session cleared. Starting fresh conversation."

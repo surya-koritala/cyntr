@@ -91,10 +91,10 @@ func (a *Adapter) Send(ctx context.Context, msg channel.OutboundMessage) error {
 }
 
 type teamsActivity struct {
-	Type         string `json:"type"`
-	Text         string `json:"text"`
-	ServiceURL   string `json:"serviceUrl"`
-	From         struct {
+	Type       string `json:"type"`
+	Text       string `json:"text"`
+	ServiceURL string `json:"serviceUrl"`
+	From       struct {
 		ID string `json:"id"`
 	} `json:"from"`
 	Conversation struct {
@@ -108,7 +108,15 @@ func (a *Adapter) handleActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	// Require a Bot Framework auth token to be present. NOTE: full validation
+	// (signature/issuer/audience against Microsoft's JWKS) is tracked as a
+	// follow-up; this rejects wholly-unauthenticated callers.
+	if r.Header.Get("Authorization") == "" {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		http.Error(w, "read error", 500)
 		return
@@ -136,15 +144,13 @@ func (a *Adapter) handleActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reply
-	replyURL := activity.ServiceURL
+	// Reply only to the CONFIGURED service URL, never the request-supplied
+	// activity.ServiceURL — trusting the latter is a server-side request forgery
+	// vector (the caller could point replies at an arbitrary internal host).
 	if a.serviceURL != "" {
-		replyURL = a.serviceURL
-	}
-	if replyURL != "" {
 		payload := map[string]string{"type": "message", "text": response}
 		b, _ := json.Marshal(payload)
-		http.Post(replyURL, "application/json", bytes.NewReader(b))
+		http.Post(a.serviceURL, "application/json", bytes.NewReader(b))
 	}
 
 	w.WriteHeader(200)

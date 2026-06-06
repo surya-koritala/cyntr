@@ -2,9 +2,13 @@ package slack
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,8 +16,42 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/channel"
 )
 
+const slackTestSecret = "slack-test-secret"
+
+// postSlack POSTs body to the adapter's /slack/events with a valid signature.
+func postSlack(t *testing.T, addr, body string) *http.Response {
+	t.Helper()
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(slackTestSecret))
+	mac.Write([]byte("v0:" + ts + ":" + body))
+	req, _ := http.NewRequest("POST", "http://"+addr+"/slack/events", strings.NewReader(body))
+	req.Header.Set("X-Slack-Request-Timestamp", ts)
+	req.Header.Set("X-Slack-Signature", "v0="+hex.EncodeToString(mac.Sum(nil)))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	return resp
+}
+
 func TestSlackAdapterImplementsInterface(t *testing.T) {
 	var _ channel.ChannelAdapter = (*Adapter)(nil)
+}
+
+func TestSlackAdapterRejectsUnsigned(t *testing.T) {
+	a := New("127.0.0.1:0", "xoxb-test", "t", "a")
+	a.SetSigningSecret(slackTestSecret)
+	ctx := context.Background()
+	a.Start(ctx, func(msg channel.InboundMessage) (string, error) { return "", nil })
+	defer a.Stop(ctx)
+	time.Sleep(100 * time.Millisecond)
+
+	resp, _ := http.Post("http://"+a.Addr()+"/slack/events", "application/json",
+		strings.NewReader(`{"type":"url_verification","challenge":"x"}`))
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("unsigned request should be 401, got %d", resp.StatusCode)
+	}
 }
 
 func TestSlackAdapterName(t *testing.T) {
@@ -25,16 +63,14 @@ func TestSlackAdapterName(t *testing.T) {
 
 func TestSlackAdapterURLVerification(t *testing.T) {
 	a := New("127.0.0.1:0", "xoxb-test", "marketing", "assistant")
+	a.SetSigningSecret(slackTestSecret)
 	ctx := context.Background()
 	a.Start(ctx, func(msg channel.InboundMessage) (string, error) { return "", nil })
 	defer a.Stop(ctx)
 	time.Sleep(100 * time.Millisecond)
 
 	body := `{"type":"url_verification","challenge":"test-challenge-123"}`
-	resp, err := http.Post("http://"+a.Addr()+"/slack/events", "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("post: %v", err)
-	}
+	resp := postSlack(t, a.Addr(), body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
@@ -59,6 +95,7 @@ func TestSlackAdapterReceivesMessage(t *testing.T) {
 
 	a := New("127.0.0.1:0", "xoxb-test", "marketing", "assistant")
 	a.SetSlackAPI(slackAPI.URL)
+	a.SetSigningSecret(slackTestSecret)
 
 	ctx := context.Background()
 	a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
@@ -69,8 +106,7 @@ func TestSlackAdapterReceivesMessage(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	body := `{"type":"event_callback","event":{"type":"message","user":"U123","text":"Hello agent","channel":"C456"}}`
-	resp, _ := http.Post("http://"+a.Addr()+"/slack/events", "application/json", strings.NewReader(body))
-	resp.Body.Close()
+	postSlack(t, a.Addr(), body).Body.Close()
 
 	select {
 	case msg := <-received:
@@ -94,6 +130,7 @@ func TestSlackAdapterReceivesMessage(t *testing.T) {
 func TestSlackAdapterSkipsBotMessages(t *testing.T) {
 	handlerCalled := false
 	a := New("127.0.0.1:0", "xoxb-test", "t", "a")
+	a.SetSigningSecret(slackTestSecret)
 	ctx := context.Background()
 	a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
 		handlerCalled = true
@@ -103,8 +140,7 @@ func TestSlackAdapterSkipsBotMessages(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	body := `{"type":"event_callback","event":{"type":"message","user":"U123","text":"bot msg","channel":"C456","bot_id":"B789"}}`
-	resp, _ := http.Post("http://"+a.Addr()+"/slack/events", "application/json", strings.NewReader(body))
-	resp.Body.Close()
+	postSlack(t, a.Addr(), body).Body.Close()
 
 	time.Sleep(100 * time.Millisecond)
 	if handlerCalled {
@@ -144,12 +180,13 @@ func TestSlackAdapterSend(t *testing.T) {
 
 func TestSlackAdapterBadJSON(t *testing.T) {
 	a := New("127.0.0.1:0", "xoxb-test", "t", "a")
+	a.SetSigningSecret(slackTestSecret)
 	ctx := context.Background()
 	a.Start(ctx, func(msg channel.InboundMessage) (string, error) { return "", nil })
 	defer a.Stop(ctx)
 	time.Sleep(100 * time.Millisecond)
 
-	resp, _ := http.Post("http://"+a.Addr()+"/slack/events", "application/json", strings.NewReader("{bad"))
+	resp := postSlack(t, a.Addr(), "{bad")
 	resp.Body.Close()
 	if resp.StatusCode != 400 {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
