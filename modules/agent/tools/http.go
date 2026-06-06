@@ -18,7 +18,7 @@ type HTTPTool struct {
 
 func NewHTTPTool() *HTTPTool {
 	return &HTTPTool{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: guardedHTTPClient(30 * time.Second),
 	}
 }
 
@@ -37,6 +37,11 @@ func (t *HTTPTool) Execute(ctx context.Context, input map[string]string) (string
 	url := input["url"]
 	if url == "" {
 		return "", fmt.Errorf("url is required")
+	}
+
+	// Block requests to internal/metadata addresses before issuing them.
+	if err := ValidatePublicURL(url); err != nil {
+		return "", err
 	}
 
 	method := input["method"]

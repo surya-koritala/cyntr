@@ -22,9 +22,9 @@ var logger = log.Default().WithModule("workflow")
 type Engine struct {
 	mu            sync.RWMutex
 	bus           *ipc.Bus
-	workflows     map[string]*Workflow    // workflow ID -> definition
-	runs          map[string]*Run         // run ID -> execution state
-	waitingInputs map[string]chan string   // run_id -> input channel
+	workflows     map[string]*Workflow   // workflow ID -> definition
+	runs          map[string]*Run        // run ID -> execution state
+	waitingInputs map[string]chan string // run_id -> input channel
 	triggers      []Trigger
 	counter       int64
 }
@@ -635,9 +635,10 @@ func (e *Engine) executeApprovalStep(ctx context.Context, step Step, run *Run) S
 	})
 
 	if err != nil {
-		// If no approval system, fall back to auto-approve
-		logger.Warn("approval system unavailable, auto-approving", map[string]any{"error": err.Error()})
-		return StepResult{StepID: step.ID, Status: "success", Output: "auto-approved (no approval system)", Duration: time.Since(start), Timestamp: time.Now()}
+		// Fail CLOSED: an approval step exists precisely to gate the workflow, so
+		// an unavailable/erroring approval system must block, never auto-approve.
+		logger.Warn("approval system unavailable, blocking step", map[string]any{"error": err.Error()})
+		return StepResult{StepID: step.ID, Status: "failure", Error: "approval unavailable: " + err.Error(), Duration: time.Since(start), Timestamp: time.Now()}
 	}
 
 	result, _ := approvalResp.Payload.(string)

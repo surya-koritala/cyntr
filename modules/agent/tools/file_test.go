@@ -10,6 +10,7 @@ import (
 
 func TestFileReadTool(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("CYNTR_FILE_TOOL_ROOT", dir)
 	path := filepath.Join(dir, "test.txt")
 	os.WriteFile(path, []byte("hello world"), 0644)
 
@@ -41,6 +42,7 @@ func TestFileReadToolEmpty(t *testing.T) {
 
 func TestFileWriteTool(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("CYNTR_FILE_TOOL_ROOT", dir)
 	path := filepath.Join(dir, "subdir", "output.txt")
 
 	tool := &FileWriteTool{}
@@ -68,6 +70,7 @@ func TestFileWriteToolEmptyPath(t *testing.T) {
 
 func TestFileSearchTool(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("CYNTR_FILE_TOOL_ROOT", dir)
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0644)
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0644)
 	os.WriteFile(filepath.Join(dir, "c.go"), []byte("c"), 0644)
@@ -90,6 +93,7 @@ func TestFileSearchTool(t *testing.T) {
 
 func TestFileSearchToolNoMatches(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("CYNTR_FILE_TOOL_ROOT", dir)
 	tool := &FileSearchTool{}
 	result, _ := tool.Execute(context.Background(), map[string]string{"directory": dir, "pattern": "*.xyz"})
 	if result != "no matches found" {
