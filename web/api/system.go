@@ -19,8 +19,9 @@ func (s *Server) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 200, report)
 }
 
-// Version is set by the server creator.
-var Version = "1.1.0"
+// Version is the dev-build default; release binaries override it via ldflags
+// (-X github.com/cyntr-dev/cyntr/web/api.Version=<tag>).
+var Version = "1.3.0"
 
 func (s *Server) handleSystemVersion(w http.ResponseWriter, r *http.Request) {
 	Respond(w, 200, map[string]string{"version": Version})

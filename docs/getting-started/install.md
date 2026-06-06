@@ -16,7 +16,7 @@ cyntr start
 Expected output of `cyntr version`:
 
 ```
-cyntr v1.1.0
+cyntr v1.3.0
 ```
 
 Expected output of `curl -s localhost:7700/api/v1/system/health`:
@@ -69,7 +69,7 @@ go build -o cyntr ./cmd/cyntr
 ./cyntr start
 ```
 
-Requirements: Go 1.25+, `git`, `sqlite3` (bundled via `modernc.org/sqlite`, no system package needed).
+Requirements: Go 1.26+, `git`, `sqlite3` (bundled via `modernc.org/sqlite`, no system package needed). Paths 1 and 2 require **no** prerequisites — only path 3 (from source) needs Go.
 
 Verify the build:
 
@@ -90,7 +90,7 @@ cyntr doctor
 Expected output:
 
 ```
-cyntr v1.1.0
+cyntr v1.3.0
 [OK]  config: cyntr.yaml loaded
 [OK]  policy: 3 rules loaded
 [OK]  provider: anthropic (1 model)
