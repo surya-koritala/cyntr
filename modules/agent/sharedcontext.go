@@ -42,6 +42,9 @@ func NewContextStore(dbPath string) (*ContextStore, error) {
 		return nil, fmt.Errorf("open shared-context db: %w", err)
 	}
 	db.Exec("PRAGMA journal_mode=WAL")
+	// Wait rather than fail immediately on a locked db — concurrent
+	// orchestrations write this store in parallel (matches the recall store).
+	db.Exec("PRAGMA busy_timeout=5000")
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS shared_context (
@@ -63,6 +66,12 @@ func NewContextStore(dbPath string) (*ContextStore, error) {
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create shared_context index: %w", err)
+	}
+	// Index created_at so the TTL prune on each write is an index range delete,
+	// not a full-table scan.
+	if _, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_shared_context_created ON shared_context(created_at)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create shared_context created index: %w", err)
 	}
 	return &ContextStore{db: db}, nil
 }
@@ -126,8 +135,8 @@ func (cs *ContextStore) Read(tenant, channel string) ([]SharedContextEntry, erro
 	return entries, rows.Err()
 }
 
-// Clear removes every note in a channel. Called when an orchestration finishes
-// so the scratchpad does not accumulate stale batches.
+// Clear removes every note in a channel. Available for explicit cleanup once a
+// batch is done; routine bounding is handled by the TTL prune on Write.
 func (cs *ContextStore) Clear(tenant, channel string) error {
 	if tenant == "" || channel == "" {
 		return nil

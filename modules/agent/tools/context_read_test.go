@@ -156,6 +156,59 @@ func TestOrchestrateWritesSharedContextThenFansOut(t *testing.T) {
 	}
 }
 
+// A failing/disabled shared-context store must NOT kill an otherwise-valid
+// orchestration — the handoff is best-effort (#48 hardening).
+func TestOrchestrateSurvivesSharedContextWriteFailure(t *testing.T) {
+	bus := ipc.NewBus()
+	t.Cleanup(bus.Close)
+	var children int
+	var mu sync.Mutex
+	bus.Handle("agent_runtime", agent.TopicContextWrite, func(msg ipc.Message) (ipc.Message, error) {
+		return ipc.Message{}, context.DeadlineExceeded // simulate a store error
+	})
+	bus.Handle("agent_runtime", "agent.chat", func(msg ipc.Message) (ipc.Message, error) {
+		mu.Lock()
+		children++
+		mu.Unlock()
+		req := msg.Payload.(agent.ChatRequest)
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: agent.ChatResponse{Agent: req.Agent, Content: "ok"}}, nil
+	})
+	tool := NewOrchestrateTool(bus)
+	out, err := tool.Execute(callerCtx("acme", "jane"), map[string]string{
+		"tasks":          `[{"agent":"impl","message":"x"},{"agent":"impl2","message":"y"}]`,
+		"shared_context": `{"plan":"do X"}`,
+	})
+	if err != nil {
+		t.Fatalf("write failure must not fail the orchestration: %v", err)
+	}
+	if children != 2 {
+		t.Fatalf("both children should still run despite the write failure, got %d", children)
+	}
+	if !strings.Contains(out, "impl") {
+		t.Fatalf("expected child results, got %q", out)
+	}
+}
+
+// Non-string shared_context values are coerced, not rejected (#48 hardening).
+func TestOrchestrateCoercesNonStringSharedContext(t *testing.T) {
+	c := &captureContextWrites{}
+	tool := NewOrchestrateTool(contextWriteBus(t, c))
+	_, err := tool.Execute(callerCtx("acme", "jane"), map[string]string{
+		"tasks":          `[{"agent":"impl","message":"x"}]`,
+		"shared_context": `{"steps":3,"plan":"do X"}`,
+	})
+	if err != nil {
+		t.Fatalf("non-string values should be coerced, not rejected: %v", err)
+	}
+	got := map[string]string{}
+	for _, w := range c.writes {
+		got[w.Key] = w.Content
+	}
+	if got["steps"] != "3" || got["plan"] != "do X" {
+		t.Fatalf("coercion wrong: %+v", got)
+	}
+}
+
 func TestOrchestrateRejectsMalformedSharedContext(t *testing.T) {
 	c := &captureContextWrites{}
 	tool := NewOrchestrateTool(contextWriteBus(t, c))

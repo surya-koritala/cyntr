@@ -39,10 +39,15 @@ func hasScope(scopes []string, required string) bool {
 // AuthMiddleware checks authentication on API requests.
 type AuthMiddleware struct {
 	config AuthConfig
+	sm     *auth.SessionManager // verifies JWT bearer tokens (HS256)
 }
 
 func NewAuthMiddleware(config AuthConfig) *AuthMiddleware {
-	return &AuthMiddleware{config: config}
+	am := &AuthMiddleware{config: config}
+	if config.JWTSecret != "" {
+		am.sm = auth.NewSessionManager(config.JWTSecret)
+	}
+	return am
 }
 
 // Wrap returns an http.Handler that checks auth before calling next.
@@ -107,10 +112,21 @@ func (am *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			}
 		}
 
-		// If JWT secret is configured, try JWT validation
-		if am.config.JWTSecret != "" {
-			// Simple JWT check — in production use auth.SessionManager
+		// If a JWT secret is configured, verify the bearer token's signature,
+		// expiry, and scope. NEVER grant access merely because a secret is set.
+		if am.sm != nil {
+			p, err := am.sm.ValidateToken(token)
+			if err != nil {
+				RespondError(w, 401, "UNAUTHORIZED", "Invalid credentials")
+				return
+			}
+			requiredScope := routeScopes[r.Method]
+			if requiredScope != "" && !hasScope(jwtScopes(p), requiredScope) {
+				RespondError(w, 403, "FORBIDDEN", "insufficient scope")
+				return
+			}
 			ctx := context.WithValue(r.Context(), contextKeyAuth, "jwt")
+			ctx = context.WithValue(ctx, contextKeyPrincipal, p)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -119,6 +135,34 @@ func (am *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 	})
 }
 
+// jwtScopes derives API scopes from a JWT principal's roles. The "admin" role
+// grants admin scope; "agent"/"read" map to their like-named scopes. A
+// principal with no recognized roles gets read-only.
+func jwtScopes(p auth.Principal) []string {
+	scopes := make([]string, 0, len(p.Roles))
+	for _, role := range p.Roles {
+		switch role {
+		case auth.ScopeAdmin, auth.ScopeAgent, auth.ScopeRead:
+			scopes = append(scopes, role)
+		}
+	}
+	if len(scopes) == 0 {
+		scopes = []string{auth.ScopeRead}
+	}
+	return scopes
+}
+
 type contextKey string
 
-const contextKeyAuth contextKey = "auth"
+const (
+	contextKeyAuth      contextKey = "auth"
+	contextKeyPrincipal contextKey = "principal"
+)
+
+// authPrincipal returns the authenticated JWT principal stashed by the
+// middleware, or ok=false when the request was authenticated another way
+// (API key) or auth is disabled.
+func authPrincipal(r *http.Request) (auth.Principal, bool) {
+	p, ok := r.Context().Value(contextKeyPrincipal).(auth.Principal)
+	return p, ok
+}

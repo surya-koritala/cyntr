@@ -59,6 +59,10 @@ func (p *OIDCProvider) SetEndpoints(authURL, tokenURL, userinfoURL string) {
 	p.userinfoURL = userinfoURL
 }
 
+// SetJWKSURI sets the JSON Web Key Set endpoint used to verify ID token
+// signatures, for providers configured without OIDC discovery.
+func (p *OIDCProvider) SetJWKSURI(uri string) { p.jwksURI = uri }
+
 // Discover fetches OIDC configuration from the issuer's discovery endpoint.
 func (p *OIDCProvider) Discover(ctx context.Context) error {
 	url := strings.TrimRight(p.config.Issuer, "/") + "/.well-known/openid-configuration"
@@ -185,13 +189,11 @@ func (p *OIDCProvider) ExchangeCodeWithPKCE(ctx context.Context, code, codeVerif
 		return "", fmt.Errorf("parse ID token: %w", err)
 	}
 
-	// Validate expiry claim
-	if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
-		return "", fmt.Errorf("ID token expired")
+	// Expiry and audience are MANDATORY — a token omitting exp/aud must not pass.
+	if claims.Exp <= 0 || time.Now().Unix() > claims.Exp {
+		return "", fmt.Errorf("ID token expired or missing exp")
 	}
-
-	// Validate audience claim
-	if claims.Aud != "" && claims.Aud != p.config.ClientID {
+	if claims.Aud != p.config.ClientID {
 		return "", fmt.Errorf("ID token audience mismatch: got %q, want %q", claims.Aud, p.config.ClientID)
 	}
 
@@ -236,11 +238,12 @@ func (p *OIDCProvider) verifyIDTokenSignature(idToken string) error {
 		return fmt.Errorf("unsupported algorithm: %s (only RS256 supported)", header.Alg)
 	}
 
-	// Fetch JWKS if not cached
+	// Fetch JWKS if not cached. A fetch failure MUST fail closed: skipping
+	// signature verification would let a forged id_token authenticate as any
+	// user whenever the JWKS endpoint is unreachable or misconfigured.
 	if p.jwksKeys == nil {
 		if err := p.fetchJWKS(); err != nil {
-			oidcLogger.Warn("JWKS fetch failed, skipping signature verification", map[string]any{"error": err.Error()})
-			return nil // graceful degradation
+			return fmt.Errorf("JWKS unavailable, cannot verify token signature: %w", err)
 		}
 	}
 
@@ -278,7 +281,11 @@ func (p *OIDCProvider) fetchJWKS() error {
 		return fmt.Errorf("jwks_uri not configured")
 	}
 
-	resp, err := http.Get(p.jwksURI)
+	// Bounded timeout so an unreachable/slow JWKS host fails fast (and, with the
+	// fail-closed change above, rejects the token) instead of hanging the
+	// auth path indefinitely.
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(p.jwksURI)
 	if err != nil {
 		return err
 	}
@@ -376,19 +383,24 @@ func (p *OIDCProvider) ExchangeCode(ctx context.Context, code, tenant string, ro
 		return "", fmt.Errorf("parse tokens: %w", err)
 	}
 
-	// Parse ID token claims (skip signature verification for now — use the userinfo endpoint for validation)
+	// Verify the ID token signature before trusting any claim — otherwise any
+	// party that can return an id_token (compromised/MITM token endpoint) could
+	// impersonate any email. Same check the PKCE path performs.
+	if err := p.verifyIDTokenSignature(tokenResp.IDToken); err != nil {
+		return "", fmt.Errorf("ID token signature: %w", err)
+	}
+
 	claims, err := parseIDTokenClaims(tokenResp.IDToken)
 	if err != nil {
 		return "", fmt.Errorf("parse ID token: %w", err)
 	}
 
-	// Validate expiry claim
-	if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
-		return "", fmt.Errorf("ID token expired")
+	// Expiry and audience are MANDATORY: a token that simply omits exp/aud must
+	// not slip past these checks.
+	if claims.Exp <= 0 || time.Now().Unix() > claims.Exp {
+		return "", fmt.Errorf("ID token expired or missing exp")
 	}
-
-	// Validate audience claim
-	if claims.Aud != "" && claims.Aud != p.config.ClientID {
+	if claims.Aud != p.config.ClientID {
 		return "", fmt.Errorf("ID token audience mismatch: got %q, want %q", claims.Aud, p.config.ClientID)
 	}
 

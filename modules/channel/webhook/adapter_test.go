@@ -1,7 +1,11 @@
 package webhook
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,14 +16,61 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/channel"
 )
 
+const testSecret = "test-webhook-secret"
+
+// signedPost POSTs body to the adapter's /webhook with a valid HMAC signature.
+func signedPost(t *testing.T, addr, body string) *http.Response {
+	t.Helper()
+	mac := hmac.New(sha256.New, []byte(testSecret))
+	mac.Write([]byte(body))
+	req, _ := http.NewRequest("POST", "http://"+addr+"/webhook", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Webhook-Signature", hex.EncodeToString(mac.Sum(nil)))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	return resp
+}
+
 func TestWebhookAdapterImplementsInterface(t *testing.T) {
 	var _ channel.ChannelAdapter = (*Adapter)(nil)
+}
+
+func TestWebhookAdapterRejectsUnsigned(t *testing.T) {
+	adapter := New("127.0.0.1:0")
+	adapter.SetSigningSecret(testSecret)
+	ctx := context.Background()
+	adapter.Start(ctx, func(msg channel.InboundMessage) (string, error) { return "ok", nil })
+	defer adapter.Stop(ctx)
+	time.Sleep(100 * time.Millisecond)
+
+	// No signature -> rejected.
+	body := `{"tenant":"victim","agent":"a","text":"x"}`
+	resp, err := http.Post("http://"+adapter.Addr()+"/webhook", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unsigned request should be 401, got %d", resp.StatusCode)
+	}
+
+	// Wrong signature -> rejected.
+	req, _ := http.NewRequest("POST", "http://"+adapter.Addr()+"/webhook", strings.NewReader(body))
+	req.Header.Set("X-Webhook-Signature", "deadbeef")
+	resp2, _ := http.DefaultClient.Do(req)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("bad signature should be 401, got %d", resp2.StatusCode)
+	}
 }
 
 func TestWebhookAdapterReceiveMessage(t *testing.T) {
 	received := make(chan channel.InboundMessage, 1)
 
 	adapter := New("127.0.0.1:0")
+	adapter.SetSigningSecret(testSecret)
 	ctx := context.Background()
 
 	err := adapter.Start(ctx, func(msg channel.InboundMessage) (string, error) {
@@ -33,12 +84,9 @@ func TestWebhookAdapterReceiveMessage(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	// Send a webhook
+	// Send a signed webhook
 	body := `{"tenant":"marketing","agent":"assistant","user_id":"U123","channel_id":"C456","text":"Hello"}`
-	resp, err := http.Post("http://"+adapter.Addr()+"/webhook", "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("post: %v", err)
-	}
+	resp := signedPost(t, adapter.Addr(), body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
@@ -105,16 +153,15 @@ func TestWebhookAdapterName(t *testing.T) {
 
 func TestWebhookAdapterBadJSON(t *testing.T) {
 	adapter := New("127.0.0.1:0")
+	adapter.SetSigningSecret(testSecret)
 	ctx := context.Background()
 	adapter.Start(ctx, func(msg channel.InboundMessage) (string, error) { return "", nil })
 	defer adapter.Stop(ctx)
 
 	time.Sleep(100 * time.Millisecond)
 
-	resp, err := http.Post("http://"+adapter.Addr()+"/webhook", "application/json", strings.NewReader(`{bad json`))
-	if err != nil {
-		t.Fatalf("post: %v", err)
-	}
+	// Validly signed but malformed JSON -> 400 (passes auth, fails parse).
+	resp := signedPost(t, adapter.Addr(), `{bad json`)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusBadRequest {

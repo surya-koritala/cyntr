@@ -39,12 +39,24 @@ func TestQueryByActionType(t *testing.T) {
 	w, _ := NewWriter(filepath.Join(dir, "audit.db"), "test", "secret")
 	defer w.Close()
 	seedEntries(t, w)
-	results, err := QueryEntries(w.db, QueryFilter{ActionType: "tool_call"})
+	// Tenant is mandatory; finance has one tool_call (evt_001).
+	results, err := QueryEntries(w.db, QueryFilter{Tenant: "finance", ActionType: "tool_call"})
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
-	if len(results) != 2 {
-		t.Fatalf("expected 2, got %d", len(results))
+	if len(results) != 1 {
+		t.Fatalf("expected 1, got %d", len(results))
+	}
+}
+
+func TestQueryRequiresTenant(t *testing.T) {
+	dir := t.TempDir()
+	w, _ := NewWriter(filepath.Join(dir, "audit.db"), "test", "secret")
+	defer w.Close()
+	seedEntries(t, w)
+	// An empty tenant must error, never return all tenants' entries.
+	if _, err := QueryEntries(w.db, QueryFilter{ActionType: "tool_call"}); err == nil {
+		t.Fatal("expected error for empty tenant")
 	}
 }
 
@@ -54,8 +66,9 @@ func TestQueryByTimeRange(t *testing.T) {
 	defer w.Close()
 	seedEntries(t, w)
 	results, err := QueryEntries(w.db, QueryFilter{
-		Since: time.Date(2026, 3, 19, 10, 30, 0, 0, time.UTC),
-		Until: time.Date(2026, 3, 19, 11, 30, 0, 0, time.UTC),
+		Tenant: "finance",
+		Since:  time.Date(2026, 3, 19, 10, 30, 0, 0, time.UTC),
+		Until:  time.Date(2026, 3, 19, 11, 30, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("query: %v", err)
@@ -73,7 +86,7 @@ func TestQueryWithLimit(t *testing.T) {
 	w, _ := NewWriter(filepath.Join(dir, "audit.db"), "test", "secret")
 	defer w.Close()
 	seedEntries(t, w)
-	results, err := QueryEntries(w.db, QueryFilter{Limit: 1})
+	results, err := QueryEntries(w.db, QueryFilter{Tenant: "finance", Limit: 1})
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}

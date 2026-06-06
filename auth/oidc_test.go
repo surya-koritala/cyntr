@@ -2,21 +2,63 @@ package auth
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
+// mockIDToken builds an UNSIGNED token (stub signature) for tests that do not
+// exercise the signature-verification path.
 func mockIDToken(email, name string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
 	claims := fmt.Sprintf(`{"sub":"user123","email":"%s","name":"%s"}`, email, name)
 	payload := base64.RawURLEncoding.EncodeToString([]byte(claims))
 	signature := base64.RawURLEncoding.EncodeToString([]byte("fake-signature"))
 	return header + "." + payload + "." + signature
+}
+
+const testKID = "test-key-1"
+
+// signedIDToken builds a real RS256-signed id_token for the given claims so
+// tests exercise actual signature verification rather than a stub.
+func signedIDToken(t *testing.T, key *rsa.PrivateKey, claims map[string]any) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT","kid":"` + testKID + `"}`))
+	cj, _ := json.Marshal(claims)
+	payload := base64.RawURLEncoding.EncodeToString(cj)
+	signingInput := header + "." + payload
+	hashed := sha256.Sum256([]byte(signingInput))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, hashed[:])
+	if err != nil {
+		t.Fatalf("sign id_token: %v", err)
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+// newJWKSServer serves a JWKS exposing key's public half under testKID.
+func newJWKSServer(t *testing.T, key *rsa.PrivateKey) *httptest.Server {
+	t.Helper()
+	eBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(eBuf, uint32(key.PublicKey.E))
+	eBuf = eBuf[1:] // 65537 fits in 3 bytes; trim the leading zero
+	jwks := map[string]any{"keys": []map[string]string{{
+		"kid": testKID, "kty": "RSA", "alg": "RS256",
+		"n": base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes()),
+		"e": base64.RawURLEncoding.EncodeToString(eBuf),
+	}}}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(jwks)
+	}))
 }
 
 func TestOIDCProviderAuthURL(t *testing.T) {
@@ -43,7 +85,13 @@ func TestOIDCProviderAuthURL(t *testing.T) {
 }
 
 func TestOIDCProviderExchangeCode(t *testing.T) {
-	idToken := mockIDToken("jane@corp.com", "Jane Doe")
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	jwksServer := newJWKSServer(t, key)
+	defer jwksServer.Close()
+	idToken := signedIDToken(t, key, map[string]any{
+		"sub": "user123", "email": "jane@corp.com", "name": "Jane Doe",
+		"aud": "app", "exp": time.Now().Add(time.Hour).Unix(),
+	})
 
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -64,6 +112,7 @@ func TestOIDCProviderExchangeCode(t *testing.T) {
 		RedirectURL: "http://localhost/callback",
 	}, sm)
 	p.SetEndpoints("", tokenServer.URL, "")
+	p.SetJWKSURI(jwksServer.URL)
 
 	token, err := p.ExchangeCode(context.Background(), "auth-code-123", "finance", []string{"admin"})
 	if err != nil {
@@ -191,11 +240,13 @@ func TestOIDCProviderAuthURLDefaultScopes(t *testing.T) {
 }
 
 func TestOIDCProviderExchangeCodeMissingEmail(t *testing.T) {
-	// ID token with no email field
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`))
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"user1"}`)) // no email
-	sig := base64.RawURLEncoding.EncodeToString([]byte("sig"))
-	idToken := header + "." + payload + "." + sig
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	jwksServer := newJWKSServer(t, key)
+	defer jwksServer.Close()
+	// Properly signed token with valid aud/exp but no email field.
+	idToken := signedIDToken(t, key, map[string]any{
+		"sub": "user1", "aud": "app", "exp": time.Now().Add(time.Hour).Unix(),
+	})
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"id_token": idToken})
@@ -205,6 +256,7 @@ func TestOIDCProviderExchangeCodeMissingEmail(t *testing.T) {
 	sm := NewSessionManager("test-secret-key-minimum-32-bytes!")
 	p := NewOIDCProvider(OIDCConfig{ClientID: "app", ClientSecret: "secret"}, sm)
 	p.SetEndpoints("", server.URL, "")
+	p.SetJWKSURI(jwksServer.URL)
 
 	// Should succeed but with empty email
 	token, err := p.ExchangeCode(context.Background(), "code", "tenant", nil)
@@ -215,6 +267,40 @@ func TestOIDCProviderExchangeCodeMissingEmail(t *testing.T) {
 	principal, _ := sm.ValidateToken(token)
 	if principal.ID != "" {
 		t.Fatalf("expected empty ID for missing email, got %q", principal.ID)
+	}
+}
+
+// A forged (wrong-signature) id_token must be rejected, and a JWKS fetch
+// failure must fail closed rather than skip verification.
+func TestOIDCProviderRejectsForgedAndUnverifiableTokens(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	attacker, _ := rsa.GenerateKey(rand.Reader, 2048)
+	jwksServer := newJWKSServer(t, key)
+	defer jwksServer.Close()
+
+	// Token signed by an attacker key not in the JWKS.
+	forged := signedIDToken(t, attacker, map[string]any{
+		"sub": "x", "email": "admin@victim.com", "aud": "app",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"id_token": forged})
+	}))
+	defer tokenServer.Close()
+
+	sm := NewSessionManager("test-secret-key-minimum-32-bytes!")
+	p := NewOIDCProvider(OIDCConfig{ClientID: "app"}, sm)
+	p.SetEndpoints("", tokenServer.URL, "")
+	p.SetJWKSURI(jwksServer.URL)
+	if _, err := p.ExchangeCode(context.Background(), "code", "t", nil); err == nil {
+		t.Fatal("forged token must be rejected")
+	}
+
+	// JWKS unreachable -> must fail closed (no jwks_uri configured).
+	p2 := NewOIDCProvider(OIDCConfig{ClientID: "app"}, sm)
+	p2.SetEndpoints("", tokenServer.URL, "")
+	if _, err := p2.ExchangeCode(context.Background(), "code", "t", nil); err == nil {
+		t.Fatal("unverifiable token (no JWKS) must fail closed")
 	}
 }
 

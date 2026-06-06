@@ -85,11 +85,11 @@ func checkAgentRateLimit(key string, limit int) error {
 // Runtime is the Agent Runtime kernel module.
 // It manages agent instances and orchestrates model calls + tool execution.
 type Runtime struct {
-	mu          sync.RWMutex
-	bus         *ipc.Bus
-	providers   map[string]ModelProvider
-	toolReg     *ToolRegistry
-	agents      map[string]*agentInstance // "tenant/name" -> instance
+	mu            sync.RWMutex
+	bus           *ipc.Bus
+	providers     map[string]ModelProvider
+	toolReg       *ToolRegistry
+	agents        map[string]*agentInstance // "tenant/name" -> instance
 	store         *SessionStore
 	memoryStore   *MemoryStore
 	usageStore    *UsageStore
@@ -198,7 +198,14 @@ func (r *Runtime) Start(ctx context.Context) error {
 	return r.LoadSavedAgents()
 }
 
-func (r *Runtime) Stop(ctx context.Context) error { return nil }
+func (r *Runtime) Stop(ctx context.Context) error {
+	// Close the shared-context store so its WAL is checkpointed cleanly on
+	// shutdown (the other stores are owned/closed by main.go).
+	if r.contextStore != nil {
+		return r.contextStore.Close()
+	}
+	return nil
+}
 
 func (r *Runtime) Health(ctx context.Context) kernel.HealthStatus {
 	r.mu.RLock()
@@ -406,10 +413,9 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	// driven off the IPC bus rather than an inbound request context, but the
 	// returned ctx is plumbed into downstream provider/tool calls so child
 	// spans nest correctly.
-	ctx, span := runtimeTracer.Start(context.Background(), "agent.chat",
-		// Attributes are kept low-cardinality (no message body) so this is
-		// safe to enable at 100% sampling in production.
-	)
+	ctx, span := runtimeTracer.Start(context.Background(), "agent.chat") // Attributes are kept low-cardinality (no message body) so this is
+	// safe to enable at 100% sampling in production.
+
 	span.SetAttributes(
 		attribute.String("tenant", req.Tenant),
 		attribute.String("agent", req.Agent),
@@ -714,7 +720,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 			decision := r.checkToolPolicy(req.Tenant, req.User, req.Agent, tc.Name)
 			if decision == "deny" {
 				inst.session.AddMessage(Message{
-					Role: RoleTool,
+					Role:        RoleTool,
 					ToolResults: []ToolResult{{CallID: tc.ID, Content: "DENIED: Policy does not allow " + tc.Name, IsError: true}},
 				})
 				toolsUsed = append(toolsUsed, tc.Name+"(denied)")
@@ -742,7 +748,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				status := r.waitForApproval(approvalID)
 				if status != "approved" {
 					inst.session.AddMessage(Message{
-						Role: RoleTool,
+						Role:        RoleTool,
 						ToolResults: []ToolResult{{CallID: tc.ID, Content: fmt.Sprintf("APPROVAL %s: %s", strings.ToUpper(status), tc.Name), IsError: true}},
 					})
 					toolsUsed = append(toolsUsed, tc.Name+"("+status+")")
@@ -800,9 +806,14 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				toolStart := time.Now()
 				toolCtx := WithToolCaller(context.Background(), req.Tenant, req.Agent, req.User)
 				// Carry the orchestration batch id (set by orchestrate as the
-				// fan-out TraceID) so a worker's context_read scopes to its
-				// own batch's shared channel (#48).
-				if msg.TraceID != "" {
+				// fan-out TraceID) so a worker's context_read scopes to its own
+				// batch's shared channel (#48). Gate on isSubagent: the bus
+				// auto-assigns a TraceID to every message, and top-level chats
+				// set it from X-Request-ID, so binding on a non-empty TraceID
+				// alone would give every solo turn a channel and let a caller
+				// read a batch's notes by replaying its id. Only orchestrate/
+				// delegate children get a channel.
+				if isSubagent && msg.TraceID != "" {
 					toolCtx = WithChannel(toolCtx, msg.TraceID)
 				}
 				result, execErr = r.executeToolWithRetry(toolCtx, tc.Name, toolInput)
@@ -945,12 +956,22 @@ func (r *Runtime) handleSessions(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (r *Runtime) handleSessionMessages(msg ipc.Message) (ipc.Message, error) {
-	sessionID, ok := msg.Payload.(string)
+	params, ok := msg.Payload.(map[string]string)
 	if !ok {
-		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	tenant, sessionID := params["tenant"], params["sid"]
+	if tenant == "" || sessionID == "" {
+		return ipc.Message{}, fmt.Errorf("agent.session.messages: tenant and sid are required")
 	}
 	if r.store == nil {
 		return ipc.Message{}, fmt.Errorf("session store not configured")
+	}
+	// Tenant isolation: a session id is "sess_<tenant>_<name>". Reject any id
+	// that does not belong to the caller's tenant so a raw id cannot read
+	// another tenant's history.
+	if !strings.HasPrefix(sessionID, "sess_"+tenant+"_") {
+		return ipc.Message{}, fmt.Errorf("session %q not found in tenant %q", sessionID, tenant)
 	}
 
 	_, messages, err := r.store.LoadSession(sessionID)
@@ -1214,6 +1235,13 @@ type ContextReadResult struct {
 // model, and runs content through the same redaction as every other persisted
 // surface.
 func (r *Runtime) handleContextWrite(msg ipc.Message) (ipc.Message, error) {
+	// Only the coordinator path (the orchestrate tool) may write the shared
+	// channel. Workers carry no write tool, but the bus topic is otherwise
+	// reachable by any in-process sender, so authorize by source rather than
+	// relying on tool-surface omission alone (#48).
+	if msg.Source != "orchestrate" {
+		return ipc.Message{}, fmt.Errorf("agent.context.write: not authorized for source %q", msg.Source)
+	}
 	e, ok := msg.Payload.(SharedContextEntry)
 	if !ok {
 		return ipc.Message{}, fmt.Errorf("expected SharedContextEntry, got %T", msg.Payload)
@@ -1224,6 +1252,9 @@ func (r *Runtime) handleContextWrite(msg ipc.Message) (ipc.Message, error) {
 	if e.Tenant == "" || e.Channel == "" || e.Key == "" {
 		return ipc.Message{}, fmt.Errorf("agent.context.write: tenant, channel and key are required")
 	}
+	// Both the value AND the model-chosen key are persisted and later rendered
+	// into a worker's prompt, so redact both.
+	e.Key = RedactPII(MaskSecrets(e.Key))
 	e.Content = RedactPII(MaskSecrets(e.Content))
 	if err := r.contextStore.Write(e); err != nil {
 		return ipc.Message{}, err
@@ -1288,14 +1319,18 @@ func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (r *Runtime) handleSearch(msg ipc.Message) (ipc.Message, error) {
-	query, ok := msg.Payload.(string)
+	params, ok := msg.Payload.(map[string]string)
 	if !ok {
-		return ipc.Message{}, fmt.Errorf("expected string query, got %T", msg.Payload)
+		return ipc.Message{}, fmt.Errorf("expected map[string]string{tenant,query}, got %T", msg.Payload)
+	}
+	tenant, query := params["tenant"], params["query"]
+	if tenant == "" {
+		return ipc.Message{}, fmt.Errorf("agent.search: tenant is required")
 	}
 	if r.store == nil {
 		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: []SearchResult{}}, nil
 	}
-	results, err := r.store.SearchMessages(query)
+	results, err := r.store.SearchMessages(query, tenant)
 	if err != nil {
 		return ipc.Message{}, err
 	}
@@ -1415,4 +1450,3 @@ func truncate(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "..."
 }
-

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
@@ -81,6 +82,14 @@ func (t *OrchestrateTool) Execute(ctx context.Context, input map[string]string) 
 		return "", fmt.Errorf("maximum %d parallel tasks allowed", t.maxFanout)
 	}
 
+	// Parse shared context up front: a malformed request is the coordinator's
+	// mistake and nothing has been written or spawned yet, so fail fast with
+	// clear feedback. A WRITE failure later is different — see writeSharedContext.
+	notes, err := parseSharedContext(input["shared_context"])
+	if err != nil {
+		return "", err
+	}
+
 	// One correlation id for the whole fan-out so every child's audit trail
 	// links back to this orchestration. It is also the shared-context channel
 	// id: children receive it as their TraceID and read this batch's notes
@@ -90,9 +99,10 @@ func (t *OrchestrateTool) Execute(ctx context.Context, input map[string]string) 
 	// As the coordinator, write any shared context BEFORE fanning out so the
 	// children can read it. Children are never given a write tool, so the
 	// channel is writable only here (coordinator) and read-only for workers.
-	if err := t.writeSharedContext(ctx, tenant, agentName, batchTrace, input["shared_context"]); err != nil {
-		return "", err
-	}
+	// This is best-effort: if the store is disabled or a write fails, the
+	// orchestration still runs — workers just see no shared context rather than
+	// the whole batch failing.
+	t.writeSharedContext(ctx, tenant, agentName, batchTrace, notes)
 
 	results := make([]orchestrateResult, len(tasks))
 	sem := make(chan struct{}, t.maxConcurrency)
@@ -142,25 +152,47 @@ func (t *OrchestrateTool) Execute(ctx context.Context, input map[string]string) 
 	return sb.String(), nil
 }
 
-// writeSharedContext parses the optional shared_context JSON object and writes
-// each key/value into the batch's channel through the runtime. The coordinator
-// agent is recorded as the author. A malformed object is a hard error so the
-// model learns to fix it rather than silently losing the handoff.
-func (t *OrchestrateTool) writeSharedContext(ctx context.Context, tenant, author, channel, raw string) error {
+// parseSharedContext decodes the optional shared_context object. It is tolerant
+// of value types: a string is used verbatim; any other JSON scalar/object is
+// rendered as its raw JSON text, so {"steps":3} or {"cfg":{...}} no longer
+// aborts the call. Only a payload that is not a JSON object at all is an error.
+func parseSharedContext(raw string) (map[string]string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil
+		return nil, nil
 	}
-	var notes map[string]string
-	if err := json.Unmarshal([]byte(raw), &notes); err != nil {
-		return fmt.Errorf("invalid shared_context JSON (want an object of string values): %w", err)
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+		return nil, fmt.Errorf("invalid shared_context JSON (want an object, e.g. {\"plan\":\"...\"}): %w", err)
 	}
-	for key, content := range notes {
+	notes := make(map[string]string, len(obj))
+	for key, val := range obj {
 		if key == "" {
 			continue
 		}
-		writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_, err := t.bus.Request(writeCtx, ipc.Message{
+		var s string
+		if json.Unmarshal(val, &s) == nil {
+			notes[key] = s // it was a JSON string
+		} else {
+			notes[key] = string(val) // keep the raw JSON for non-string values
+		}
+	}
+	return notes, nil
+}
+
+// writeSharedContext writes each note into the batch's channel through the
+// runtime, recording the coordinator agent as author. It is best-effort: a
+// write failure (store disabled, transient db error) is swallowed per key so a
+// valid orchestration is never killed by the shared-context handoff. A single
+// timeout context covers the whole batch of writes.
+func (t *OrchestrateTool) writeSharedContext(ctx context.Context, tenant, author, channel string, notes map[string]string) {
+	if len(notes) == 0 {
+		return
+	}
+	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	for key, content := range notes {
+		t.bus.Request(writeCtx, ipc.Message{
 			Source:  "orchestrate",
 			Target:  "agent_runtime",
 			Topic:   agent.TopicContextWrite,
@@ -169,18 +201,19 @@ func (t *OrchestrateTool) writeSharedContext(ctx context.Context, tenant, author
 				Tenant: tenant, Channel: channel, Key: key, Content: content, Author: author,
 			},
 		})
-		cancel()
-		if err != nil {
-			return fmt.Errorf("write shared context %q: %w", key, err)
-		}
 	}
-	return nil
 }
+
+// orchSeq guarantees a unique fallback channel id even if crypto/rand fails.
+var orchSeq atomic.Uint64
 
 func genTraceID() string {
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
-		return "orch"
+		// Never return a constant: this id is also the shared-context channel
+		// key, so a fixed fallback would collapse concurrent batches onto one
+		// channel and cross-read their notes (#48).
+		return fmt.Sprintf("orch-fb-%d-%d", time.Now().UnixNano(), orchSeq.Add(1))
 	}
 	return "orch-" + hex.EncodeToString(buf)
 }

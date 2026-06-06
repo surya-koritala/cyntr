@@ -20,13 +20,17 @@ type DelegateRequest struct {
 	User    string `json:"user"`    // caller identity (for audit + policy)
 	Message string `json:"message"` // user message to send
 	Caller  string `json:"caller"`  // calling node ID (for audit)
+	// Secret is the per-peer shared secret, carried in the X-Federation-Secret
+	// header (not the JSON body) and set by the inbound HTTP handler. The
+	// inbound module verifies it before dispatching.
+	Secret string `json:"-"`
 }
 
 // DelegateResponse is the result of a cross-node delegation.
 type DelegateResponse struct {
-	PeerID   string `json:"peer_id"`  // node that served the request
-	Agent    string `json:"agent"`    // agent that produced the response
-	Content  string `json:"content"`  // assistant content
+	PeerID   string `json:"peer_id"` // node that served the request
+	Agent    string `json:"agent"`   // agent that produced the response
+	Content  string `json:"content"` // assistant content
 	Error    string `json:"error,omitempty"`
 	Decision string `json:"decision,omitempty"` // policy decision: allow, deny, require_approval
 }

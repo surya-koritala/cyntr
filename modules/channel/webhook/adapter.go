@@ -3,8 +3,12 @@ package webhook
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 
@@ -14,11 +18,12 @@ import (
 // Adapter is a webhook-based channel adapter.
 // Receives messages via HTTP POST and sends responses via HTTP POST.
 type Adapter struct {
-	listenAddr  string
-	outboundURL string
-	listener    net.Listener
-	server      *http.Server
-	handler     channel.InboundHandler
+	listenAddr    string
+	outboundURL   string
+	signingSecret string
+	listener      net.Listener
+	server        *http.Server
+	handler       channel.InboundHandler
 }
 
 // New creates a new webhook adapter.
@@ -31,6 +36,14 @@ func (a *Adapter) Name() string { return "webhook" }
 // SetOutboundURL sets the URL for outbound message delivery.
 func (a *Adapter) SetOutboundURL(url string) {
 	a.outboundURL = url
+}
+
+// SetSigningSecret sets the shared secret used to authenticate inbound webhook
+// requests via an HMAC-SHA256 signature. Without it, inbound requests are
+// rejected (fail closed), since the payload carries the tenant/agent and must
+// not be trusted from an unauthenticated caller.
+func (a *Adapter) SetSigningSecret(secret string) {
+	a.signingSecret = secret
 }
 
 // Addr returns the actual listening address.
@@ -101,14 +114,40 @@ type webhookPayload struct {
 	Text      string `json:"text"`
 }
 
+// verifySignature checks the X-Webhook-Signature header (hex HMAC-SHA256 of the
+// raw body keyed by the signing secret) in constant time. Returns false when no
+// secret is configured so the endpoint fails closed.
+func (a *Adapter) verifySignature(r *http.Request, body []byte) bool {
+	if a.signingSecret == "" {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(a.signingSecret))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	got := r.Header.Get("X-Webhook-Signature")
+	return hmac.Equal([]byte(got), []byte(expected))
+}
+
 func (a *Adapter) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	// Authenticate the caller before trusting the body (which carries the
+	// tenant/agent). Fail closed when no secret is configured.
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "read error", http.StatusBadRequest)
+		return
+	}
+	if !a.verifySignature(r, body) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var payload webhookPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}

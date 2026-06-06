@@ -107,6 +107,9 @@ func (s *Server) handleFederationDelegateInbound(w http.ResponseWriter, r *http.
 		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON")
 		return
 	}
+	// Carry the shared secret from the header (never the body) so the
+	// federation module can authenticate the calling peer.
+	body.Secret = r.Header.Get("X-Federation-Secret")
 
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()

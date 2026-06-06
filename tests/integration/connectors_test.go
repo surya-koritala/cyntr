@@ -2,6 +2,9 @@ package integration
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -265,6 +268,7 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 	t.Run("Webhook", func(t *testing.T) {
 		received := make(chan string, 1)
 		a := webhook.New("127.0.0.1:0")
+		a.SetSigningSecret("itest-secret")
 		if err := a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
 			received <- msg.Text
 			return "Webhook reply", nil
@@ -274,8 +278,12 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		defer a.Stop(ctx)
 		time.Sleep(100 * time.Millisecond)
 
-		resp, err := http.Post("http://"+a.Addr()+"/webhook", "application/json",
-			strings.NewReader(`{"tenant":"demo","agent":"assistant","user_id":"U1","channel_id":"C1","text":"Hello Webhook"}`))
+		body := `{"tenant":"demo","agent":"assistant","user_id":"U1","channel_id":"C1","text":"Hello Webhook"}`
+		mac := hmac.New(sha256.New, []byte("itest-secret"))
+		mac.Write([]byte(body))
+		whReq, _ := http.NewRequest("POST", "http://"+a.Addr()+"/webhook", strings.NewReader(body))
+		whReq.Header.Set("X-Webhook-Signature", hex.EncodeToString(mac.Sum(nil)))
+		resp, err := http.DefaultClient.Do(whReq)
 		if err != nil {
 			t.Fatalf("webhook post: %v", err)
 		}

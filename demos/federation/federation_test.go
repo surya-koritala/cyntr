@@ -37,6 +37,9 @@ func (t *inProcessTransport) Delegate(ctx context.Context, peer federation.Peer,
 	if !ok {
 		return federation.DelegateResponse{}, fmt.Errorf("no in-process target for peer %q", peer.Name)
 	}
+	// Mirror the real HTTP transport: the shared secret travels with the
+	// request (header on the wire) so the inbound handler can authenticate.
+	req.Secret = peer.Secret
 	resp, err := bus.Request(ctx, ipc.Message{
 		Source: "federation_test", Target: "federation", Topic: "federation.delegate.inbound",
 		Payload: req,
@@ -195,8 +198,8 @@ func TestFederation_CrossNodeDelegation(t *testing.T) {
 
 	// Register each as a peer of the other. AddPeer is the programmatic
 	// helper we added so demos don't need the HTTP join endpoint.
-	nodeA.fed.AddPeer(federation.Peer{Name: "node-b", Endpoint: "inprocess://node-b"})
-	nodeB.fed.AddPeer(federation.Peer{Name: "node-a", Endpoint: "inprocess://node-a"})
+	nodeA.fed.AddPeer(federation.Peer{Name: "node-b", Endpoint: "inprocess://node-b", Secret: "peer-shared-secret"})
+	nodeB.fed.AddPeer(federation.Peer{Name: "node-a", Endpoint: "inprocess://node-a", Secret: "peer-shared-secret"})
 
 	// Now: node-a (acting as the research agent's tenant) sends a federation
 	// delegate to node-b's legal agent. This exercises:
@@ -256,8 +259,8 @@ func TestFederation_PolicyDeniesUnauthorisedAgent(t *testing.T) {
 
 	transportA := &inProcessTransport{targets: map[string]*ipc.Bus{"node-b": nodeB.bus}}
 	nodeA.fed.SetTransport(transportA)
-	nodeA.fed.AddPeer(federation.Peer{Name: "node-b", Endpoint: "inprocess://node-b"})
-	nodeB.fed.AddPeer(federation.Peer{Name: "node-a", Endpoint: "inprocess://node-a"})
+	nodeA.fed.AddPeer(federation.Peer{Name: "node-b", Endpoint: "inprocess://node-b", Secret: "peer-shared-secret"})
+	nodeB.fed.AddPeer(federation.Peer{Name: "node-a", Endpoint: "inprocess://node-a", Secret: "peer-shared-secret"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

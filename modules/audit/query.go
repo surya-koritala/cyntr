@@ -8,13 +8,16 @@ import (
 )
 
 func QueryEntries(db *sql.DB, filter QueryFilter) ([]Entry, error) {
+	// Tenant scoping is mandatory: an empty tenant must never widen the result
+	// set to every tenant's audit log.
+	if filter.Tenant == "" {
+		return nil, fmt.Errorf("audit query: tenant is required")
+	}
 	var conditions []string
 	var args []any
 
-	if filter.Tenant != "" {
-		conditions = append(conditions, "tenant = ?")
-		args = append(args, filter.Tenant)
-	}
+	conditions = append(conditions, "tenant = ?")
+	args = append(args, filter.Tenant)
 	if filter.ActionType != "" {
 		conditions = append(conditions, "json_extract(data, '$.action.type') = ?")
 		args = append(args, filter.ActionType)

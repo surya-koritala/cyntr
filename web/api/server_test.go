@@ -533,12 +533,14 @@ func TestAuditQuery_NoFilter(t *testing.T) {
 	_, bus := setupKernel(t)
 	srv := NewServer(bus, nil)
 
+	// Tenant scoping is mandatory; a no-tenant query must be rejected rather
+	// than returning every tenant's audit log.
 	req := httptest.NewRequest("GET", "/api/v1/audit", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for missing tenant, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
