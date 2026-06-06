@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -82,7 +83,24 @@ func (m *Manager) Health(ctx context.Context) kernel.HealthStatus {
 	}
 }
 
+// allowedStdioCommands is the allowlist of executables an MCP stdio server may
+// launch. Every BuiltinMCPCatalog entry uses "npx"; anything else is rejected
+// so a caller of mcp.server.add cannot spawn an arbitrary binary (RCE).
+var allowedStdioCommands = map[string]bool{"npx": true}
+
 func (m *Manager) connectServer(ctx context.Context, cfg ServerConfig) error {
+	// stdio servers spawn a subprocess from cfg.Command — gate it on an
+	// allowlist. http/sse transports do not exec, so they skip this check.
+	if cfg.Transport == "" || cfg.Transport == "stdio" {
+		base := cfg.Command
+		if i := strings.LastIndexAny(base, "/\\"); i >= 0 {
+			base = base[i+1:]
+		}
+		if !allowedStdioCommands[base] {
+			return fmt.Errorf("mcp: command %q is not allowed for stdio servers (allowed: npx)", cfg.Command)
+		}
+	}
+
 	client := NewClient(cfg)
 	connectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

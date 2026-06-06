@@ -17,6 +17,16 @@ func (s *Server) handleAuditQuery(w http.ResponseWriter, r *http.Request) {
 		User:       r.URL.Query().Get("user"),
 		Agent:      r.URL.Query().Get("agent"),
 	}
+	// Scope to the authenticated principal's tenant so a caller cannot read
+	// another tenant's audit log via ?tenant=. The store also rejects an empty
+	// tenant, so a scopeless query errors rather than returning all tenants.
+	if p, ok := authPrincipal(r); ok && p.Tenant != "" {
+		filter.Tenant = p.Tenant
+	}
+	if filter.Tenant == "" {
+		RespondError(w, 400, "MISSING_TENANT", "tenant is required (query param or authenticated identity)")
+		return
+	}
 
 	if since := r.URL.Query().Get("since"); since != "" {
 		if t, err := time.Parse(time.RFC3339, since); err == nil {

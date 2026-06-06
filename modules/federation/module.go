@@ -2,6 +2,8 @@ package federation
 
 import (
 	"context"
+	"crypto/subtle"
+	"errors"
 	"fmt"
 	"time"
 
@@ -159,6 +161,21 @@ func (m *Module) handleDelegate(msg ipc.Message) (ipc.Message, error) {
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: resp}, nil
 }
 
+// authenticatePeer reports whether secret matches a registered peer's shared
+// secret, using a constant-time comparison. An empty secret never matches, so
+// federation inbound fails closed when no peer/secret is configured.
+func (m *Module) authenticatePeer(secret string) bool {
+	if secret == "" {
+		return false
+	}
+	for _, p := range m.peers.List() {
+		if p.Secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(p.Secret)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
 // handleDelegateInbound is invoked when a remote peer asks this node to run
 // an agent. It enforces the local policy and dispatches to the local
 // agent runtime. The remote node controls its own policy boundary.
@@ -166,6 +183,17 @@ func (m *Module) handleDelegateInbound(msg ipc.Message) (ipc.Message, error) {
 	req, ok := msg.Payload.(DelegateRequest)
 	if !ok {
 		return ipc.Message{}, fmt.Errorf("expected DelegateRequest, got %T", msg.Payload)
+	}
+
+	// Authenticate the calling peer by its shared secret before doing anything
+	// else. Fail closed: a missing or unrecognized secret is rejected so an
+	// unauthenticated party cannot run agents on this node.
+	if !m.authenticatePeer(req.Secret) {
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: DelegateResponse{
+			PeerID: m.localID,
+			Agent:  req.Agent,
+			Error:  "federation_inbound denied: unauthenticated peer",
+		}}, nil
 	}
 
 	// Policy boundary: ask the local policy engine whether this caller is
@@ -185,20 +213,26 @@ func (m *Module) handleDelegateInbound(msg ipc.Message) (ipc.Message, error) {
 			User:   req.User,
 		},
 	})
-	if perr == nil {
-		if cr, ok := policyResp.Payload.(policy.CheckResponse); ok {
-			if cr.Decision == policy.Deny {
-				return ipc.Message{Type: ipc.MessageTypeResponse, Payload: DelegateResponse{
-					PeerID:   m.localID,
-					Agent:    req.Agent,
-					Error:    fmt.Sprintf("federation_inbound denied by policy: %s", cr.Reason),
-					Decision: cr.Decision.String(),
-				}}, nil
-			}
+	if perr != nil {
+		// Only proceed when there is simply no policy module wired. Any other
+		// policy error must fail CLOSED rather than silently allowing the call.
+		if !errors.Is(perr, ipc.ErrNoHandler) {
+			return ipc.Message{Type: ipc.MessageTypeResponse, Payload: DelegateResponse{
+				PeerID: m.localID,
+				Agent:  req.Agent,
+				Error:  "federation_inbound denied: policy check failed",
+			}}, nil
+		}
+	} else if cr, ok := policyResp.Payload.(policy.CheckResponse); ok {
+		if cr.Decision == policy.Deny {
+			return ipc.Message{Type: ipc.MessageTypeResponse, Payload: DelegateResponse{
+				PeerID:   m.localID,
+				Agent:    req.Agent,
+				Error:    fmt.Sprintf("federation_inbound denied by policy: %s", cr.Reason),
+				Decision: cr.Decision.String(),
+			}}, nil
 		}
 	}
-	// If err == ErrNoHandler we proceed (no policy module wired); other errors
-	// would have been returned by policy.check itself.
 
 	// Dispatch to local agent runtime.
 	chatCtx, chatCancel := context.WithTimeout(context.Background(), 30*time.Second)
