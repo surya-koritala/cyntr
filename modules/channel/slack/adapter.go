@@ -38,8 +38,57 @@ type Adapter struct {
 	listener      net.Listener
 	server        *http.Server
 	client        *http.Client
-	slackAPI      string   // base URL for Slack API (override for testing)
-	seen          sync.Map // event deduplication: event_id -> true
+	slackAPI      string // base URL for Slack API (override for testing)
+	seen          *dedupeCache
+}
+
+// dedupeCache is a bounded, TTL-based set used for event deduplication. Slack
+// retries the same event, so we remember keys we've already processed — but
+// only for a bounded window (and with a hard cap on entries) so an attacker
+// cannot grow it without limit by sending a stream of unique event ids.
+type dedupeCache struct {
+	mu      sync.Mutex
+	entries map[string]int64 // key -> unix expiry
+	ttl     time.Duration
+	maxSize int
+}
+
+func newDedupeCache(ttl time.Duration, maxSize int) *dedupeCache {
+	return &dedupeCache{entries: make(map[string]int64), ttl: ttl, maxSize: maxSize}
+}
+
+// seenBefore records key and reports whether it had already been seen within
+// the TTL window. Expired entries are evicted lazily on each call; if the cache
+// is at capacity with no expired entries to reclaim, the oldest entries are
+// dropped to enforce the hard cap.
+func (c *dedupeCache) seenBefore(key string) bool {
+	now := time.Now().Unix()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Evict expired entries.
+	for k, exp := range c.entries {
+		if exp <= now {
+			delete(c.entries, k)
+		}
+	}
+
+	if exp, ok := c.entries[key]; ok && exp > now {
+		return true
+	}
+
+	// Enforce the hard cap: if still full after expiry eviction, drop entries
+	// until there is room (Go map iteration order is randomized, giving a cheap
+	// approximate eviction without tracking insertion order).
+	for len(c.entries) >= c.maxSize {
+		for k := range c.entries {
+			delete(c.entries, k)
+			break
+		}
+	}
+
+	c.entries[key] = now + int64(c.ttl.Seconds())
+	return false
 }
 
 func New(listenAddr, botToken, tenant, agent string) *Adapter {
@@ -50,6 +99,10 @@ func New(listenAddr, botToken, tenant, agent string) *Adapter {
 		agent:      agent,
 		client:     &http.Client{},
 		slackAPI:   "https://slack.com/api",
+		// Bounded TTL dedup cache: remember processed events for 10 minutes
+		// (well past Slack's retry window) with a hard cap so a stream of unique
+		// event ids cannot grow it without bound.
+		seen: newDedupeCache(10*time.Minute, 10000),
 	}
 }
 
@@ -113,6 +166,10 @@ func (a *Adapter) Addr() string {
 }
 
 func (a *Adapter) Name() string { return "slack" }
+
+// Tenant returns the tenant that owns this adapter, so the channel manager can
+// scope outbound dispatch and refuse cross-tenant delivery.
+func (a *Adapter) Tenant() string { return a.tenant }
 
 func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) error {
 	a.handler = handler
@@ -318,7 +375,7 @@ func (a *Adapter) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if dedupeKey == "" {
 		dedupeKey = envelope.Event.User + ":" + envelope.Event.Channel + ":" + envelope.Event.Text
 	}
-	if _, loaded := a.seen.LoadOrStore(dedupeKey, true); loaded {
+	if a.seen.seenBefore(dedupeKey) {
 		w.WriteHeader(200)
 		return
 	}

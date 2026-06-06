@@ -38,10 +38,9 @@ func LoadEmbeddedCatalog() []*InstalledSkill {
 			catalogLogger.Warn("parse catalog skill failed", map[string]any{"file": entry.Name(), "error": err.Error()})
 			continue
 		}
-		// Catalog skills get full capabilities (they're verified by Cyntr)
-		skill.Manifest.Capabilities.Shell = true
-		skill.Manifest.Capabilities.Network = []string{"*"}
-		skill.Manifest.Capabilities.Filesystem = []string{"*"}
+		// Least privilege: each catalog skill gets only the capabilities it
+		// declares in its own manifest (parsed above). We do NOT blanket-grant
+		// shell/network/filesystem to every catalog skill.
 		skills = append(skills, skill)
 	}
 	return skills
@@ -59,11 +58,12 @@ func parseCatalogSkill(content string) (*InstalledSkill, error) {
 	body := strings.TrimSpace(parts[2])
 
 	var meta struct {
-		Name        string `yaml:"name"`
-		Description string `yaml:"description"`
-		Version     string `yaml:"version"`
-		Author      string `yaml:"author"`
-		Tools       []struct {
+		Name         string       `yaml:"name"`
+		Description  string       `yaml:"description"`
+		Version      string       `yaml:"version"`
+		Author       string       `yaml:"author"`
+		Capabilities Capabilities `yaml:"capabilities"`
+		Tools        []struct {
 			Name string `yaml:"name"`
 		} `yaml:"tools"`
 	}
@@ -77,19 +77,20 @@ func parseCatalogSkill(content string) (*InstalledSkill, error) {
 		meta.Version = "1.0.0"
 	}
 
-	var toolNames []string
+	// Capabilities come from the manifest's own `capabilities:` block (least
+	// privilege). If a skill also lists `tools:` shorthand, merge those tool
+	// names in without overriding declared network/filesystem/shell.
+	caps := meta.Capabilities
 	for _, t := range meta.Tools {
-		toolNames = append(toolNames, t.Name)
+		caps.Tools = append(caps.Tools, t.Name)
 	}
 
 	return &InstalledSkill{
 		Manifest: SkillManifest{
-			Name:    meta.Name,
-			Version: meta.Version,
-			Author:  meta.Author,
-			Capabilities: Capabilities{
-				Tools: toolNames,
-			},
+			Name:         meta.Name,
+			Version:      meta.Version,
+			Author:       meta.Author,
+			Capabilities: caps,
 		},
 		Instructions: body,
 		Path:         "embedded://catalog",

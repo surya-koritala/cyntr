@@ -9,6 +9,8 @@ import (
 )
 
 func TestFederatedQueryFanOut(t *testing.T) {
+	// httptest binds to 127.0.0.1; opt in to allow private addresses past the SSRF guard.
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	// Mock peers that return audit results
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(FederatedQueryResponse{
@@ -34,7 +36,7 @@ func TestFederatedQueryFanOut(t *testing.T) {
 	pm.Add(Peer{Name: "peer-1", Endpoint: server1.URL})
 	pm.Add(Peer{Name: "peer-2", Endpoint: server2.URL})
 
-	fq := NewFederatedQuery(pm)
+	fq := NewFederatedQuery(pm, "local", NewResidencyPolicy())
 	results, err := fq.Query(FederatedQueryRequest{Tenant: "finance"})
 	if err != nil {
 		t.Fatalf("query: %v", err)
@@ -46,6 +48,8 @@ func TestFederatedQueryFanOut(t *testing.T) {
 }
 
 func TestFederatedQueryPartialFailure(t *testing.T) {
+	// httptest binds to 127.0.0.1; opt in to allow private addresses past the SSRF guard.
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(FederatedQueryResponse{
 			PeerID:  "peer-1",
@@ -58,7 +62,7 @@ func TestFederatedQueryPartialFailure(t *testing.T) {
 	pm.Add(Peer{Name: "peer-1", Endpoint: server1.URL})
 	pm.Add(Peer{Name: "dead-peer", Endpoint: "http://127.0.0.1:1"})
 
-	fq := NewFederatedQuery(pm)
+	fq := NewFederatedQuery(pm, "local", NewResidencyPolicy())
 	results, err := fq.Query(FederatedQueryRequest{Tenant: "finance"})
 
 	// Should return partial results, not fail completely
@@ -72,7 +76,7 @@ func TestFederatedQueryPartialFailure(t *testing.T) {
 
 func TestFederatedQueryNoPeers(t *testing.T) {
 	pm := NewPeerManager("local")
-	fq := NewFederatedQuery(pm)
+	fq := NewFederatedQuery(pm, "local", NewResidencyPolicy())
 
 	results, err := fq.Query(FederatedQueryRequest{Tenant: "finance"})
 	if err != nil {

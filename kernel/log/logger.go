@@ -62,19 +62,30 @@ func New(out io.Writer, level Level, module string) *Logger {
 func Default() *Logger { return defaultLogger }
 
 // SetLevel sets the minimum log level.
-func SetLevel(l Level) { defaultLogger.level = l }
+func SetLevel(l Level) { defaultLogger.SetLevel(l) }
+
+// SetLevel sets the minimum log level for this logger. Safe for concurrent use.
+func (l *Logger) SetLevel(level Level) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.level = level
+}
 
 // WithModule returns a new logger with the given module name.
 func (l *Logger) WithModule(module string) *Logger {
-	return &Logger{out: l.out, level: l.level, module: module}
+	l.mu.Lock()
+	level := l.level
+	l.mu.Unlock()
+	return &Logger{out: l.out, level: level, module: module}
 }
 
 func (l *Logger) log(level Level, msg string, fields map[string]any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	if level < l.level {
 		return
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	entry := Entry{
 		Time:    time.Now().UTC().Format(time.RFC3339),

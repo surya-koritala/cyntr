@@ -1,6 +1,9 @@
 package audit
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"strconv"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
@@ -24,7 +27,7 @@ func (e *Emitter) Emit(entry Entry) {
 		entry.Timestamp = time.Now().UTC()
 	}
 	if entry.ID == "" {
-		entry.ID = "evt_" + time.Now().Format("20060102150405.000")
+		entry.ID = "evt_" + time.Now().UTC().Format("20060102150405.000") + "_" + randomSuffix()
 	}
 
 	e.bus.Publish(ipc.Message{
@@ -34,6 +37,18 @@ func (e *Emitter) Emit(entry Entry) {
 		Topic:   "audit.write",
 		Payload: entry,
 	})
+}
+
+// randomSuffix returns a short cryptographically random hex string used to keep
+// audit entry IDs unique even when many entries share the same millisecond
+// timestamp (otherwise colliding primary keys silently drop records).
+func randomSuffix() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Fall back to nanosecond entropy; rand.Read effectively never fails.
+		return strconv.FormatInt(time.Now().UnixNano(), 16)
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // EmitPolicyCheck creates and publishes an audit entry for a policy decision.
@@ -49,7 +64,7 @@ func (e *Emitter) EmitPolicyCheck(tenant, user, agent, action, tool, rule, decis
 
 // EmitAgentChat creates and publishes an audit entry for an agent chat.
 func (e *Emitter) EmitAgentChat(tenant, user, agent, message string, toolsUsed []string, durationMs int) {
-	detail := map[string]string{"message_length": string(rune(len(message)))}
+	detail := map[string]string{"message_length": strconv.Itoa(len(message))}
 	if len(toolsUsed) > 0 {
 		detail["tools"] = toolsUsed[0] // first tool for indexing
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel"
@@ -20,20 +21,26 @@ type Module struct {
 	peers     *PeerManager
 	sync      *PolicySync
 	query     *FederatedQuery
+	residency *ResidencyPolicy
 	transport Transport
 }
 
 // NewModule creates a new Federation module.
 func NewModule(localID string) *Module {
 	pm := NewPeerManager(localID)
+	residency := NewResidencyPolicy()
 	return &Module{
 		localID:   localID,
 		peers:     pm,
 		sync:      NewPolicySync(pm),
-		query:     NewFederatedQuery(pm),
+		query:     NewFederatedQuery(pm, localID, residency),
+		residency: residency,
 		transport: NewHTTPTransport(),
 	}
 }
+
+// Residency returns the data-residency policy (for demos and helper code).
+func (m *Module) Residency() *ResidencyPolicy { return m.residency }
 
 func (m *Module) Name() string           { return "federation" }
 func (m *Module) Dependencies() []string { return nil }
@@ -156,24 +163,28 @@ func (m *Module) handleDelegate(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, err
 	}
 	if resp.Error != "" {
-		return ipc.Message{}, fmt.Errorf("remote peer %s: %s", peer.Name, resp.Error)
+		// The remote-supplied error string may contain peer-internal detail;
+		// log it internally and return a generic error to the caller.
+		log.Printf("federation: remote peer %q returned delegation error: %s", peer.Name, resp.Error)
+		return ipc.Message{}, fmt.Errorf("federation: remote peer delegation failed")
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: resp}, nil
 }
 
 // authenticatePeer reports whether secret matches a registered peer's shared
-// secret, using a constant-time comparison. An empty secret never matches, so
-// federation inbound fails closed when no peer/secret is configured.
-func (m *Module) authenticatePeer(secret string) bool {
+// secret, using a constant-time comparison, and returns the authenticated
+// peer's name. An empty secret never matches, so federation inbound fails
+// closed when no peer/secret is configured.
+func (m *Module) authenticatePeer(secret string) (string, bool) {
 	if secret == "" {
-		return false
+		return "", false
 	}
 	for _, p := range m.peers.List() {
 		if p.Secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(p.Secret)) == 1 {
-			return true
+			return p.Name, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // handleDelegateInbound is invoked when a remote peer asks this node to run
@@ -187,12 +198,26 @@ func (m *Module) handleDelegateInbound(msg ipc.Message) (ipc.Message, error) {
 
 	// Authenticate the calling peer by its shared secret before doing anything
 	// else. Fail closed: a missing or unrecognized secret is rejected so an
-	// unauthenticated party cannot run agents on this node.
-	if !m.authenticatePeer(req.Secret) {
+	// unauthenticated party cannot run agents on this node. The authenticated
+	// peer name is derived from the matched secret, NOT from the request body —
+	// req.Caller is attacker-controlled and must not be trusted for identity.
+	authPeer, ok := m.authenticatePeer(req.Secret)
+	if !ok {
 		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: DelegateResponse{
 			PeerID: m.localID,
 			Agent:  req.Agent,
 			Error:  "federation_inbound denied: unauthenticated peer",
+		}}, nil
+	}
+
+	// Data residency: if this tenant's data is pinned to another node, refuse
+	// to run the delegation here. Fail closed — the tenant's data must stay on
+	// its home node, so agents elsewhere cannot pull it across the boundary.
+	if rerr := m.residency.Check(req.Tenant, m.localID); rerr != nil {
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: DelegateResponse{
+			PeerID: m.localID,
+			Agent:  req.Agent,
+			Error:  "federation_inbound denied: data residency restriction",
 		}}, nil
 	}
 
@@ -203,6 +228,10 @@ func (m *Module) handleDelegateInbound(msg ipc.Message) (ipc.Message, error) {
 	policyCtx, policyCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer policyCancel()
 
+	// Identity is derived from the authenticated peer, never from the
+	// caller-supplied req.Caller / req.User (those are attacker-controlled).
+	federatedIdentity := "federation:" + authPeer
+
 	policyResp, perr := m.bus.Request(policyCtx, ipc.Message{
 		Source: "federation", Target: "policy", Topic: "policy.check",
 		Payload: policy.CheckRequest{
@@ -210,7 +239,7 @@ func (m *Module) handleDelegateInbound(msg ipc.Message) (ipc.Message, error) {
 			Action: "federation_inbound",
 			Tool:   "delegate_agent",
 			Agent:  req.Agent,
-			User:   req.User,
+			User:   federatedIdentity,
 		},
 	})
 	if perr != nil {
@@ -224,7 +253,11 @@ func (m *Module) handleDelegateInbound(msg ipc.Message) (ipc.Message, error) {
 			}}, nil
 		}
 	} else if cr, ok := policyResp.Payload.(policy.CheckResponse); ok {
-		if cr.Decision == policy.Deny {
+		// Fail closed: only an explicit Allow proceeds. Deny,
+		// RequireApproval, or any unrecognized decision is rejected — a
+		// federated caller cannot satisfy an interactive approval, so
+		// RequireApproval is treated as not-allowed.
+		if cr.Decision != policy.Allow {
 			return ipc.Message{Type: ipc.MessageTypeResponse, Payload: DelegateResponse{
 				PeerID:   m.localID,
 				Agent:    req.Agent,
@@ -232,6 +265,14 @@ func (m *Module) handleDelegateInbound(msg ipc.Message) (ipc.Message, error) {
 				Decision: cr.Decision.String(),
 			}}, nil
 		}
+	} else {
+		// Policy module responded but with an unexpected payload type — we
+		// cannot confirm an Allow, so fail closed.
+		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: DelegateResponse{
+			PeerID: m.localID,
+			Agent:  req.Agent,
+			Error:  "federation_inbound denied: policy check failed",
+		}}, nil
 	}
 
 	// Dispatch to local agent runtime.
@@ -243,7 +284,7 @@ func (m *Module) handleDelegateInbound(msg ipc.Message) (ipc.Message, error) {
 		Payload: agent.ChatRequest{
 			Agent:   req.Agent,
 			Tenant:  req.Tenant,
-			User:    "federation:" + req.Caller + ":" + req.User,
+			User:    federatedIdentity,
 			Message: req.Message,
 		},
 	})

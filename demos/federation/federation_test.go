@@ -278,8 +278,14 @@ func TestFederation_PolicyDeniesUnauthorisedAgent(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected delegation to be denied by node-b policy, got success")
 	}
-	if !strings.Contains(err.Error(), "denied by policy") {
-		t.Fatalf("expected policy denial in error, got: %v", err)
+	// Security fix: the outbound caller no longer receives the remote peer's
+	// internal policy-denial wording (which could leak node-b's rule names and
+	// internal structure). The detailed reason is logged on the receiving node
+	// only; the caller gets a generic, redacted failure. Asserting on the
+	// generic message keeps this test honest about the fail-closed behavior
+	// without depending on leaked internal detail.
+	if !strings.Contains(err.Error(), "federation: remote peer delegation failed") {
+		t.Fatalf("expected generic redacted delegation failure, got: %v", err)
 	}
-	t.Logf("policy boundary OK: %v", err)
+	t.Logf("policy boundary OK (redacted to caller): %v", err)
 }

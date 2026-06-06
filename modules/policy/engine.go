@@ -83,7 +83,29 @@ func (e *Engine) handleListRules(msg ipc.Message) (ipc.Message, error) {
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: e.ruleSet.Rules}, nil
 }
 
+// authorizedDecisionSources is the fail-closed allowlist of bus sources that
+// may approve/deny or enumerate approvals. These privileged decisions are
+// reachable on the in-process bus by any sender, so we restrict them to the
+// authenticated front doors (API/CLI) that establish the caller's identity and
+// authorization before forwarding. Arbitrary modules/tools must not decide
+// approvals on their own behalf.
+var authorizedDecisionSources = map[string]bool{
+	"api": true,
+	"cli": true,
+}
+
+// authorizedStatusSources may read an approval's status (non-mutating). The
+// agent runtime polls this while a turn is blocked waiting for a decision.
+var authorizedStatusSources = map[string]bool{
+	"api":           true,
+	"cli":           true,
+	"agent_runtime": true,
+}
+
 func (e *Engine) handleApprovalList(msg ipc.Message) (ipc.Message, error) {
+	if !authorizedDecisionSources[msg.Source] {
+		return ipc.Message{}, fmt.Errorf("approval.list: not authorized for source %q", msg.Source)
+	}
 	pending := e.approvals.ListPending()
 	if pending == nil {
 		pending = []ApprovalRequest{}
@@ -92,22 +114,38 @@ func (e *Engine) handleApprovalList(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (e *Engine) handleApprovalApprove(msg ipc.Message) (ipc.Message, error) {
+	if !authorizedDecisionSources[msg.Source] {
+		return ipc.Message{}, fmt.Errorf("approval.approve: not authorized for source %q", msg.Source)
+	}
 	params, ok := msg.Payload.(map[string]string)
 	if !ok {
 		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
 	}
-	if err := e.approvals.Approve(params["id"], params["decided_by"]); err != nil {
+	// decided_by must identify the authenticated principal that the front door
+	// resolved; never allow an anonymous/unattributable decision.
+	decidedBy := params["decided_by"]
+	if decidedBy == "" {
+		return ipc.Message{}, fmt.Errorf("approval.approve: decided_by (authenticated principal) is required")
+	}
+	if err := e.approvals.Approve(params["id"], decidedBy); err != nil {
 		return ipc.Message{}, err
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "approved"}, nil
 }
 
 func (e *Engine) handleApprovalDeny(msg ipc.Message) (ipc.Message, error) {
+	if !authorizedDecisionSources[msg.Source] {
+		return ipc.Message{}, fmt.Errorf("approval.deny: not authorized for source %q", msg.Source)
+	}
 	params, ok := msg.Payload.(map[string]string)
 	if !ok {
 		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
 	}
-	if err := e.approvals.Deny(params["id"], params["decided_by"]); err != nil {
+	decidedBy := params["decided_by"]
+	if decidedBy == "" {
+		return ipc.Message{}, fmt.Errorf("approval.deny: decided_by (authenticated principal) is required")
+	}
+	if err := e.approvals.Deny(params["id"], decidedBy); err != nil {
 		return ipc.Message{}, err
 	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "denied"}, nil
@@ -129,6 +167,9 @@ func (e *Engine) handleApprovalSubmit(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (e *Engine) handleApprovalGet(msg ipc.Message) (ipc.Message, error) {
+	if !authorizedStatusSources[msg.Source] {
+		return ipc.Message{}, fmt.Errorf("approval.get: not authorized for source %q", msg.Source)
+	}
 	id, ok := msg.Payload.(string)
 	if !ok {
 		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)

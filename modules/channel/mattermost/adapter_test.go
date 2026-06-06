@@ -55,6 +55,7 @@ func TestMattermostSend(t *testing.T) {
 func TestMattermostInbound(t *testing.T) {
 	received := make(chan channel.InboundMessage, 1)
 	a := New("127.0.0.1:0", "", "tenantA", "assistant")
+	a.SetCommandToken("s3cr3t-token")
 	ctx := context.Background()
 	if err := a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
 		received <- msg
@@ -69,6 +70,7 @@ func TestMattermostInbound(t *testing.T) {
 	form.Set("text", "ping")
 	form.Set("user_name", "alice")
 	form.Set("channel_name", "town-square")
+	form.Set("token", "s3cr3t-token")
 
 	resp, err := http.Post(
 		"http://"+a.Addr()+"/mattermost/command",
@@ -105,6 +107,52 @@ func TestMattermostInbound(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for inbound message")
+	}
+}
+
+func TestMattermostInboundRejectsBadToken(t *testing.T) {
+	a := New("127.0.0.1:0", "", "tenantA", "assistant")
+	a.SetCommandToken("s3cr3t-token")
+	ctx := context.Background()
+	if err := a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
+		t.Fatal("handler must not run for unauthorized request")
+		return "", nil
+	}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer a.Stop(ctx)
+	time.Sleep(50 * time.Millisecond)
+
+	cases := []struct {
+		name  string
+		token string
+	}{
+		{"missing token", ""},
+		{"wrong token", "nope"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			form := url.Values{}
+			form.Set("text", "ping")
+			form.Set("user_name", "alice")
+			form.Set("channel_name", "town-square")
+			if tc.token != "" {
+				form.Set("token", tc.token)
+			}
+
+			resp, err := http.Post(
+				"http://"+a.Addr()+"/mattermost/command",
+				"application/x-www-form-urlencoded",
+				strings.NewReader(form.Encode()),
+			)
+			if err != nil {
+				t.Fatalf("post: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != 401 {
+				t.Fatalf("expected 401, got %d", resp.StatusCode)
+			}
+		})
 	}
 }
 

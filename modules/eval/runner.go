@@ -57,6 +57,7 @@ func (r *Runner) handleRun(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("expected []EvalCase, got %T", msg.Payload)
 	}
 
+	r.mu.Lock()
 	r.counter++
 	run := &EvalRun{
 		ID:        fmt.Sprintf("eval_%d", r.counter),
@@ -64,8 +65,6 @@ func (r *Runner) handleRun(msg ipc.Message) (ipc.Message, error) {
 		Cases:     cases,
 		StartedAt: time.Now(),
 	}
-
-	r.mu.Lock()
 	r.runs[run.ID] = run
 	r.mu.Unlock()
 
@@ -111,17 +110,25 @@ func (r *Runner) executeRun(run *EvalRun) {
 			result.ToolsUsed = chatResp.ToolsUsed
 
 			// Score the result
-			outputScore := scoreOutput(evalCase, chatResp.Content)
+			outputScore, scoreErr := scoreOutputErr(evalCase, chatResp.Content)
 			toolScore := scoreTools(evalCase, chatResp.ToolsUsed)
 
-			if len(evalCase.ExpectedTools) > 0 {
-				result.Score = (outputScore + toolScore) / 2
+			if scoreErr != nil {
+				// An invalid expected-output regex is an authoring error, not a
+				// failing case — surface it instead of silently scoring 0.
+				result.Score = 0
+				result.Passed = false
+				result.MatchDetails = "scoring error: " + scoreErr.Error()
 			} else {
-				result.Score = outputScore
-			}
+				if len(evalCase.ExpectedTools) > 0 {
+					result.Score = (outputScore + toolScore) / 2
+				} else {
+					result.Score = outputScore
+				}
 
-			result.Passed = result.Score >= 0.5
-			result.MatchDetails = fmt.Sprintf("output_score=%.2f tool_score=%.2f", outputScore, toolScore)
+				result.Passed = result.Score >= 0.5
+				result.MatchDetails = fmt.Sprintf("output_score=%.2f tool_score=%.2f", outputScore, toolScore)
+			}
 		}
 
 		if result.Passed {
@@ -129,24 +136,33 @@ func (r *Runner) executeRun(run *EvalRun) {
 		}
 		totalScore += result.Score
 
+		// Guard mutation of the shared *EvalRun: handleStatus reads the same
+		// pointer under r.mu concurrently.
+		r.mu.Lock()
 		run.Results = append(run.Results, result)
+		r.mu.Unlock()
 	}
 
+	r.mu.Lock()
 	if len(run.Cases) > 0 {
 		run.TotalScore = totalScore / float64(len(run.Cases))
 		run.PassRate = float64(passed) / float64(len(run.Cases)) * 100
 	}
 	run.Status = "completed"
 	run.CompletedAt = time.Now()
+	r.mu.Unlock()
 
 	logger.Info("eval run completed", map[string]any{
 		"run_id": run.ID, "total_score": run.TotalScore, "pass_rate": run.PassRate,
 	})
 }
 
-func scoreOutput(evalCase EvalCase, output string) float64 {
+// scoreOutputErr scores output against the case expectation and, for the regex
+// match mode, surfaces an invalid-regex error instead of silently scoring 0.
+// scoreOutput is kept as a thin float-only wrapper for existing callers/tests.
+func scoreOutputErr(evalCase EvalCase, output string) (float64, error) {
 	if evalCase.ExpectedOutput == "" {
-		return 1.0 // no output expectation
+		return 1.0, nil // no output expectation
 	}
 
 	mode := evalCase.MatchMode
@@ -157,23 +173,32 @@ func scoreOutput(evalCase EvalCase, output string) float64 {
 	switch mode {
 	case "exact":
 		if strings.TrimSpace(output) == strings.TrimSpace(evalCase.ExpectedOutput) {
-			return 1.0
+			return 1.0, nil
 		}
-		return 0.0
+		return 0.0, nil
 	case "contains":
 		if strings.Contains(strings.ToLower(output), strings.ToLower(evalCase.ExpectedOutput)) {
-			return 1.0
+			return 1.0, nil
 		}
-		return 0.0
+		return 0.0, nil
 	case "regex":
-		matched, _ := regexp.MatchString(evalCase.ExpectedOutput, output)
-		if matched {
-			return 1.0
+		matched, err := regexp.MatchString(evalCase.ExpectedOutput, output)
+		if err != nil {
+			// Invalid expected-output regex: surface it rather than scoring 0.
+			return 0.0, fmt.Errorf("invalid expected_output regex %q: %w", evalCase.ExpectedOutput, err)
 		}
-		return 0.0
+		if matched {
+			return 1.0, nil
+		}
+		return 0.0, nil
 	default:
-		return 0.0
+		return 0.0, nil
 	}
+}
+
+func scoreOutput(evalCase EvalCase, output string) float64 {
+	score, _ := scoreOutputErr(evalCase, output)
+	return score
 }
 
 func scoreTools(evalCase EvalCase, toolsUsed []string) float64 {

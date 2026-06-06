@@ -26,6 +26,7 @@ func TestEmailAdapterReceivesInbound(t *testing.T) {
 
 	a := New("127.0.0.1:0", "smtp.test", "587", "bot@cyntr.dev", "marketing", "assistant")
 	a.SetSendFunc(func(addr, from string, to []string, msg []byte) error { return nil }) // mock SMTP
+	a.SetAuthToken("inbound-secret")
 
 	ctx := context.Background()
 	a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
@@ -36,7 +37,13 @@ func TestEmailAdapterReceivesInbound(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	body := `{"from":"user@corp.com","to":"bot@cyntr.dev","subject":"Help","body":"I need assistance"}`
-	resp, err := http.Post("http://"+a.Addr()+"/email/inbound", "application/json", strings.NewReader(body))
+	req, err := http.NewRequest("POST", "http://"+a.Addr()+"/email/inbound", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer inbound-secret")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
@@ -88,14 +95,65 @@ func TestEmailAdapterSend(t *testing.T) {
 func TestEmailAdapterBadJSON(t *testing.T) {
 	a := New("127.0.0.1:0", "smtp.test", "587", "bot@cyntr.dev", "t", "a")
 	a.SetSendFunc(func(string, string, []string, []byte) error { return nil })
+	a.SetAuthToken("inbound-secret")
 	ctx := context.Background()
 	a.Start(ctx, func(msg channel.InboundMessage) (string, error) { return "", nil })
 	defer a.Stop(ctx)
 	time.Sleep(100 * time.Millisecond)
 
-	resp, _ := http.Post("http://"+a.Addr()+"/email/inbound", "application/json", strings.NewReader("{bad"))
+	req, err := http.NewRequest("POST", "http://"+a.Addr()+"/email/inbound", strings.NewReader("{bad"))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Auth-Token", "inbound-secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
 	resp.Body.Close()
 	if resp.StatusCode != 400 {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestEmailAdapterInboundRejectsBadAuth(t *testing.T) {
+	a := New("127.0.0.1:0", "smtp.test", "587", "bot@cyntr.dev", "t", "a")
+	a.SetSendFunc(func(string, string, []string, []byte) error { return nil })
+	a.SetAuthToken("inbound-secret")
+	ctx := context.Background()
+	a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
+		t.Fatal("handler must not run for unauthenticated request")
+		return "", nil
+	})
+	defer a.Stop(ctx)
+	time.Sleep(100 * time.Millisecond)
+
+	body := `{"from":"user@corp.com","to":"bot@cyntr.dev","subject":"Help","body":"hi"}`
+
+	// No auth header at all.
+	resp, err := http.Post("http://"+a.Addr()+"/email/inbound", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("missing token: expected 401, got %d", resp.StatusCode)
+	}
+
+	// Wrong token.
+	req, err := http.NewRequest("POST", "http://"+a.Addr()+"/email/inbound", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer wrong-secret")
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token: expected 401, got %d", resp2.StatusCode)
 	}
 }

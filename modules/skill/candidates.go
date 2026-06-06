@@ -64,10 +64,36 @@ type ProposeResult struct {
 	Activated bool   `json:"activated"` // true if auto-activated (safe caps + policy)
 }
 
-// RejectRequest is the skill.candidate_reject payload.
+// RejectRequest is the skill.candidate_reject payload. Tenant, when set,
+// scopes the operation to the caller's tenant: the targeted candidate must
+// belong to that tenant or the request is refused.
 type RejectRequest struct {
 	ID     int64
 	Reason string
+	Tenant string
+}
+
+// ApproveRequest is the tenant-scoped skill.candidate_approve payload. The bare
+// int64 id form is still accepted for backward compatibility; callers that can
+// identify the authenticated principal should send this form with Tenant set so
+// a tenant cannot approve another tenant's candidate.
+type ApproveRequest struct {
+	ID     int64
+	Tenant string
+}
+
+// RollbackRequest is the tenant-scoped skill.rollback payload. The bare string
+// name form is still accepted for backward compatibility.
+type RollbackRequest struct {
+	Name   string
+	Tenant string
+}
+
+// CandidatesQuery is the tenant-scoped skill.candidates payload. The bare
+// status string form is still accepted for backward compatibility.
+type CandidatesQuery struct {
+	Status string
+	Tenant string
 }
 
 // CandidateStore persists skill candidates in SQLite.
@@ -164,6 +190,51 @@ func (s *CandidateStore) List(status string) ([]Candidate, error) {
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// ListForTenant returns candidates with the given status scoped to a single
+// tenant, oldest first. An empty status returns pending candidates. An empty
+// tenant returns candidates across all tenants (operator/system view).
+func (s *CandidateStore) ListForTenant(status, tenant string) ([]Candidate, error) {
+	if tenant == "" {
+		return s.List(status)
+	}
+	if status == "" {
+		status = CandidatePending
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.Query(
+		`SELECT id, tenant, name, description, instructions, capabilities, source_agent, status, reason, created_at, updated_at
+		 FROM skill_candidates WHERE status=? AND tenant=? ORDER BY id ASC`, status, tenant)
+	if err != nil {
+		return nil, fmt.Errorf("skill: list candidates: %w", err)
+	}
+	defer rows.Close()
+	var out []Candidate
+	for rows.Next() {
+		c, err := s.scanOne(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// TenantOwnsSkill reports whether the given tenant has any candidate (in any
+// status) for a skill of this name. Rollback uses this to confirm a caller
+// tenant is permitted to roll back a skill it originated.
+func (s *CandidateStore) TenantOwnsSkill(tenant, name string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(1) FROM skill_candidates WHERE tenant=? AND name=?`, tenant, name).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("skill: tenant ownership check: %w", err)
+	}
+	return n > 0, nil
 }
 
 // SetStatus updates a candidate's status and reason.

@@ -118,19 +118,21 @@ func (m *Monitor) Check() []Violation {
 		window := time.Duration(rule.WindowMinutes) * time.Minute
 		key := rule.Tenant + "/" + rule.Agent
 
+		// Prune expired latency records unconditionally so error-rate-only
+		// rules (MaxResponseMs == 0) don't leak the latencies slice for this
+		// key. recent/totalMs are reused by the latency check below.
+		var recent []latencyRecord
+		var totalMs int64
+		for _, r := range m.latencies[key] {
+			if now.Sub(r.Timestamp) <= window {
+				recent = append(recent, r)
+				totalMs += r.DurationMs
+			}
+		}
+		m.latencies[key] = recent
+
 		// Check latency SLA
 		if rule.MaxResponseMs > 0 {
-			records := m.latencies[key]
-			var recent []latencyRecord
-			var totalMs int64
-			for _, r := range records {
-				if now.Sub(r.Timestamp) <= window {
-					recent = append(recent, r)
-					totalMs += r.DurationMs
-				}
-			}
-			m.latencies[key] = recent // prune expired
-
 			if len(recent) > 0 {
 				avgMs := totalMs / int64(len(recent))
 				if avgMs > rule.MaxResponseMs {
@@ -160,8 +162,7 @@ func (m *Monitor) Check() []Violation {
 			}
 			m.errors[key] = recentErrors
 
-			latRecords := m.latencies[key]
-			totalCalls := len(latRecords) + len(recentErrors)
+			totalCalls := len(recent) + len(recentErrors)
 			if totalCalls > 0 {
 				errorRate := float64(len(recentErrors)) / float64(totalCalls) * 100
 				if errorRate > rule.MaxErrorRate {
@@ -234,10 +235,20 @@ func (m *Monitor) handleAddRule(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (m *Monitor) handleListRules(msg ipc.Message) (ipc.Message, error) {
+	// Tenant isolation: callers must scope the request to their authenticated
+	// tenant (passed as the payload string). An empty/absent tenant returns
+	// nothing rather than every tenant's rules — fail closed.
+	tenant := callerTenant(msg)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	rules := make([]Rule, len(m.rules))
-	copy(rules, m.rules)
+	rules := make([]Rule, 0, len(m.rules))
+	if tenant != "" {
+		for _, r := range m.rules {
+			if r.Tenant == tenant {
+				rules = append(rules, r)
+			}
+		}
+	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: rules}, nil
 }
 
@@ -255,9 +266,38 @@ func (m *Monitor) handleRemoveRule(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (m *Monitor) handleListViolations(msg ipc.Message) (ipc.Message, error) {
+	// Tenant isolation: scope to the caller's authenticated tenant (payload
+	// string). An empty/absent tenant returns nothing rather than every
+	// tenant's violations — fail closed.
+	tenant := callerTenant(msg)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	v := make([]Violation, len(m.violations))
-	copy(v, m.violations)
+	v := make([]Violation, 0, len(m.violations))
+	if tenant != "" {
+		for _, vio := range m.violations {
+			if vio.Tenant == tenant {
+				v = append(v, vio)
+			}
+		}
+	}
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: v}, nil
+}
+
+// callerTenant extracts the authenticated caller tenant from an IPC request.
+// Callers pass it either as a bare string payload (mirroring the agent
+// runtime's list-agents handler) or as a "tenant" key in a map payload. Any
+// other shape yields an empty tenant, which the list handlers treat as
+// "scope to nothing" (fail closed).
+func callerTenant(msg ipc.Message) string {
+	switch p := msg.Payload.(type) {
+	case string:
+		return p
+	case map[string]string:
+		return p["tenant"]
+	case map[string]any:
+		if t, ok := p["tenant"].(string); ok {
+			return t
+		}
+	}
+	return ""
 }

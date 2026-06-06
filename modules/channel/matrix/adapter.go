@@ -8,7 +8,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -87,8 +89,14 @@ func (a *Adapter) Send(ctx context.Context, msg channel.OutboundMessage) error {
 	if msg.ChannelID == "" {
 		return fmt.Errorf("matrix: missing room ID")
 	}
+	if !validRoomID(msg.ChannelID) {
+		return fmt.Errorf("matrix: invalid room ID")
+	}
+	// Path-escape the untrusted room ID so it cannot break out of the path and
+	// alter the request target (SSRF / path injection).
+	roomID := url.PathEscape(msg.ChannelID)
 	txnID := strconv.FormatInt(time.Now().UnixNano(), 10) + "-" + strconv.FormatUint(atomic.AddUint64(&a.txnCounter, 1), 10)
-	endpoint := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s", a.homeserverURL, msg.ChannelID, txnID)
+	endpoint := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s", a.homeserverURL, roomID, url.PathEscape(txnID))
 	payload := map[string]string{
 		"msgtype": "m.text",
 		"body":    msg.Text,
@@ -112,6 +120,27 @@ func (a *Adapter) Send(ctx context.Context, msg channel.OutboundMessage) error {
 		return fmt.Errorf("matrix API error %d: %s", resp.StatusCode, string(b))
 	}
 	return nil
+}
+
+// validRoomID checks that a Matrix room ID has the expected "!opaque:server"
+// shape, contains no path separators or control characters, and is bounded in
+// length. This is a defense-in-depth check on top of url.PathEscape.
+func validRoomID(id string) bool {
+	if len(id) < 2 || len(id) > 255 {
+		return false
+	}
+	if id[0] != '!' {
+		return false
+	}
+	if !strings.Contains(id, ":") {
+		return false
+	}
+	for _, c := range id {
+		if c < 0x21 || c > 0x7e || c == '/' || c == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 type matrixEvent struct {

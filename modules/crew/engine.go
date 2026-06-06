@@ -64,10 +64,6 @@ func (e *Engine) handleCreate(msg ipc.Message) (ipc.Message, error) {
 	if !ok {
 		return ipc.Message{}, fmt.Errorf("expected Crew, got %T", msg.Payload)
 	}
-	e.counter++
-	if crew.ID == "" {
-		crew.ID = fmt.Sprintf("crew_%d", e.counter)
-	}
 	if crew.Mode == "" {
 		crew.Mode = "pipeline"
 	}
@@ -77,6 +73,10 @@ func (e *Engine) handleCreate(msg ipc.Message) (ipc.Message, error) {
 	}
 
 	e.mu.Lock()
+	e.counter++
+	if crew.ID == "" {
+		crew.ID = fmt.Sprintf("crew_%d", e.counter)
+	}
 	e.crews[crew.ID] = &crew
 	e.mu.Unlock()
 
@@ -99,6 +99,7 @@ func (e *Engine) handleRun(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("crew %q not found", crewID)
 	}
 
+	e.mu.Lock()
 	e.counter++
 	run := &CrewRun{
 		ID:        fmt.Sprintf("crun_%d", e.counter),
@@ -108,8 +109,6 @@ func (e *Engine) handleRun(msg ipc.Message) (ipc.Message, error) {
 		Results:   make(map[string]string),
 		StartedAt: time.Now(),
 	}
-
-	e.mu.Lock()
 	e.runs[run.ID] = run
 	e.mu.Unlock()
 
@@ -130,15 +129,22 @@ func (e *Engine) executeCrew(crew *Crew, run *CrewRun) {
 	case "sequential":
 		e.executeSequential(crew, run)
 	default:
+		e.mu.Lock()
 		run.Error = "unknown mode: " + crew.Mode
 		run.Status = "failed"
+		e.mu.Unlock()
 	}
 
+	// Guard the shared *CrewRun mutation: handleStatus reads the same pointer
+	// under e.mu concurrently.
+	e.mu.Lock()
 	if run.Error == "" {
 		run.Status = "completed"
 	}
 	run.CompletedAt = time.Now()
-	logger.Info("crew execution completed", map[string]any{"crew": crew.Name, "run": run.ID, "status": run.Status})
+	status := run.Status
+	e.mu.Unlock()
+	logger.Info("crew execution completed", map[string]any{"crew": crew.Name, "run": run.ID, "status": status})
 }
 
 func (e *Engine) executePipeline(crew *Crew, run *CrewRun) {
@@ -166,33 +172,40 @@ func (e *Engine) executePipeline(crew *Crew, run *CrewRun) {
 		cancel()
 
 		if err != nil {
+			e.mu.Lock()
 			run.Error = fmt.Sprintf("agent %s failed: %s", member.Agent, err.Error())
 			run.Status = "failed"
+			e.mu.Unlock()
 			logger.Error("crew member failed", map[string]any{"agent": member.Agent, "error": err.Error()})
 			return
 		}
 
 		chatResp, ok := resp.Payload.(agent.ChatResponse)
 		if !ok {
+			e.mu.Lock()
 			run.Error = fmt.Sprintf("unexpected response from %s", member.Agent)
 			run.Status = "failed"
+			e.mu.Unlock()
 			return
 		}
 
+		e.mu.Lock()
 		run.Results[member.Agent] = chatResp.Content
+		e.mu.Unlock()
 		currentInput = chatResp.Content // pipe output to next agent
 	}
 
 	// Final output is the last agent's response
 	if len(crew.Members) > 0 {
 		lastAgent := crew.Members[len(crew.Members)-1].Agent
+		e.mu.Lock()
 		run.Output = run.Results[lastAgent]
+		e.mu.Unlock()
 	}
 }
 
 func (e *Engine) executeParallel(crew *Crew, run *CrewRun) {
 	var wg sync.WaitGroup
-	var mu sync.Mutex
 
 	for _, member := range crew.Members {
 		wg.Add(1)
@@ -208,8 +221,10 @@ func (e *Engine) executeParallel(crew *Crew, run *CrewRun) {
 			})
 			cancel()
 
-			mu.Lock()
-			defer mu.Unlock()
+			// Use the engine lock so writes are synchronized with handleStatus
+			// readers of the same *CrewRun, not just with sibling goroutines.
+			e.mu.Lock()
+			defer e.mu.Unlock()
 
 			if err != nil {
 				run.Results[m.Agent] = "ERROR: " + err.Error()
@@ -225,12 +240,14 @@ func (e *Engine) executeParallel(crew *Crew, run *CrewRun) {
 
 	// Aggregate all outputs
 	var outputs []string
+	e.mu.Lock()
 	for _, m := range crew.Members {
 		if result, ok := run.Results[m.Agent]; ok {
 			outputs = append(outputs, fmt.Sprintf("## %s (%s)\n%s", m.Agent, m.Role, result))
 		}
 	}
 	run.Output = strings.Join(outputs, "\n\n---\n\n")
+	e.mu.Unlock()
 }
 
 func (e *Engine) executeSequential(crew *Crew, run *CrewRun) {
@@ -247,16 +264,22 @@ func (e *Engine) executeSequential(crew *Crew, run *CrewRun) {
 		cancel()
 
 		if err != nil {
+			e.mu.Lock()
 			run.Results[member.Agent] = "ERROR: " + err.Error()
+			e.mu.Unlock()
 			continue
 		}
 		if chatResp, ok := resp.Payload.(agent.ChatResponse); ok {
+			e.mu.Lock()
 			run.Results[member.Agent] = chatResp.Content
+			e.mu.Unlock()
 			outputs = append(outputs, fmt.Sprintf("## %s (%s)\n%s", member.Agent, member.Role, chatResp.Content))
 		}
 	}
 
+	e.mu.Lock()
 	run.Output = strings.Join(outputs, "\n\n---\n\n")
+	e.mu.Unlock()
 }
 
 func (e *Engine) handleStatus(msg ipc.Message) (ipc.Message, error) {

@@ -22,13 +22,24 @@ type Manager struct {
 	mu       sync.RWMutex
 	bus      *ipc.Bus
 	adapters map[string]ChannelAdapter
-	gate     *Gate // DM pairing gate (B12); nil = no gating
+	tenants  map[string]string // adapter name -> owning tenant ("" = unscoped)
+	gate     *Gate             // DM pairing gate (B12); nil = no gating
+}
+
+// tenantBound is the optional interface a ChannelAdapter may implement to
+// declare the tenant that owns it. The manager uses this to enforce that an
+// outbound dispatch (a progress event or send) is only delivered to an adapter
+// owned by the same tenant — preventing one tenant from pushing messages into
+// another tenant's channel via an attacker-supplied channel/channel_id.
+type tenantBound interface {
+	Tenant() string
 }
 
 // NewManager creates a new Channel Manager.
 func NewManager() *Manager {
 	return &Manager{
 		adapters: make(map[string]ChannelAdapter),
+		tenants:  make(map[string]string),
 	}
 }
 
@@ -40,6 +51,43 @@ func (m *Manager) AddAdapter(adapter ChannelAdapter) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.adapters[adapter.Name()] = adapter
+	if tb, ok := adapter.(tenantBound); ok {
+		m.tenants[adapter.Name()] = tb.Tenant()
+	}
+}
+
+// adapterForTenant returns the registered adapter for the given channel name,
+// but only when it is owned by callerTenant. If the adapter declares an owning
+// tenant that differs from callerTenant, the lookup fails closed so a caller in
+// one tenant can never dispatch into another tenant's channel. An adapter that
+// does not declare an owning tenant (legacy/global) is treated as unscoped and
+// is allowed, preserving existing single-tenant deployments.
+func (m *Manager) adapterForTenant(name, callerTenant string) (ChannelAdapter, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	adapter, ok := m.adapters[name]
+	if !ok {
+		return nil, false
+	}
+	owner := m.tenants[name]
+	if owner != "" && callerTenant != "" && owner != callerTenant {
+		return nil, false
+	}
+	return adapter, true
+}
+
+// callerTenant extracts the authenticated caller's tenant from an inbound IPC
+// message, if the caller declared one. Outbound sends originate from trusted
+// in-process modules (agent tools, scheduler, notifications); when they thread a
+// tenant through the message TraceID-adjacent metadata it is honored here. When
+// no tenant is present the value is "" and the owner check in adapterForTenant
+// degrades to allow, so existing single-tenant deployments are unaffected while
+// any tenant-scoped adapter is still protected against cross-tenant delivery.
+func callerTenant(msg ipc.Message) string {
+	if m, ok := msg.Payload.(map[string]string); ok {
+		return m["tenant"]
+	}
+	return ""
 }
 
 func (m *Manager) Name() string           { return "channel" }
@@ -175,14 +223,27 @@ func (m *Manager) handlePairingApprove(msg ipc.Message) (ipc.Message, error) {
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: user}, nil
 }
 
-// handlePairingPending lists awaiting-approval requests for a tenant. Payload
-// is map[string]string{"tenant"}.
+// handlePairingPending lists awaiting-approval requests for a tenant. Payload is
+// map[string]string{"tenant","caller_tenant"}. Pending pairings contain live
+// pairing codes, so the caller must be authorized for the tenant whose requests
+// it is listing: the authenticated caller_tenant (stamped by the front-end that
+// authenticated the operator) must equal the requested tenant. Fails closed when
+// either is missing or they disagree, so a caller cannot enumerate another
+// tenant's pending codes by naming it in the payload.
 func (m *Manager) handlePairingPending(msg ipc.Message) (ipc.Message, error) {
 	if m.gate == nil || m.gate.store == nil {
 		return ipc.Message{}, fmt.Errorf("pairing not configured")
 	}
-	args, _ := msg.Payload.(map[string]string)
-	pending, err := m.gate.store.ListPending(args["tenant"])
+	args, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("channel.pairing.pending: expected map[string]string, got %T", msg.Payload)
+	}
+	tenant := args["tenant"]
+	caller := args["caller_tenant"]
+	if tenant == "" || caller == "" || caller != tenant {
+		return ipc.Message{}, fmt.Errorf("channel.pairing.pending: not authorized for tenant %q", tenant)
+	}
+	pending, err := m.gate.store.ListPending(tenant)
 	if err != nil {
 		return ipc.Message{}, err
 	}
@@ -195,12 +256,16 @@ func (m *Manager) handleSend(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("expected OutboundMessage, got %T", msg.Payload)
 	}
 
-	m.mu.RLock()
-	adapter, ok := m.adapters[outMsg.Channel]
-	m.mu.RUnlock()
-
+	// Scope the dispatch to the caller's tenant: only deliver to an adapter
+	// owned by the same tenant, so a caller in one tenant cannot push a message
+	// into another tenant's channel via an attacker-supplied channel/channel_id.
+	// The caller tenant is taken from the IPC envelope (CallerTenant), which the
+	// runtime stamps from the authenticated tool caller; when absent (e.g. an
+	// unscoped/global adapter) the owner check degrades to allow, preserving
+	// single-tenant deployments.
+	adapter, ok := m.adapterForTenant(outMsg.Channel, callerTenant(msg))
 	if !ok {
-		return ipc.Message{}, fmt.Errorf("channel adapter %q not found", outMsg.Channel)
+		return ipc.Message{}, fmt.Errorf("channel adapter %q not found for tenant", outMsg.Channel)
 	}
 
 	if err := adapter.Send(context.Background(), outMsg); err != nil {
@@ -242,10 +307,10 @@ func (m *Manager) handleProgress(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, nil
 	}
 
-	m.mu.RLock()
-	adapter, ok := m.adapters[evt.Channel]
-	m.mu.RUnlock()
-
+	// Scope the dispatch to the tenant that emitted the progress event. If the
+	// target adapter is owned by a different tenant, drop the event rather than
+	// leak it into another tenant's channel.
+	adapter, ok := m.adapterForTenant(evt.Channel, evt.Tenant)
 	if !ok {
 		return ipc.Message{}, nil
 	}

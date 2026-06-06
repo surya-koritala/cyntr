@@ -13,6 +13,7 @@ import (
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/kernel/log"
+	"github.com/cyntr-dev/cyntr/kernel/netguard"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 )
 
@@ -27,13 +28,21 @@ type Engine struct {
 	waitingInputs map[string]chan string // run_id -> input channel
 	triggers      []Trigger
 	counter       int64
+	regexCache    map[string]*regexp.Regexp // pattern -> compiled (cached to avoid recompiling per event)
 }
+
+// maxPatternLen bounds the length of a user-supplied trigger regex. Go's RE2
+// engine has no catastrophic backtracking, but unbounded patterns (and
+// recompiling them on every event) are still a CPU-DoS vector, so we cap the
+// pattern size and cache the compiled form.
+const maxPatternLen = 512
 
 func New() *Engine {
 	return &Engine{
 		workflows:     make(map[string]*Workflow),
 		runs:          make(map[string]*Run),
 		waitingInputs: make(map[string]chan string),
+		regexCache:    make(map[string]*regexp.Regexp),
 	}
 }
 
@@ -85,10 +94,17 @@ func (e *Engine) handleActivityEvent(msg ipc.Message) (ipc.Message, error) {
 		if trigger.Type != "audit_event" {
 			continue
 		}
-		// Match pattern against event type or detail
-		matched, _ := regexp.MatchString(trigger.Pattern, eventType)
+		// Match pattern against event type or detail. compilePattern bounds the
+		// pattern length and caches the compiled regex so a malicious/oversized
+		// pattern cannot be recompiled on every event (CPU DoS / ReDoS).
+		re, err := e.compilePattern(trigger.Pattern)
+		if err != nil {
+			logger.Warn("skipping invalid trigger pattern", map[string]any{"pattern": trigger.Pattern, "error": err.Error()})
+			continue
+		}
+		matched := re.MatchString(eventType)
 		if !matched {
-			matched, _ = regexp.MatchString(trigger.Pattern, eventDetail)
+			matched = re.MatchString(eventDetail)
 		}
 		if matched {
 			logger.Info("trigger matched, starting workflow", map[string]any{
@@ -106,6 +122,34 @@ func (e *Engine) handleActivityEvent(msg ipc.Message) (ipc.Message, error) {
 		}
 	}
 	return ipc.Message{}, nil
+}
+
+// compilePattern validates and compiles a user-supplied trigger regex, caching
+// the result. It rejects empty/oversized patterns to bound CPU cost.
+func (e *Engine) compilePattern(pattern string) (*regexp.Regexp, error) {
+	if pattern == "" {
+		return nil, fmt.Errorf("empty pattern")
+	}
+	if len(pattern) > maxPatternLen {
+		return nil, fmt.Errorf("pattern exceeds %d bytes", maxPatternLen)
+	}
+
+	e.mu.RLock()
+	re, ok := e.regexCache[pattern]
+	e.mu.RUnlock()
+	if ok {
+		return re, nil
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	e.mu.Lock()
+	e.regexCache[pattern] = re
+	e.mu.Unlock()
+	return re, nil
 }
 
 func (e *Engine) Stop(ctx context.Context) error { return nil }
@@ -427,6 +471,13 @@ func (e *Engine) executeWebhook(ctx context.Context, step Step) (string, error) 
 	}
 	body := step.Config["body"]
 
+	// SSRF guard: the webhook URL is fully caller-controlled, so validate it
+	// against the shared public-URL allowlist before fetching, and use a client
+	// that re-validates redirects so a public URL cannot 30x to an internal host.
+	if err := netguard.ValidatePublicURL(url); err != nil {
+		return "", err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBufferString(body))
 	if err != nil {
 		return "", err
@@ -437,7 +488,7 @@ func (e *Engine) executeWebhook(ctx context.Context, step Step) (string, error) 
 		req.Header.Set("Authorization", auth)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := netguard.GuardedHTTPClient(30 * time.Second).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -496,7 +547,9 @@ func (e *Engine) executeParallelStep(step Step, run *Run) StepResult {
 	var outputs []string
 	allSuccess := true
 	for _, r := range results {
+		e.mu.Lock()
 		run.Results[r.result.StepID] = r.result
+		e.mu.Unlock()
 		outputs = append(outputs, r.result.Output)
 		if r.result.Status != "success" {
 			allSuccess = false
@@ -523,7 +576,10 @@ func (e *Engine) executeLoopStep(step Step, run *Run) StepResult {
 	if step.LoopOver == "" {
 		// Try to get from a previous step's output
 		if ref, ok := step.Config["loop_source"]; ok {
-			if prev, exists := run.Results[ref]; exists {
+			e.mu.RLock()
+			prev, exists := run.Results[ref]
+			e.mu.RUnlock()
+			if exists {
 				items = strings.Split(prev.Output, "\n")
 			}
 		}
@@ -564,7 +620,9 @@ func (e *Engine) executeLoopStep(step Step, run *Run) StepResult {
 		iterStep.Config = newConfig
 
 		result := e.executeStep(iterStep, run)
+		e.mu.Lock()
 		run.Results[iterStep.ID] = result
+		e.mu.Unlock()
 		outputs = append(outputs, result.Output)
 	}
 
@@ -678,6 +736,12 @@ func (e *Engine) handleTriggerAdd(msg ipc.Message) (ipc.Message, error) {
 			return ipc.Message{}, fmt.Errorf("expected Trigger, got %T", msg.Payload)
 		}
 	}
+	// Validate (and warm the cache for) the pattern up front so an invalid or
+	// oversized regex is rejected at registration rather than per event.
+	if _, err := e.compilePattern(trigger.Pattern); err != nil {
+		return ipc.Message{}, fmt.Errorf("invalid trigger pattern: %w", err)
+	}
+
 	e.mu.Lock()
 	e.triggers = append(e.triggers, trigger)
 	e.mu.Unlock()

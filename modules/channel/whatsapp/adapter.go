@@ -3,11 +3,15 @@ package whatsapp
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/log"
 	"github.com/cyntr-dev/cyntr/modules/channel"
@@ -15,11 +19,22 @@ import (
 
 var logger = log.Default().WithModule("channel_whatsapp")
 
+// maxInboundBody bounds inbound webhook bodies to mitigate DoS.
+const maxInboundBody = 1 << 20 // 1 MiB
+
+// maxConcurrentHandlers bounds the number of in-flight inbound message
+// handlers, preventing unbounded goroutine growth under load.
+const maxConcurrentHandlers = 32
+
+// handlerTimeout bounds how long a single inbound message handler may run.
+const handlerTimeout = 30 * time.Second
+
 type Adapter struct {
 	listenAddr  string
 	accessToken string
 	phoneNumID  string
 	verifyToken string
+	appSecret   string // Meta app secret for X-Hub-Signature-256; empty = reject inbound POSTs
 	tenant      string
 	agent       string
 	handler     channel.InboundHandler
@@ -27,6 +42,7 @@ type Adapter struct {
 	server      *http.Server
 	client      *http.Client
 	apiURL      string
+	sem         chan struct{}
 }
 
 func New(listenAddr, accessToken, phoneNumID, verifyToken, tenant, agent string) *Adapter {
@@ -34,8 +50,14 @@ func New(listenAddr, accessToken, phoneNumID, verifyToken, tenant, agent string)
 		listenAddr: listenAddr, accessToken: accessToken, phoneNumID: phoneNumID,
 		verifyToken: verifyToken, tenant: tenant, agent: agent,
 		client: &http.Client{}, apiURL: "https://graph.facebook.com/v17.0",
+		sem: make(chan struct{}, maxConcurrentHandlers),
 	}
 }
+
+// SetAppSecret configures the Meta app secret used to verify the
+// X-Hub-Signature-256 header on inbound webhook POSTs. When unset, all inbound
+// POSTs are rejected (fail closed).
+func (a *Adapter) SetAppSecret(secret string) { a.appSecret = secret }
 
 func (a *Adapter) SetAPIURL(url string) { a.apiURL = url }
 func (a *Adapter) Addr() string {
@@ -91,6 +113,28 @@ func (a *Adapter) Send(ctx context.Context, msg channel.OutboundMessage) error {
 	return nil
 }
 
+// verifySignature validates the X-Hub-Signature-256 header, which Meta computes
+// as "sha256=" + hex(HMAC-SHA256(appSecret, rawBody)). Comparison is constant
+// time via hmac.Equal. Fails closed when no app secret is configured.
+func (a *Adapter) verifySignature(r *http.Request, body []byte) bool {
+	if a.appSecret == "" {
+		return false
+	}
+	header := r.Header.Get("X-Hub-Signature-256")
+	const prefix = "sha256="
+	if len(header) <= len(prefix) || header[:len(prefix)] != prefix {
+		return false
+	}
+	provided, err := hex.DecodeString(header[len(prefix):])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(a.appSecret))
+	mac.Write(body)
+	expected := mac.Sum(nil)
+	return hmac.Equal(provided, expected)
+}
+
 func (a *Adapter) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	// GET = verification challenge
 	if r.Method == "GET" {
@@ -110,9 +154,21 @@ func (a *Adapter) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	w.WriteHeader(200) // ACK immediately
 
-	body, _ := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxInboundBody))
+	if err != nil {
+		http.Error(w, "read error", 500)
+		return
+	}
+
+	// Verify the X-Hub-Signature-256 HMAC over the raw body (fail closed).
+	if !a.verifySignature(r, body) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	w.WriteHeader(200) // ACK after authentication
+
 	var payload struct {
 		Entry []struct {
 			Changes []struct {
@@ -138,7 +194,18 @@ func (a *Adapter) handleWebhook(w http.ResponseWriter, r *http.Request) {
 				if msg.Type != "text" {
 					continue
 				}
+				// Bound concurrency: acquire a slot or drop the message rather
+				// than spawning unbounded goroutines under load.
+				select {
+				case a.sem <- struct{}{}:
+				default:
+					logger.Error("handler pool saturated, dropping message", map[string]any{"from": msg.From})
+					continue
+				}
 				go func(from, text string) {
+					defer func() { <-a.sem }()
+					ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
+					defer cancel()
 					response, err := a.handler(channel.InboundMessage{
 						Channel: "whatsapp", ChannelID: from, UserID: from,
 						Text: text, Tenant: a.tenant, Agent: a.agent,
@@ -147,7 +214,7 @@ func (a *Adapter) handleWebhook(w http.ResponseWriter, r *http.Request) {
 						logger.Error("message handler failed", map[string]any{"error": err.Error()})
 						return
 					}
-					a.Send(context.Background(), channel.OutboundMessage{Channel: "whatsapp", ChannelID: from, Text: response})
+					a.Send(ctx, channel.OutboundMessage{Channel: "whatsapp", ChannelID: from, Text: response})
 				}(msg.From, msg.Text.Body)
 			}
 		}

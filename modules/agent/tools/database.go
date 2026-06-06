@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 
+	"github.com/cyntr-dev/cyntr/kernel/netguard"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 
 	_ "github.com/lib/pq"
@@ -33,6 +36,88 @@ func (t *DatabaseTool) Parameters() map[string]agent.ToolParam {
 	}
 }
 
+// validatePostgresHost extracts the host(s) from a PostgreSQL DSN (either
+// URL form "postgres://host:port/db" or keyword form "host=... port=...") and
+// rejects the connection unless every host resolves only to public addresses.
+// It reuses the shared netguard so the loopback / link-local (cloud metadata) /
+// private / ULA / multicast blocklist cannot drift from other callers.
+func validatePostgresHost(dsn string) error {
+	if netguard.AllowPrivate() {
+		return nil
+	}
+
+	hosts := postgresHosts(dsn)
+	if len(hosts) == 0 {
+		// No explicit host means libpq would connect to localhost / a unix
+		// socket. Fail closed.
+		return fmt.Errorf("ssrf guard: postgres DSN must specify an explicit host")
+	}
+
+	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if host == "" {
+			return fmt.Errorf("ssrf guard: postgres DSN must specify an explicit host")
+		}
+		// A path implies a unix-domain socket (local) — reject.
+		if strings.HasPrefix(host, "/") {
+			return fmt.Errorf("ssrf guard: unix-socket postgres connections are not allowed")
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			if !netguard.IsPublicIP(ip) {
+				return fmt.Errorf("ssrf guard: postgres host resolves to non-public address %s", ip)
+			}
+			continue
+		}
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return fmt.Errorf("ssrf guard: cannot resolve postgres host %q", host)
+		}
+		for _, ip := range ips {
+			if !netguard.IsPublicIP(ip) {
+				return fmt.Errorf("ssrf guard: postgres host resolves to non-public address %s", ip)
+			}
+		}
+	}
+	return nil
+}
+
+// postgresHosts returns the host(s) named in a PostgreSQL DSN, supporting both
+// the URL form and the space-separated keyword form. libpq allows a
+// comma-separated list of hosts; each is returned.
+func postgresHosts(dsn string) []string {
+	trimmed := strings.TrimSpace(dsn)
+	if strings.HasPrefix(trimmed, "postgres://") || strings.HasPrefix(trimmed, "postgresql://") {
+		u, err := url.Parse(trimmed)
+		if err != nil {
+			return nil
+		}
+		// url.Hostname strips the port; a multi-host list lands in Host.
+		hostPart := u.Host
+		if at := strings.LastIndex(hostPart, "@"); at >= 0 {
+			hostPart = hostPart[at+1:]
+		}
+		var out []string
+		for _, hp := range strings.Split(hostPart, ",") {
+			h := hp
+			if idx := strings.LastIndex(h, ":"); idx >= 0 && !strings.Contains(h[idx+1:], "]") {
+				h = h[:idx]
+			}
+			out = append(out, strings.Trim(h, "[]"))
+		}
+		return out
+	}
+
+	// Keyword form: host=... possibly quoted.
+	for _, field := range strings.Fields(trimmed) {
+		kv := strings.SplitN(field, "=", 2)
+		if len(kv) == 2 && kv[0] == "host" {
+			val := strings.Trim(kv[1], "'\"")
+			return strings.Split(val, ",")
+		}
+	}
+	return nil
+}
+
 func (t *DatabaseTool) Execute(ctx context.Context, input map[string]string) (string, error) {
 	driver := input["driver"]
 	dsn := input["dsn"]
@@ -44,6 +129,15 @@ func (t *DatabaseTool) Execute(ctx context.Context, input map[string]string) (st
 
 	if driver != "sqlite" && driver != "postgres" {
 		return "", fmt.Errorf("unsupported driver %q: use sqlite or postgres", driver)
+	}
+
+	// SSRF guard: a postgres DSN names a network host. Without validation the
+	// model could point database_query at an internal/metadata address. Reject
+	// any host that does not resolve to a public, routable IP.
+	if driver == "postgres" {
+		if err := validatePostgresHost(dsn); err != nil {
+			return "", err
+		}
 	}
 
 	// Reject non-SELECT queries at the keyword level

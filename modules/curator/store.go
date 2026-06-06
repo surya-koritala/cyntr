@@ -3,6 +3,7 @@ package curator
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,12 +120,34 @@ func (s *Store) SetJudgeScore(invocationID int64, score float64) error {
 	return nil
 }
 
+// tenantClause returns an extra SQL predicate and arg list that scopes a
+// query to a single tenant when one is supplied. Tenant isolation: skill
+// telemetry is per-tenant, so every read that the judge/scores/prune logic
+// performs must be confined to the caller's tenant. A blank tenant means
+// "unscoped" — that is only safe for internal/admin callers and MUST NOT be
+// reachable from a tenant-facing request; tenant-facing callers are expected
+// to pass their authenticated tenant.
+//
+// The query methods take the tenant as a trailing variadic so existing
+// internal callers compile unchanged while tenant-facing callers (the IPC /
+// web handlers) can opt into per-tenant scoping by passing their
+// authenticated tenant.
+func tenantClause(tenant ...string) (string, []any) {
+	if len(tenant) == 0 || tenant[0] == "" {
+		return "", nil
+	}
+	return " AND tenant = ?", []any{tenant[0]}
+}
+
 // CountInvocations returns the total invocations on record for a
-// skill. Used by the judge rate-limiter to skip skills that haven't
-// accumulated enough calls since the last judgment.
-func (s *Store) CountInvocations(skillName string) (int, error) {
+// skill, optionally scoped to a single tenant. Used by the judge
+// rate-limiter to skip skills that haven't accumulated enough calls since
+// the last judgment.
+func (s *Store) CountInvocations(skillName string, tenant ...string) (int, error) {
+	clause, args := tenantClause(tenant...)
+	q := `SELECT COUNT(*) FROM invocations WHERE skill_name = ?` + clause
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM invocations WHERE skill_name = ?`, skillName).Scan(&n)
+	err := s.db.QueryRow(q, append([]any{skillName}, args...)...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count invocations: %w", err)
 	}
@@ -134,12 +157,11 @@ func (s *Store) CountInvocations(skillName string) (int, error) {
 // CountJudged returns the number of invocations for a skill that
 // already have an LLM judge score. Combined with CountInvocations,
 // this gives the rate-limiter what it needs.
-func (s *Store) CountJudged(skillName string) (int, error) {
+func (s *Store) CountJudged(skillName string, tenant ...string) (int, error) {
+	clause, args := tenantClause(tenant...)
+	q := `SELECT COUNT(*) FROM invocations WHERE skill_name = ? AND llm_judge_score IS NOT NULL` + clause
 	var n int
-	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM invocations WHERE skill_name = ? AND llm_judge_score IS NOT NULL`,
-		skillName,
-	).Scan(&n)
+	err := s.db.QueryRow(q, append([]any{skillName}, args...)...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count judged: %w", err)
 	}
@@ -150,16 +172,17 @@ func (s *Store) CountJudged(skillName string) (int, error) {
 // from the most recent failed invocations of a skill. Used to
 // populate the prune report so operators can see *why* a skill is
 // failing without diffing logs.
-func (s *Store) RecentFailureSamples(skillName string, limit int) ([]string, error) {
+func (s *Store) RecentFailureSamples(skillName string, limit int, tenant ...string) ([]string, error) {
 	if limit <= 0 {
 		limit = 5
 	}
-	rows, err := s.db.Query(
-		`SELECT error FROM invocations
-		 WHERE skill_name = ? AND success = 0 AND error IS NOT NULL AND error != ''
-		 ORDER BY timestamp DESC LIMIT ?`,
-		skillName, limit,
-	)
+	clause, targs := tenantClause(tenant...)
+	q := `SELECT error FROM invocations
+		 WHERE skill_name = ? AND success = 0 AND error IS NOT NULL AND error != ''` + clause +
+		` ORDER BY timestamp DESC LIMIT ?`
+	args := append([]any{skillName}, targs...)
+	args = append(args, limit)
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("recent failures: %w", err)
 	}
@@ -176,9 +199,18 @@ func (s *Store) RecentFailureSamples(skillName string, limit int) ([]string, err
 }
 
 // ListSkillNames returns every distinct skill_name that has at
-// least one invocation row.
-func (s *Store) ListSkillNames() ([]string, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT skill_name FROM invocations ORDER BY skill_name`)
+// least one invocation row, optionally scoped to a single tenant so a
+// tenant-facing caller never sees other tenants' skill names.
+func (s *Store) ListSkillNames(tenant ...string) ([]string, error) {
+	clause, args := tenantClause(tenant...)
+	// tenantClause yields " AND tenant = ?"; promote it to the first
+	// predicate since this query has no other WHERE clause.
+	where := ""
+	if clause != "" {
+		where = " WHERE" + strings.TrimPrefix(clause, " AND")
+	}
+	q := `SELECT DISTINCT skill_name FROM invocations` + where + ` ORDER BY skill_name`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list skills: %w", err)
 	}
@@ -197,12 +229,13 @@ func (s *Store) ListSkillNames() ([]string, error) {
 
 // LoadInvocations returns invocations for a single skill, newest
 // first. limit <= 0 means "all rows".
-func (s *Store) LoadInvocations(skillName string, limit int) ([]Invocation, error) {
+func (s *Store) LoadInvocations(skillName string, limit int, tenant ...string) ([]Invocation, error) {
+	clause, targs := tenantClause(tenant...)
 	q := `SELECT skill_name, tenant, agent, success, error, duration_ms, timestamp, llm_judge_score
 	      FROM invocations
-	      WHERE skill_name = ?
+	      WHERE skill_name = ?` + clause + `
 	      ORDER BY timestamp DESC`
-	args := []any{skillName}
+	args := append([]any{skillName}, targs...)
 	if limit > 0 {
 		q += " LIMIT ?"
 		args = append(args, limit)

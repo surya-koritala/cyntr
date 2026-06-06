@@ -127,14 +127,19 @@ func (c *Client) CallTool(ctx context.Context, name string, arguments map[string
 		return nil, fmt.Errorf("tools/call error: %s", resp.Error.Message)
 	}
 
-	resultJSON, _ := json.Marshal(resp.Result)
+	resultJSON, err := json.Marshal(resp.Result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal tools/call result: %w", err)
+	}
 	var result ToolCallResult
-	json.Unmarshal(resultJSON, &result)
+	if err := json.Unmarshal(resultJSON, &result); err != nil {
+		return nil, fmt.Errorf("parse tools/call result: %w", err)
+	}
 	return &result, nil
 }
 
 func (c *Client) Tools() []MCPToolDef { return c.tools }
-func (c *Client) IsConnected() bool    { return c.initialized }
+func (c *Client) IsConnected() bool   { return c.initialized }
 
 func (c *Client) Close() error {
 	if c.transport != nil {

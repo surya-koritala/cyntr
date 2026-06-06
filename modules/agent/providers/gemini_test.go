@@ -19,7 +19,10 @@ func TestGeminiProviderName(t *testing.T) {
 
 func TestGeminiProviderChat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("key") != "test-key" {
+		if r.URL.Query().Get("key") != "" {
+			t.Fatal("api key must not be sent in the URL query string")
+		}
+		if r.Header.Get("x-goog-api-key") != "test-key" {
 			t.Fatal("missing key")
 		}
 		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"Hello from Gemini!"}]}}]}`)

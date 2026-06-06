@@ -96,9 +96,10 @@ func TestGatewayListExternalAgents(t *testing.T) {
 		Payload: ExternalAgent{Name: "test-agent", Tenant: "finance", Type: "openclaw", Endpoint: "http://localhost:1234"},
 	})
 
-	// List
+	// List — scoped to the caller's tenant (fail-closed: requires non-empty tenant string)
 	resp, err := bus.Request(reqCtx, ipc.Message{
 		Source: "cli", Target: "proxy", Topic: "proxy.list",
+		Payload: "finance",
 	})
 	if err != nil {
 		t.Fatalf("list: %v", err)

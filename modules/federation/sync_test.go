@@ -8,6 +8,8 @@ import (
 )
 
 func TestPolicySyncBroadcast(t *testing.T) {
+	// httptest binds to 127.0.0.1; opt in to allow private addresses past the SSRF guard.
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	var received []SyncMessage
 
 	// Mock peer servers

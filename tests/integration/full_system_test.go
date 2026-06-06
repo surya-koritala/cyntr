@@ -219,9 +219,10 @@ func TestAgentChatCreatesAuditTrail(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 
-	// Query audit — should find the entry
+	// Query audit — should find the entry. audit.query is now restricted to the
+	// authenticated API/CLI sources (it spans every tenant), so query as "api".
 	resp, err := bus.Request(ctx, ipc.Message{
-		Source: "test", Target: "audit", Topic: "audit.query",
+		Source: "api", Target: "audit", Topic: "audit.query",
 		Payload: audit.QueryFilter{Tenant: "finance"},
 	})
 	if err != nil {

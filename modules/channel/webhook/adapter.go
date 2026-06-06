@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/cyntr-dev/cyntr/modules/channel"
 )
@@ -24,6 +25,16 @@ type Adapter struct {
 	listener      net.Listener
 	server        *http.Server
 	handler       channel.InboundHandler
+	client        *http.Client
+}
+
+// outboundClient returns the HTTP client used for outbound delivery, with a
+// bounded timeout so a slow endpoint cannot hang the send indefinitely.
+func (a *Adapter) outboundClient() *http.Client {
+	if a.client != nil {
+		return a.client
+	}
+	return &http.Client{Timeout: 15 * time.Second}
 }
 
 // New creates a new webhook adapter.
@@ -93,7 +104,15 @@ func (a *Adapter) Send(ctx context.Context, msg channel.OutboundMessage) error {
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	resp, err := http.Post(a.outboundURL, "application/json", bytes.NewReader(body))
+	// Use the request context and a bounded-timeout client so a slow/unreachable
+	// outbound endpoint cannot leak a goroutine/connection indefinitely.
+	req, err := http.NewRequestWithContext(ctx, "POST", a.outboundURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build outbound request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.outboundClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("send webhook: %w", err)
 	}

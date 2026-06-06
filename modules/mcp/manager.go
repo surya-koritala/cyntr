@@ -9,6 +9,7 @@ import (
 
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/kernel/netguard"
 	"github.com/cyntr-dev/cyntr/modules/agent"
 )
 
@@ -18,6 +19,22 @@ type Manager struct {
 	clients map[string]*Client
 	configs []ServerConfig
 	mu      sync.RWMutex
+}
+
+// clientKey scopes an MCP client by the owning tenant so one tenant cannot
+// enumerate, address, or remove another tenant's server (which may share the
+// same human-chosen Name). The NUL separator cannot appear in a tenant id or
+// server name, so the composite key is unambiguous.
+func clientKey(tenant, name string) string { return tenant + "\x00" + name }
+
+// tenantOf extracts the owning tenant for a server config. Configured servers
+// (loaded from disk at startup) and callers that do not specify a tenant fall
+// back to the shared "system" scope rather than an empty, spoofable key.
+func tenantOf(cfg ServerConfig) string {
+	if cfg.Scope != "" {
+		return cfg.Scope
+	}
+	return "system"
 }
 
 func NewManager(toolReg *agent.ToolRegistry) *Manager {
@@ -58,9 +75,9 @@ func (m *Manager) Start(ctx context.Context) error {
 func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for name, client := range m.clients {
+	for key, client := range m.clients {
 		if err := client.Close(); err != nil {
-			logger.Warn("MCP server close error", map[string]any{"server": name, "error": err.Error()})
+			logger.Warn("MCP server close error", map[string]any{"server": key, "error": err.Error()})
 		}
 	}
 	return nil
@@ -101,6 +118,15 @@ func (m *Manager) connectServer(ctx context.Context, cfg ServerConfig) error {
 		}
 	}
 
+	// http/sse transports fetch a caller-supplied URL server-side — run it
+	// through the shared SSRF guard so it cannot target loopback, link-local
+	// (cloud metadata), or private addresses.
+	if cfg.Transport == "http" || cfg.Transport == "sse" {
+		if err := netguard.ValidatePublicURL(cfg.URL); err != nil {
+			return fmt.Errorf("mcp: http server URL rejected: %w", err)
+		}
+	}
+
 	client := NewClient(cfg)
 	connectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -109,8 +135,20 @@ func (m *Manager) connectServer(ctx context.Context, cfg ServerConfig) error {
 		return err
 	}
 
+	key := clientKey(tenantOf(cfg), cfg.Name)
+
 	m.mu.Lock()
-	m.clients[cfg.Name] = client
+	// Closing an existing client for the same (tenant, name) leaks its
+	// subprocess/HTTP connection if we just overwrite it — close it first.
+	if prev, ok := m.clients[key]; ok {
+		for _, tool := range prev.Tools() {
+			m.toolReg.Unregister("mcp_" + cfg.Name + "_" + tool.Name)
+		}
+		if err := prev.Close(); err != nil {
+			logger.Warn("MCP server close error on reconnect", map[string]any{"server": cfg.Name, "error": err.Error()})
+		}
+	}
+	m.clients[key] = client
 	m.mu.Unlock()
 
 	// Register discovered tools
@@ -133,6 +171,11 @@ func (m *Manager) handleAddServer(msg ipc.Message) (ipc.Message, error) {
 				Transport: fmt.Sprintf("%v", data["transport"]),
 				URL:       fmt.Sprintf("%v", data["url"]),
 			}
+			if t, ok := data["tenant"].(string); ok {
+				cfg.Scope = t
+			} else if t, ok := data["scope"].(string); ok {
+				cfg.Scope = t
+			}
 			if args, ok := data["args"].([]any); ok {
 				for _, a := range args {
 					cfg.Args = append(cfg.Args, fmt.Sprintf("%v", a))
@@ -151,13 +194,14 @@ func (m *Manager) handleAddServer(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (m *Manager) handleRemoveServer(msg ipc.Message) (ipc.Message, error) {
-	name, ok := msg.Payload.(string)
-	if !ok {
-		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)
+	tenant, name, err := serverRef(msg.Payload)
+	if err != nil {
+		return ipc.Message{}, err
 	}
+	key := clientKey(tenant, name)
 
 	m.mu.Lock()
-	client, exists := m.clients[name]
+	client, exists := m.clients[key]
 	if exists {
 		// Unregister tools
 		for _, tool := range client.Tools() {
@@ -165,7 +209,7 @@ func (m *Manager) handleRemoveServer(msg ipc.Message) (ipc.Message, error) {
 			m.toolReg.Unregister(toolName)
 		}
 		client.Close()
-		delete(m.clients, name)
+		delete(m.clients, key)
 	}
 	m.mu.Unlock()
 
@@ -175,12 +219,74 @@ func (m *Manager) handleRemoveServer(msg ipc.Message) (ipc.Message, error) {
 	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "disconnected"}, nil
 }
 
+// serverRef resolves the (tenant, name) a request addresses. Accepts a
+// {"tenant","name"} map (the scoped form) or a bare name string (legacy,
+// scoped to the shared "system" tenant) so a caller cannot reach another
+// tenant's server by guessing its name.
+func serverRef(payload any) (tenant, name string, err error) {
+	switch p := payload.(type) {
+	case map[string]any:
+		name, _ = p["name"].(string)
+		if t, ok := p["tenant"].(string); ok {
+			tenant = t
+		} else if t, ok := p["scope"].(string); ok {
+			tenant = t
+		}
+	case map[string]string:
+		name = p["name"]
+		if p["tenant"] != "" {
+			tenant = p["tenant"]
+		} else {
+			tenant = p["scope"]
+		}
+	case string:
+		name = p
+	default:
+		return "", "", fmt.Errorf("expected server reference, got %T", payload)
+	}
+	if name == "" {
+		return "", "", fmt.Errorf("missing server name")
+	}
+	if tenant == "" {
+		tenant = "system"
+	}
+	return tenant, name, nil
+}
+
 func (m *Manager) handleListServers(msg ipc.Message) (ipc.Message, error) {
+	// Scope the listing to the requesting tenant so tenants cannot enumerate
+	// each other's servers. A bare/empty payload lists the shared "system"
+	// scope only.
+	tenant := "system"
+	switch p := msg.Payload.(type) {
+	case map[string]any:
+		if t, ok := p["tenant"].(string); ok && t != "" {
+			tenant = t
+		} else if t, ok := p["scope"].(string); ok && t != "" {
+			tenant = t
+		}
+	case map[string]string:
+		if p["tenant"] != "" {
+			tenant = p["tenant"]
+		} else if p["scope"] != "" {
+			tenant = p["scope"]
+		}
+	case string:
+		if p != "" {
+			tenant = p
+		}
+	}
+	prefix := tenant + "\x00"
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var statuses []ServerStatus
-	for name, client := range m.clients {
+	for key, client := range m.clients {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		name := key[len(prefix):]
 		status := "connected"
 		if !client.IsConnected() {
 			status = "disconnected"
@@ -204,13 +310,13 @@ func (m *Manager) handleListServers(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (m *Manager) handleServerTools(msg ipc.Message) (ipc.Message, error) {
-	name, ok := msg.Payload.(string)
-	if !ok {
-		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)
+	tenant, name, err := serverRef(msg.Payload)
+	if err != nil {
+		return ipc.Message{}, err
 	}
 
 	m.mu.RLock()
-	client, exists := m.clients[name]
+	client, exists := m.clients[clientKey(tenant, name)]
 	m.mu.RUnlock()
 
 	if !exists {

@@ -40,6 +40,7 @@ func TestServerInitialize(t *testing.T) {
 }
 
 func TestServerToolsList(t *testing.T) {
+	t.Setenv("CYNTR_MCP_SERVER_TOKEN", "testtok")
 	reg := agent.NewToolRegistry()
 	reg.Register(&mockTool{})
 	srv := NewServer(reg)
@@ -47,6 +48,7 @@ func TestServerToolsList(t *testing.T) {
 
 	body := `{"jsonrpc":"2.0","method":"tools/list","id":2}`
 	req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer testtok")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -63,6 +65,7 @@ func TestServerToolsList(t *testing.T) {
 }
 
 func TestServerToolsCall(t *testing.T) {
+	t.Setenv("CYNTR_MCP_SERVER_TOKEN", "testtok")
 	reg := agent.NewToolRegistry()
 	reg.Register(&mockTool{})
 	srv := NewServer(reg)
@@ -70,6 +73,7 @@ func TestServerToolsCall(t *testing.T) {
 
 	body := `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"test_tool","arguments":{"input":"hello"}},"id":3}`
 	req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer testtok")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -81,6 +85,44 @@ func TestServerToolsCall(t *testing.T) {
 	resultJSON, _ := json.Marshal(resp.Result)
 	if !strings.Contains(string(resultJSON), "result: hello") {
 		t.Fatalf("expected 'result: hello', got %s", resultJSON)
+	}
+}
+
+func TestServerUnauthorized(t *testing.T) {
+	t.Setenv("CYNTR_MCP_SERVER_TOKEN", "testtok")
+	reg := agent.NewToolRegistry()
+	reg.Register(&mockTool{})
+	srv := NewServer(reg)
+	handler := srv.ServeHTTP()
+
+	cases := []struct {
+		name string
+		auth string
+	}{
+		{"missing token", ""},
+		{"wrong token", "Bearer wrong"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, method := range []string{"tools/list", "tools/call"} {
+				body := `{"jsonrpc":"2.0","method":"` + method + `","id":9}`
+				req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+				if tc.auth != "" {
+					req.Header.Set("Authorization", tc.auth)
+				}
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+
+				var resp JSONRPCResponse
+				json.NewDecoder(rec.Body).Decode(&resp)
+				if resp.Error == nil {
+					t.Fatalf("%s: expected unauthorized error, got success", method)
+				}
+				if resp.Error.Message != "unauthorized" {
+					t.Fatalf("%s: expected 'unauthorized', got %q", method, resp.Error.Message)
+				}
+			}
+		})
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -67,9 +68,9 @@ func runChat(args []string) {
 
 		// Send message via streaming SSE
 		streamURL := fmt.Sprintf("%s/api/v1/tenants/%s/agents/%s/stream?message=%s",
-			apiURL, tenant, agentName, urlEncode(input))
+			apiURL, tenant, agentName, url.QueryEscape(input))
 		if apiKey != "" {
-			streamURL += "&key=" + urlEncode(apiKey)
+			streamURL += "&key=" + url.QueryEscape(apiKey)
 		}
 
 		fmt.Print("\nAgent: ")
@@ -159,14 +160,4 @@ func sendChatMessage(url, message, apiKey string) (string, error) {
 		return "", fmt.Errorf("%s", result.Error.Message)
 	}
 	return result.Data.Content, nil
-}
-
-func urlEncode(s string) string {
-	// Simple URL encoding for query params
-	s = strings.ReplaceAll(s, " ", "+")
-	s = strings.ReplaceAll(s, "&", "%26")
-	s = strings.ReplaceAll(s, "=", "%3D")
-	s = strings.ReplaceAll(s, "?", "%3F")
-	s = strings.ReplaceAll(s, "#", "%23")
-	return s
 }

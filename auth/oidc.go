@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/log"
+	"github.com/cyntr-dev/cyntr/kernel/netguard"
 )
 
 var oidcLogger = log.Default().WithModule("oidc")
@@ -115,10 +116,13 @@ func (p *OIDCProvider) AuthURL(state string) string {
 // AuthURLWithPKCE returns the authorization URL with PKCE parameters and the
 // generated code verifier. The caller must store the verifier and pass it to
 // ExchangeCodeWithPKCE when exchanging the authorization code.
-func (p *OIDCProvider) AuthURLWithPKCE(state string) (authURL, codeVerifier string) {
-	// Generate code verifier (43-128 chars, unreserved chars per RFC 7636)
+func (p *OIDCProvider) AuthURLWithPKCE(state string) (authURL, codeVerifier string, err error) {
+	// Generate code verifier (43-128 chars, unreserved chars per RFC 7636).
+	// A crypto/rand failure must abort: a predictable verifier defeats PKCE.
 	buf := make([]byte, 32)
-	crand.Read(buf)
+	if _, err = crand.Read(buf); err != nil {
+		return "", "", fmt.Errorf("generate PKCE verifier: %w", err)
+	}
 	codeVerifier = base64.RawURLEncoding.EncodeToString(buf)
 
 	// Generate code challenge (S256)
@@ -140,7 +144,7 @@ func (p *OIDCProvider) AuthURLWithPKCE(state string) (authURL, codeVerifier stri
 	params.Set("code_challenge_method", "S256")
 
 	authURL = p.authURL + "?" + params.Encode()
-	return
+	return authURL, codeVerifier, nil
 }
 
 // ExchangeCodeWithPKCE exchanges an authorization code for tokens using a PKCE
@@ -193,8 +197,13 @@ func (p *OIDCProvider) ExchangeCodeWithPKCE(ctx context.Context, code, codeVerif
 	if claims.Exp <= 0 || time.Now().Unix() > claims.Exp {
 		return "", fmt.Errorf("ID token expired or missing exp")
 	}
-	if claims.Aud != p.config.ClientID {
-		return "", fmt.Errorf("ID token audience mismatch: got %q, want %q", claims.Aud, p.config.ClientID)
+	// aud is mandatory and may be single- or multi-valued; require our client id
+	// to be present. An absent/empty aud fails closed.
+	if len(claims.Aud) == 0 {
+		return "", fmt.Errorf("ID token missing aud")
+	}
+	if !claims.Aud.Contains(p.config.ClientID) {
+		return "", fmt.Errorf("ID token audience mismatch: got %v, want %q", []string(claims.Aud), p.config.ClientID)
 	}
 
 	principal := Principal{
@@ -281,10 +290,18 @@ func (p *OIDCProvider) fetchJWKS() error {
 		return fmt.Errorf("jwks_uri not configured")
 	}
 
+	// The JWKS URI is issuer-controlled (it can come from the discovery
+	// document), so it is effectively a caller-supplied URL: validate it
+	// against the shared SSRF guard before fetching so a malicious/compromised
+	// issuer cannot make us fetch internal addresses (cloud metadata, etc.).
+	if err := netguard.ValidatePublicURL(p.jwksURI); err != nil {
+		return fmt.Errorf("jwks_uri rejected: %w", err)
+	}
+
 	// Bounded timeout so an unreachable/slow JWKS host fails fast (and, with the
 	// fail-closed change above, rejects the token) instead of hanging the
-	// auth path indefinitely.
-	client := &http.Client{Timeout: 10 * time.Second}
+	// auth path indefinitely. The guarded client also re-validates redirects.
+	client := netguard.GuardedHTTPClient(10 * time.Second)
 	resp, err := client.Get(p.jwksURI)
 	if err != nil {
 		return err
@@ -400,8 +417,13 @@ func (p *OIDCProvider) ExchangeCode(ctx context.Context, code, tenant string, ro
 	if claims.Exp <= 0 || time.Now().Unix() > claims.Exp {
 		return "", fmt.Errorf("ID token expired or missing exp")
 	}
-	if claims.Aud != p.config.ClientID {
-		return "", fmt.Errorf("ID token audience mismatch: got %q, want %q", claims.Aud, p.config.ClientID)
+	// aud is mandatory and may be single- or multi-valued; require our client id
+	// to be present. An absent/empty aud fails closed.
+	if len(claims.Aud) == 0 {
+		return "", fmt.Errorf("ID token missing aud")
+	}
+	if !claims.Aud.Contains(p.config.ClientID) {
+		return "", fmt.Errorf("ID token audience mismatch: got %v, want %q", []string(claims.Aud), p.config.ClientID)
 	}
 
 	// Create Cyntr session
@@ -420,13 +442,42 @@ func (p *OIDCProvider) ExchangeCode(ctx context.Context, code, tenant string, ro
 	return token, nil
 }
 
+// audience represents the OIDC "aud" claim, which per RFC 7519 may be encoded
+// either as a single string or as an array of strings.
+type audience []string
+
+// UnmarshalJSON accepts both a JSON string and a JSON array of strings.
+func (a *audience) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*a = audience{single}
+		return nil
+	}
+	var multi []string
+	if err := json.Unmarshal(data, &multi); err != nil {
+		return fmt.Errorf("aud must be a string or array of strings: %w", err)
+	}
+	*a = audience(multi)
+	return nil
+}
+
+// Contains reports whether want is one of the audience values.
+func (a audience) Contains(want string) bool {
+	for _, v := range a {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
 // IDTokenClaims represents the relevant claims from an OIDC ID token.
 type IDTokenClaims struct {
-	Sub   string `json:"sub"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Exp   int64  `json:"exp"`
-	Aud   string `json:"aud"`
+	Sub   string   `json:"sub"`
+	Email string   `json:"email"`
+	Name  string   `json:"name"`
+	Exp   int64    `json:"exp"`
+	Aud   audience `json:"aud"`
 }
 
 // parseIDTokenClaims extracts claims from a JWT ID token without verifying the signature.

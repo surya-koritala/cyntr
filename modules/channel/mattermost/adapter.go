@@ -3,6 +3,7 @@ package mattermost
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,14 +19,15 @@ var logger = log.Default().WithModule("channel_mattermost")
 // Adapter integrates with a Mattermost server via incoming webhook (outbound)
 // and a slash-command handler (inbound).
 type Adapter struct {
-	listenAddr string
-	webhookURL string
-	tenant     string
-	agent      string
-	handler    channel.InboundHandler
-	listener   net.Listener
-	server     *http.Server
-	client     *http.Client
+	listenAddr   string
+	webhookURL   string
+	commandToken string // expected Mattermost slash-command token; empty = reject inbound
+	tenant       string
+	agent        string
+	handler      channel.InboundHandler
+	listener     net.Listener
+	server       *http.Server
+	client       *http.Client
 }
 
 func New(listenAddr, webhookURL, tenant, agent string) *Adapter {
@@ -40,6 +42,10 @@ func New(listenAddr, webhookURL, tenant, agent string) *Adapter {
 
 // SetWebhookURL overrides the outbound webhook URL (used in tests).
 func (a *Adapter) SetWebhookURL(url string) { a.webhookURL = url }
+
+// SetCommandToken configures the expected Mattermost slash-command token. When
+// unset, all inbound command POSTs are rejected (fail closed).
+func (a *Adapter) SetCommandToken(token string) { a.commandToken = token }
 
 func (a *Adapter) Addr() string {
 	if a.listener == nil {
@@ -110,6 +116,15 @@ func (a *Adapter) HandleInbound(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
+
+	// Verify the Mattermost command token in constant time (fail closed).
+	if a.commandToken == "" || subtle.ConstantTimeCompare(
+		[]byte(r.FormValue("token")), []byte(a.commandToken),
+	) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	text := r.FormValue("text")
 	userName := r.FormValue("user_name")
 	channelName := r.FormValue("channel_name")

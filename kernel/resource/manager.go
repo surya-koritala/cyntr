@@ -8,12 +8,17 @@ import (
 type ResourceType int
 
 const (
-	ResourceGoroutines      ResourceType = iota
+	ResourceGoroutines ResourceType = iota
 	ResourceFileDescriptors
 	ResourceAPICalls
 )
 
 var ErrLimitExceeded = errors.New("resource: limit exceeded")
+
+// Unlimited is the sentinel limit value meaning "no cap". A tenant with no
+// configured limit is treated as Unlimited; an explicitly configured limit of
+// 0 means "deny all" (fail-closed), not unlimited.
+const Unlimited int64 = -1
 
 type UsageEntry struct {
 	Current int64
@@ -50,7 +55,9 @@ func (m *Manager) Acquire(tenant string, res ResourceType) error {
 	}
 	current := m.usage[tenant][res]
 	limit := m.getLimit(tenant, res)
-	if limit > 0 && current >= limit {
+	// Unlimited means no cap. Any other configured value (including 0) is
+	// enforced; a configured 0 therefore denies rather than allowing unlimited.
+	if limit != Unlimited && current >= limit {
 		return ErrLimitExceeded
 	}
 	m.usage[tenant][res] = current + 1
@@ -98,8 +105,22 @@ func (m *Manager) Snapshot(tenant string) map[ResourceType]UsageEntry {
 }
 
 func (m *Manager) getLimit(tenant string, res ResourceType) int64 {
-	if m.limits[tenant] == nil {
-		return 0
+	limits, ok := m.limits[tenant]
+	if !ok {
+		return Unlimited // no limits configured for this tenant
 	}
-	return m.limits[tenant][res]
+	limit, ok := limits[res]
+	if !ok {
+		return Unlimited // no limit configured for this resource
+	}
+	return limit
+}
+
+// RemoveTenant deletes all usage and limit state for a tenant. Call this when a
+// tenant is decommissioned so the per-tenant maps do not grow unbounded.
+func (m *Manager) RemoveTenant(tenant string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.usage, tenant)
+	delete(m.limits, tenant)
 }

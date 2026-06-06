@@ -93,5 +93,6 @@ func (m *Migrator) MigrateFile(path, targetVersion string) error {
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	return os.WriteFile(path, output, 0644)
+	// Config may contain secrets; keep it owner-only (not world-readable).
+	return os.WriteFile(path, output, 0600)
 }

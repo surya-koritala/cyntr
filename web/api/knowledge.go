@@ -2,14 +2,40 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	agenttools "github.com/cyntr-dev/cyntr/modules/agent/tools"
 )
+
+// resolveKnowledgePath confines a caller-supplied file_path to the operator's
+// allowed base directory (CYNTR_KNOWLEDGE_BASE_DIR). It returns the cleaned
+// absolute path on success, or an error if ingest-by-path is disabled or the
+// path escapes the base via traversal/symlink-style tricks.
+func resolveKnowledgePath(filePath string) (string, error) {
+	base := os.Getenv("CYNTR_KNOWLEDGE_BASE_DIR")
+	if base == "" {
+		return "", errors.New("server-side file ingest is disabled: set CYNTR_KNOWLEDGE_BASE_DIR to enable")
+	}
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", errors.New("invalid knowledge base directory")
+	}
+	// Join treats filePath as relative to the base and cleans away any ".."
+	// segments; an absolute filePath is also re-rooted under the base.
+	candidate := filepath.Join(absBase, filepath.Clean("/"+filePath))
+	// Defense in depth: ensure the result is still under the base.
+	rel, err := filepath.Rel(absBase, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("file_path escapes the allowed base directory")
+	}
+	return candidate, nil
+}
 
 var knowledgeTool *agenttools.KnowledgeTool
 
@@ -46,16 +72,25 @@ func (s *Server) handleKnowledgeIngest(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, 400, "INVALID_REQUEST", "invalid JSON")
 		return
 	}
-	// F2: If file_path is set and content is empty, read the file
+	// F2: If file_path is set and content is empty, read the file — but only
+	// from within an operator-allowed base directory. Reading an arbitrary
+	// server-side path lets a caller exfiltrate secrets (/etc/passwd, keys).
+	// The base dir is set via CYNTR_KNOWLEDGE_BASE_DIR; when unset, server-side
+	// path ingest is disabled (fail closed).
 	if body.Content == "" && body.FilePath != "" {
-		data, err := os.ReadFile(body.FilePath)
+		resolved, err := resolveKnowledgePath(body.FilePath)
+		if err != nil {
+			RespondError(w, 403, "FORBIDDEN", err.Error())
+			return
+		}
+		data, err := os.ReadFile(resolved)
 		if err != nil {
 			RespondError(w, 400, "FILE_ERROR", err.Error())
 			return
 		}
 		body.Content = string(data)
 		if body.Title == "" {
-			body.Title = filepath.Base(body.FilePath)
+			body.Title = filepath.Base(resolved)
 		}
 	}
 	id := fmt.Sprintf("kb_%d", time.Now().UnixNano())

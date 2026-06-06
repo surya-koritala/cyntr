@@ -172,9 +172,18 @@ func (e *Enforcer) CheckTokens(tenant string, requested int64) error {
 	var current int64
 	if e.store != nil {
 		c, err := e.store.CurrentTokens(tenant, now)
-		if err == nil {
-			current = c
+		if err != nil {
+			// Fail closed: if we can't read the current usage we cannot
+			// prove the request is under quota, so deny rather than admit.
+			return &ErrQuotaExceeded{
+				Tenant:  tenant,
+				Kind:    KindTokens,
+				Limit:   cfg.TokensPerDay,
+				Current: cfg.TokensPerDay,
+				ResetAt: endOfUTCDay(now),
+			}
 		}
+		current = c
 	}
 
 	if current+requested > cfg.TokensPerDay {

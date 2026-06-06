@@ -2,11 +2,15 @@ package sms
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/cyntr-dev/cyntr/kernel/log"
@@ -24,6 +28,7 @@ type Adapter struct {
 	tenant     string
 	agent      string
 	apiBase    string // overridable for tests
+	publicURL  string // externally visible inbound URL Twilio signs against; empty = derive from request
 	handler    channel.InboundHandler
 	listener   net.Listener
 	server     *http.Server
@@ -45,6 +50,12 @@ func New(listenAddr, accountSID, authToken, fromNumber, tenant, agent string) *A
 
 // SetAPIBase overrides the Twilio API base URL (for tests).
 func (a *Adapter) SetAPIBase(base string) { a.apiBase = base }
+
+// SetPublicURL sets the externally visible URL of the inbound webhook that
+// Twilio signs requests against (e.g. "https://example.com/sms/inbound"). When
+// unset, the URL is reconstructed from the incoming request, which may be wrong
+// behind TLS-terminating proxies; setting it explicitly is recommended.
+func (a *Adapter) SetPublicURL(u string) { a.publicURL = u }
 
 func (a *Adapter) Addr() string {
 	if a.listener == nil {
@@ -117,6 +128,13 @@ func (a *Adapter) HandleInbound(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
+
+	// Validate the Twilio request signature (fail closed if no auth token).
+	if !a.validateTwilioSignature(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	from := r.FormValue("From")
 	body := r.FormValue("Body")
 	if body == "" {
@@ -146,6 +164,47 @@ func (a *Adapter) HandleInbound(w http.ResponseWriter, r *http.Request) {
 	} else {
 		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><Response/>`)
 	}
+}
+
+// validateTwilioSignature verifies the X-Twilio-Signature header. Twilio
+// computes it as base64(HMAC-SHA1(authToken, fullURL + concatenation of
+// sorted POST params as key+value)). Fails closed when no auth token is set.
+func (a *Adapter) validateTwilioSignature(r *http.Request) bool {
+	if a.authToken == "" {
+		return false
+	}
+	provided := r.Header.Get("X-Twilio-Signature")
+	if provided == "" {
+		return false
+	}
+
+	fullURL := a.publicURL
+	if fullURL == "" {
+		scheme := "https"
+		if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
+			scheme = "http"
+		}
+		fullURL = scheme + "://" + r.Host + r.URL.RequestURI()
+	}
+
+	// Build the signing string: URL followed by each POST param key+value in
+	// lexicographic key order.
+	keys := make([]string, 0, len(r.PostForm))
+	for k := range r.PostForm {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	sb.WriteString(fullURL)
+	for _, k := range keys {
+		sb.WriteString(k)
+		sb.WriteString(r.PostForm.Get(k))
+	}
+
+	mac := hmac.New(sha1.New, []byte(a.authToken))
+	mac.Write([]byte(sb.String()))
+	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(provided), []byte(expected))
 }
 
 func twimlEscape(s string) string {

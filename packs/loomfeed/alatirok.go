@@ -41,24 +41,24 @@ func (t *AlatirokTool) Description() string {
 
 func (t *AlatirokTool) Parameters() map[string]agent.ToolParam {
 	return map[string]agent.ToolParam{
-		"action": {Type: "string", Description: "Action: whoami, get_feed, create_post, edit_post, get_post, get_comments, create_comment, vote, react, search, get_communities, get_community_feed, subscribe, bookmark, my_posts, my_comments, notifications, trust_info", Required: true},
-		"reaction_type": {Type: "string", Description: "Reaction type: like, insightful, disagree (for react action)", Required: false},
-		"title":  {Type: "string", Description: "Post title (for create_post)", Required: false},
-		"body":   {Type: "string", Description: "Markdown body (for create_post, create_comment)", Required: false},
-		"community_id":   {Type: "string", Description: "Community UUID (for create_post)", Required: false},
-		"community_slug": {Type: "string", Description: "Community slug (for get_community_feed)", Required: false},
-		"post_type": {Type: "string", Description: "Post type: text, link, research, alert, meta, question, data (default: text)", Required: false},
-		"tags":       {Type: "string", Description: "Comma-separated tags (for create_post)", Required: false},
-		"post_id":    {Type: "string", Description: "Post UUID (for get_post, create_comment, vote)", Required: false},
+		"action":            {Type: "string", Description: "Action: whoami, get_feed, create_post, edit_post, get_post, get_comments, create_comment, vote, react, search, get_communities, get_community_feed, subscribe, bookmark, my_posts, my_comments, notifications, trust_info", Required: true},
+		"reaction_type":     {Type: "string", Description: "Reaction type: like, insightful, disagree (for react action)", Required: false},
+		"title":             {Type: "string", Description: "Post title (for create_post)", Required: false},
+		"body":              {Type: "string", Description: "Markdown body (for create_post, create_comment)", Required: false},
+		"community_id":      {Type: "string", Description: "Community UUID (for create_post)", Required: false},
+		"community_slug":    {Type: "string", Description: "Community slug (for get_community_feed)", Required: false},
+		"post_type":         {Type: "string", Description: "Post type: text, link, research, alert, meta, question, data (default: text)", Required: false},
+		"tags":              {Type: "string", Description: "Comma-separated tags (for create_post)", Required: false},
+		"post_id":           {Type: "string", Description: "Post UUID (for get_post, create_comment, vote)", Required: false},
 		"parent_comment_id": {Type: "string", Description: "Parent comment UUID for replies (for create_comment)", Required: false},
-		"target_id":   {Type: "string", Description: "Target UUID (for vote)", Required: false},
-		"target_type": {Type: "string", Description: "Target type: post or comment (for vote)", Required: false},
-		"direction":   {Type: "string", Description: "Vote direction: up or down (for vote)", Required: false},
-		"query":       {Type: "string", Description: "Search query (for search)", Required: false},
-		"sort":        {Type: "string", Description: "Sort: hot, new, top (default: hot)", Required: false},
-		"limit":       {Type: "string", Description: "Number of results (default: 25)", Required: false},
-		"metadata":    {Type: "string", Description: "JSON metadata object (for create_post, e.g. {\"confidence\": 0.9})", Required: false},
-		"image_url":   {Type: "string", Description: "Image URL to include in post body (for create_post)", Required: false},
+		"target_id":         {Type: "string", Description: "Target UUID (for vote)", Required: false},
+		"target_type":       {Type: "string", Description: "Target type: post or comment (for vote)", Required: false},
+		"direction":         {Type: "string", Description: "Vote direction: up or down (for vote)", Required: false},
+		"query":             {Type: "string", Description: "Search query (for search)", Required: false},
+		"sort":              {Type: "string", Description: "Sort: hot, new, top (default: hot)", Required: false},
+		"limit":             {Type: "string", Description: "Number of results (default: 25)", Required: false},
+		"metadata":          {Type: "string", Description: "JSON metadata object (for create_post, e.g. {\"confidence\": 0.9})", Required: false},
+		"image_url":         {Type: "string", Description: "Image URL to include in post body (for create_post)", Required: false},
 	}
 }
 
@@ -75,8 +75,14 @@ func (t *AlatirokTool) Execute(ctx context.Context, input map[string]string) (st
 		return "", fmt.Errorf("ALATIROK_API_KEY not set — register an agent at https://loomfeed.com and create an API key")
 	}
 
-	// Send heartbeat on every authenticated action (marks agent as "online")
-	go t.heartbeat(context.Background(), apiKey)
+	// Send heartbeat on every authenticated action (marks agent as "online").
+	// Bind to the caller ctx so it is cancelled with the request, and bound it
+	// with its own timeout so a slow heartbeat can't leak a goroutine.
+	hbCtx, hbCancel := context.WithTimeout(ctx, 10*time.Second)
+	go func() {
+		defer hbCancel()
+		t.heartbeat(hbCtx, apiKey)
+	}()
 
 	action := input["action"]
 	switch action {
@@ -579,11 +585,13 @@ func (t *AlatirokTool) createComment(ctx context.Context, apiKey string, input m
 
 	commentsResp, err := t.doGet(ctx, "/api/v1/posts/"+postID+"/comments", apiKey)
 	if err == nil {
-		var existingComments []struct {
-			Body string `json:"body"`
+		var existingComments struct {
+			Data []struct {
+				Body string `json:"body"`
+			} `json:"data"`
 		}
-		if json.Unmarshal([]byte(commentsResp), &existingComments) == nil {
-			for _, existing := range existingComments {
+		if err := json.Unmarshal([]byte(commentsResp), &existingComments); err == nil {
+			for _, existing := range existingComments.Data {
 				existingLower := strings.ToLower(existing.Body)
 				matches := 0
 				for w := range commentWords {
@@ -609,11 +617,14 @@ func (t *AlatirokTool) createComment(ctx context.Context, apiKey string, input m
 		// AUTO-THREAD: reply to the last SUBSTANTIVE comment (skip GIF-only comments)
 		commentsResp, err := t.doGet(ctx, "/api/v1/posts/"+postID+"/comments", apiKey)
 		if err == nil {
-			var comments []struct {
-				ID   string `json:"id"`
-				Body string `json:"body"`
+			var commentsList struct {
+				Data []struct {
+					ID   string `json:"id"`
+					Body string `json:"body"`
+				} `json:"data"`
 			}
-			if json.Unmarshal([]byte(commentsResp), &comments) == nil && len(comments) > 0 {
+			if err := json.Unmarshal([]byte(commentsResp), &commentsList); err == nil && len(commentsList.Data) > 0 {
+				comments := commentsList.Data
 				// Find the last comment that has real substance (not just a GIF or one-liner)
 				for i := len(comments) - 1; i >= 0; i-- {
 					body := comments[i].Body
@@ -668,7 +679,7 @@ func (t *AlatirokTool) search(ctx context.Context, apiKey string, input map[stri
 	if limit == "" {
 		limit = "25"
 	}
-	path := fmt.Sprintf("/api/v1/search?q=%s&limit=%s", url.QueryEscape(query), limit)
+	path := fmt.Sprintf("/api/v1/search?q=%s&limit=%s", url.QueryEscape(query), url.QueryEscape(limit))
 	return t.doGet(ctx, path, apiKey)
 }
 
@@ -689,7 +700,8 @@ func (t *AlatirokTool) getCommunityFeed(ctx context.Context, apiKey string, inpu
 	if limit == "" {
 		limit = "25"
 	}
-	path := fmt.Sprintf("/api/v1/communities/%s/feed?sort=%s&limit=%s", slug, sort, limit)
+	path := fmt.Sprintf("/api/v1/communities/%s/feed?sort=%s&limit=%s",
+		url.PathEscape(slug), url.QueryEscape(sort), url.QueryEscape(limit))
 	return t.doGet(ctx, path, apiKey)
 }
 
@@ -818,7 +830,7 @@ func (t *AlatirokTool) memorySet(ctx context.Context, apiKey string, input map[s
 		return "", fmt.Errorf("memory_key required")
 	}
 	value := input["memory_value"]
-	return t.doPut(ctx, "/api/v1/agent-memory/"+key, apiKey, value)
+	return t.doPut(ctx, "/api/v1/agent-memory/"+url.PathEscape(key), apiKey, value)
 }
 
 func (t *AlatirokTool) memoryGet(ctx context.Context, apiKey string, input map[string]string) (string, error) {
@@ -826,7 +838,7 @@ func (t *AlatirokTool) memoryGet(ctx context.Context, apiKey string, input map[s
 	if key == "" {
 		return t.doGet(ctx, "/api/v1/agent-memory", apiKey)
 	}
-	return t.doGet(ctx, "/api/v1/agent-memory/"+key, apiKey)
+	return t.doGet(ctx, "/api/v1/agent-memory/"+url.PathEscape(key), apiKey)
 }
 
 func (t *AlatirokTool) epistemicVote(ctx context.Context, apiKey string, input map[string]string) (string, error) {

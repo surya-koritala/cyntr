@@ -66,6 +66,9 @@ func TestMarketplaceGetNotFound(t *testing.T) {
 }
 
 func TestMarketplaceDownload(t *testing.T) {
+	// httptest serves on 127.0.0.1, which the SSRF guard rejects by default.
+	// Opt in to private addresses for this test only; production stays guarded.
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("name: test-skill\nversion: 1.0.0\n"))
 	}))

@@ -13,6 +13,9 @@ import (
 
 func (s *Server) handleAgentList(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -32,6 +35,9 @@ func (s *Server) handleAgentList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentCreate(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 
 	// Decode straight into AgentConfig so every field (sandbox, skills,
 	// mcp_servers, auto_memory, rate_limit, history/summarize thresholds, ...)
@@ -70,6 +76,9 @@ func apiUser(u string) string {
 
 func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	agentName := r.PathValue("name")
 
 	var body struct {
@@ -114,6 +123,9 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentGet(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	name := r.PathValue("name")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -130,6 +142,9 @@ func (s *Server) handleAgentGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	name := r.PathValue("name")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -146,6 +161,9 @@ func (s *Server) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentSessions(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	name := r.PathValue("name")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -162,6 +180,9 @@ func (s *Server) handleAgentSessions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSessionMessages(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	name := r.PathValue("name")
 	sid := r.PathValue("sid")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -179,6 +200,9 @@ func (s *Server) handleSessionMessages(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSessionClear(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	name := r.PathValue("name")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -195,6 +219,9 @@ func (s *Server) handleSessionClear(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentMemories(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	name := r.PathValue("name")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -226,6 +253,9 @@ func (s *Server) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	name := r.PathValue("name")
 
 	var body struct {
@@ -306,6 +336,9 @@ func (s *Server) handleAgentSearch(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentVersions(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	name := r.PathValue("name")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -322,6 +355,9 @@ func (s *Server) handleAgentVersions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAgentRollback(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	name := r.PathValue("name")
 	version := r.PathValue("version")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -334,11 +370,19 @@ func (s *Server) handleAgentRollback(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, 500, "ROLLBACK_FAILED", err.Error())
 		return
 	}
-	Respond(w, 200, map[string]string{"status": "rolled_back", "message": resp.Payload.(string)})
+	msg, ok := resp.Payload.(string)
+	if !ok {
+		RespondError(w, 500, "INTERNAL", "unexpected response type")
+		return
+	}
+	Respond(w, 200, map[string]string{"status": "rolled_back", "message": msg})
 }
 
 func (s *Server) handleAgentChatStream(w http.ResponseWriter, r *http.Request) {
 	tid := r.PathValue("tid")
+	if !enforceTenant(w, r, tid) {
+		return
+	}
 	agentName := r.PathValue("name")
 	message := r.URL.Query().Get("message")
 	user := apiUser(r.URL.Query().Get("user"))

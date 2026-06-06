@@ -127,6 +127,12 @@ func (r *Runtime) SetContextStore(cs *ContextStore) {
 type agentInstance struct {
 	config  AgentConfig
 	session *Session
+	// chatMu serializes a full chat turn for this (tenant, agent). The Session
+	// is shared across concurrent chats, so without this two requests would
+	// interleave their user/assistant/tool messages into one history and
+	// clobber per-call state (lastUser, memories). Held for the whole agentic
+	// loop so each chat sees a consistent, non-interleaved session.
+	chatMu sync.Mutex
 }
 
 // NewRuntime creates a new Agent Runtime module.
@@ -464,6 +470,11 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	}
 	defer release()
 
+	// Serialize the full turn for this agent's shared Session so concurrent
+	// chats don't interleave their history or clobber lastUser/memories.
+	inst.chatMu.Lock()
+	defer inst.chatMu.Unlock()
+
 	chatStart := time.Now()
 
 	r.publishActivity(req.Agent, req.Tenant, "chat_start", "User: "+req.Message[:min(80, len(req.Message))])
@@ -497,6 +508,13 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	}
 	if r.memoryStore != nil {
 		if memories, err := r.memoryStore.Recall(req.Agent, req.Tenant); err == nil {
+			// Tenant/user isolation: auto-extracted memories are scoped to the
+			// user they were learned from (encoded in the Key as
+			// "auto:<user>:..."). Drop any auto-memory belonging to a different
+			// user so one user's facts never land in another user's prompt.
+			// Non-auto memories (e.g. operator-curated "learned" facts) are not
+			// user-scoped and remain visible agent-wide.
+			memories = filterUserScopedMemories(memories, req.User)
 			if memText := FormatForContext(memories); memText != "" {
 				if contextPrelude != "" {
 					contextPrelude += "\n\n" + memText
@@ -824,7 +842,11 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 					})
 				}
 				if execErr != nil {
-					result = execErr.Error()
+					// A tool that echoes its arguments in the error message can
+					// surface the per-agent secrets we injected above back to the
+					// model. Redact every injected secret value from the error
+					// text before it lands in the session/tool-result.
+					result = redactSecretValues(execErr.Error(), inst.config.Secrets)
 					isError = true
 				}
 			}
@@ -1305,12 +1327,38 @@ func (r *Runtime) handleMemorySave(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {
-	memID, ok := msg.Payload.(string)
+	// Authz (fail-closed): a memory may only be deleted by its owning
+	// (tenant, agent). The caller MUST supply the tenant and agent from the
+	// authenticated request path; a bare id with no owner is rejected so one
+	// tenant cannot delete another tenant's memory by guessing/replaying ids.
+	params, ok := msg.Payload.(map[string]string)
 	if !ok {
-		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)
+		return ipc.Message{}, fmt.Errorf("expected map[string]string{id,tenant,agent}, got %T", msg.Payload)
+	}
+	memID, tenant, agentName := params["id"], params["tenant"], params["agent"]
+	if memID == "" || tenant == "" || agentName == "" {
+		return ipc.Message{}, fmt.Errorf("agent.memory.delete: id, tenant and agent are required")
 	}
 	if r.memoryStore == nil {
 		return ipc.Message{}, fmt.Errorf("memory store not configured")
+	}
+	// Verify ownership before deleting: the id must belong to a memory owned
+	// by this (agent, tenant). We scope the lookup to the caller's tenant/agent
+	// so a cross-tenant id never matches.
+	owned, err := r.memoryStore.Recall(agentName, tenant)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	isOwned := false
+	for _, m := range owned {
+		if m.ID == memID {
+			isOwned = true
+			break
+		}
+	}
+	if !isOwned {
+		// Don't disclose whether the id exists under another owner.
+		return ipc.Message{}, fmt.Errorf("agent.memory.delete: memory not found")
 	}
 	if err := r.memoryStore.Delete(memID); err != nil {
 		return ipc.Message{}, err
@@ -1430,10 +1478,13 @@ func (r *Runtime) extractMemories(req ChatRequest, inst *agentInstance, lastResp
 			truncate(userQuery, 100), strings.Join(toolsUsed, ", "), truncate(lastResponse, 200))
 	}
 
+	// Namespace the key by user so recall can scope auto-memories to the user
+	// they were learned from (the Memory schema has no user column). Sanitize
+	// the user id so its delimiter can't be spoofed via the user string.
 	memory := Memory{
 		Agent:   req.Agent,
 		Tenant:  req.Tenant,
-		Key:     "auto:" + truncate(userQuery, 50),
+		Key:     autoMemoryKey(req.User, userQuery),
 		Content: summary,
 	}
 
@@ -1449,4 +1500,59 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// redactSecretValues replaces every per-agent secret value found in text with
+// the standard ***REDACTED*** marker. Used to scrub tool-error surfaces so a
+// tool that echoes its (secret-injected) arguments can't leak credentials back
+// to the model. Short/empty values are skipped to avoid masking unrelated text.
+func redactSecretValues(text string, secrets map[string]string) string {
+	if text == "" || len(secrets) == 0 {
+		return text
+	}
+	for _, v := range secrets {
+		if len(v) < 4 {
+			continue
+		}
+		text = strings.ReplaceAll(text, v, "***REDACTED***")
+	}
+	return text
+}
+
+// autoMemoryPrefix is the namespace under which per-user auto-extracted
+// memories are stored. The user id is encoded into the key (the Memory schema
+// has no user column) so recall can isolate them per user.
+const autoMemoryPrefix = "auto:"
+
+// sanitizeMemoryUser strips the ':' key delimiter from a user id so a crafted
+// user string can't break out of its own namespace.
+func sanitizeMemoryUser(user string) string {
+	return strings.ReplaceAll(user, ":", "_")
+}
+
+// autoMemoryKey builds the namespaced key "auto:<user>:<query-snippet>".
+func autoMemoryKey(user, userQuery string) string {
+	return autoMemoryPrefix + sanitizeMemoryUser(user) + ":" + truncate(userQuery, 50)
+}
+
+// filterUserScopedMemories drops auto-extracted memories that belong to a
+// different user. A memory is user-scoped when its key has the "auto:<user>:"
+// prefix; only those matching the supplied user are kept. Any other memory
+// (operator-curated, legacy "auto:" without a user segment, etc.) is left
+// untouched so non-user-scoped knowledge stays agent-wide.
+func filterUserScopedMemories(memories []Memory, user string) []Memory {
+	want := autoMemoryPrefix + sanitizeMemoryUser(user) + ":"
+	out := memories[:0:0]
+	for _, m := range memories {
+		if strings.HasPrefix(m.Key, autoMemoryPrefix) {
+			// Legacy auto-memories saved before per-user scoping have no user
+			// segment ("auto:<query>"); treat them as another user's data and
+			// drop them to fail closed on isolation.
+			if !strings.HasPrefix(m.Key, want) {
+				continue
+			}
+		}
+		out = append(out, m)
+	}
+	return out
 }

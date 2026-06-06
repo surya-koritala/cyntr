@@ -85,6 +85,7 @@ func TestOIDCProviderAuthURL(t *testing.T) {
 }
 
 func TestOIDCProviderExchangeCode(t *testing.T) {
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	jwksServer := newJWKSServer(t, key)
 	defer jwksServer.Close()
@@ -240,6 +241,7 @@ func TestOIDCProviderAuthURLDefaultScopes(t *testing.T) {
 }
 
 func TestOIDCProviderExchangeCodeMissingEmail(t *testing.T) {
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	jwksServer := newJWKSServer(t, key)
 	defer jwksServer.Close()
@@ -273,6 +275,7 @@ func TestOIDCProviderExchangeCodeMissingEmail(t *testing.T) {
 // A forged (wrong-signature) id_token must be rejected, and a JWKS fetch
 // failure must fail closed rather than skip verification.
 func TestOIDCProviderRejectsForgedAndUnverifiableTokens(t *testing.T) {
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	attacker, _ := rsa.GenerateKey(rand.Reader, 2048)
 	jwksServer := newJWKSServer(t, key)

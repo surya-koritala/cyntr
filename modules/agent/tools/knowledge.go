@@ -26,7 +26,10 @@ func NewKnowledgeTool(dbPath string) (*KnowledgeTool, error) {
 	}
 	db.Exec("PRAGMA journal_mode=WAL")
 
-	_, err = db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS knowledge USING fts5(id, title, content, tags)`)
+	// The FTS table carries a tenant column so reads can be scoped to the
+	// calling tenant (derived from agent.ToolCaller). Without it every tenant
+	// could MATCH and read every other tenant's documents.
+	_, err = db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS knowledge USING fts5(tenant, id, title, content, tags)`)
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create knowledge table: %w", err)
@@ -70,19 +73,30 @@ func (t *KnowledgeTool) Execute(ctx context.Context, input map[string]string) (s
 		return "", fmt.Errorf("query is required")
 	}
 
+	// Scope all reads to the calling tenant so one tenant cannot read another
+	// tenant's documents through the shared FTS index.
+	tenant, _, _ := agent.ToolCaller(ctx)
+
 	// Semantic search mode
 	mode := input["mode"]
 	filterTags := input["tags"]
-	if mode == "semantic" && t.embedder != nil && len(t.embedder.vocabulary) > 0 {
-		return t.semanticSearch(query, filterTags)
+	if mode == "semantic" {
+		// Guard the vocabulary read: rebuildEmbeddings mutates the embedder
+		// concurrently from a goroutine, so the length check must hold the lock.
+		t.mu.Lock()
+		ready := t.embedder != nil && len(t.embedder.vocabulary) > 0
+		t.mu.Unlock()
+		if ready {
+			return t.semanticSearch(tenant, query, filterTags)
+		}
 	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	rows, err := t.db.QueryContext(ctx,
-		`SELECT title, content, tags FROM knowledge WHERE knowledge MATCH ? ORDER BY rank LIMIT 5`,
-		query,
+		`SELECT title, content, tags FROM knowledge WHERE tenant = ? AND knowledge MATCH ? ORDER BY rank LIMIT 5`,
+		tenant, query,
 	)
 	if err != nil {
 		return "", fmt.Errorf("search: %w", err)
@@ -159,7 +173,17 @@ func ChunkDocument(content string, chunkSize, overlap int) []string {
 }
 
 // Ingest adds a document to the knowledge base with smart chunking.
+//
+// Deprecated: prefer IngestForTenant so the document is bound to the caller's
+// tenant. Ingest stores documents under the empty tenant, which scoped
+// searches (Execute) will not return.
 func (t *KnowledgeTool) Ingest(id, title, content, tags string) error {
+	return t.IngestForTenant("", id, title, content, tags)
+}
+
+// IngestForTenant adds a document to the knowledge base, binding every chunk to
+// the given tenant so that scoped searches only return it for that tenant.
+func (t *KnowledgeTool) IngestForTenant(tenant, id, title, content, tags string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -167,8 +191,8 @@ func (t *KnowledgeTool) Ingest(id, title, content, tags string) error {
 	for i, chunk := range chunks {
 		chunkID := fmt.Sprintf("%s_chunk_%d", id, i)
 		_, err := t.db.Exec(
-			`INSERT OR REPLACE INTO knowledge(id, title, content, tags) VALUES (?, ?, ?, ?)`,
-			chunkID, title, chunk, tags,
+			`INSERT OR REPLACE INTO knowledge(tenant, id, title, content, tags) VALUES (?, ?, ?, ?, ?)`,
+			tenant, chunkID, title, chunk, tags,
 		)
 		if err != nil {
 			return err
@@ -206,7 +230,7 @@ func (t *KnowledgeTool) rebuildEmbeddings() {
 	}
 }
 
-func (t *KnowledgeTool) semanticSearch(query string, filterTags string) (string, error) {
+func (t *KnowledgeTool) semanticSearch(tenant, query string, filterTags string) (string, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -215,7 +239,7 @@ func (t *KnowledgeTool) semanticSearch(query string, filterTags string) (string,
 		return "Semantic search not available (no documents indexed).", nil
 	}
 
-	rows, err := t.db.Query("SELECT id, title, content, tags FROM knowledge")
+	rows, err := t.db.Query("SELECT id, title, content, tags FROM knowledge WHERE tenant = ?", tenant)
 	if err != nil {
 		return "", err
 	}

@@ -77,7 +77,17 @@ func (s *Store) Index(m IndexedMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	res, err := s.db.Exec(
+	// Write the source row and the FTS index entry atomically. Doing them as
+	// two independent Execs leaves the FTS index desynced from the source
+	// table if the process crashes between them; a transaction makes the pair
+	// all-or-nothing.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("recall: index begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+
+	res, err := tx.Exec(
 		`INSERT INTO recall_messages (msg_id, tenant, user, session, role, text, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		m.MsgID, m.Tenant, m.User, m.Session, m.Role, m.Text, m.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -90,8 +100,11 @@ func (s *Store) Index(m IndexedMessage) error {
 		return fmt.Errorf("recall: index rowid: %w", err)
 	}
 	// Keep the external-content FTS index in sync with the matching rowid.
-	if _, err := s.db.Exec(`INSERT INTO recall_fts (rowid, text) VALUES (?, ?)`, rowid, m.Text); err != nil {
+	if _, err := tx.Exec(`INSERT INTO recall_fts (rowid, text) VALUES (?, ?)`, rowid, m.Text); err != nil {
 		return fmt.Errorf("recall: fts insert: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("recall: index commit: %w", err)
 	}
 	return nil
 }
