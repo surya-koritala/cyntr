@@ -161,12 +161,14 @@ func (s *Server) handleAgentSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSessionMessages(w http.ResponseWriter, r *http.Request) {
+	tid := r.PathValue("tid")
+	name := r.PathValue("name")
 	sid := r.PathValue("sid")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	resp, err := s.bus.Request(ctx, ipc.Message{
 		Source: "api", Target: "agent_runtime", Topic: "agent.session.messages",
-		Payload: sid,
+		Payload: map[string]string{"tenant": tid, "name": name, "sid": sid},
 	})
 	if err != nil {
 		RespondError(w, 500, "MESSAGE_ERROR", err.Error())
@@ -278,11 +280,22 @@ func (s *Server) handleAgentSearch(w http.ResponseWriter, r *http.Request) {
 		RespondError(w, 400, "MISSING_QUERY", "q parameter is required")
 		return
 	}
+	// Scope the search to a tenant. Prefer the authenticated principal's
+	// tenant; otherwise require an explicit tenant param. The store rejects an
+	// empty tenant, so a cross-tenant search is never possible.
+	tenant := r.URL.Query().Get("tenant")
+	if p, ok := authPrincipal(r); ok && p.Tenant != "" {
+		tenant = p.Tenant
+	}
+	if tenant == "" {
+		RespondError(w, 400, "MISSING_TENANT", "tenant is required (query param or authenticated identity)")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	resp, err := s.bus.Request(ctx, ipc.Message{
 		Source: "api", Target: "agent_runtime", Topic: "agent.search",
-		Payload: query,
+		Payload: map[string]string{"tenant": tenant, "query": query},
 	})
 	if err != nil {
 		RespondError(w, 500, "SEARCH_ERROR", err.Error())

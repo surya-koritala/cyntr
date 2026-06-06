@@ -24,19 +24,28 @@ func (t *DelegateTool) Description() string {
 }
 func (t *DelegateTool) Parameters() map[string]agent.ToolParam {
 	return map[string]agent.ToolParam{
-		"tenant":  {Type: "string", Description: "Tenant of the target agent", Required: true},
-		"agent":   {Type: "string", Description: "Name of the agent to delegate to", Required: true},
+		"agent":   {Type: "string", Description: "Name of the agent to delegate to (in your own tenant)", Required: true},
 		"message": {Type: "string", Description: "The task/question to delegate", Required: true},
 	}
 }
 
 func (t *DelegateTool) Execute(ctx context.Context, input map[string]string) (string, error) {
-	tenant := input["tenant"]
 	agentName := input["agent"]
 	message := input["message"]
 
-	if tenant == "" || agentName == "" || message == "" {
-		return "", fmt.Errorf("tenant, agent, and message are required")
+	if agentName == "" || message == "" {
+		return "", fmt.Errorf("agent and message are required")
+	}
+
+	// Tenant + user come from the trusted tool context, never the model: a
+	// model-supplied tenant would let an agent invoke another tenant's agents.
+	// Mirrors orchestrate_agents / recall_search / user_model_write.
+	tenant, _, user := agent.ToolCaller(ctx)
+	if tenant == "" {
+		return "", fmt.Errorf("delegate: no tenant in tool context")
+	}
+	if user == "" {
+		user = "delegate"
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -49,7 +58,7 @@ func (t *DelegateTool) Execute(ctx context.Context, input map[string]string) (st
 		Payload: agent.ChatRequest{
 			Agent:   agentName,
 			Tenant:  tenant,
-			User:    "delegate",
+			User:    user,
 			Message: message,
 		},
 	})

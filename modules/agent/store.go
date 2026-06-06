@@ -288,19 +288,25 @@ type SearchResult struct {
 	Role      int    `json:"role"`
 }
 
-// SearchMessages performs a full-text search across all message content.
-func (s *SessionStore) SearchMessages(query string) ([]SearchResult, error) {
+// SearchMessages performs a full-text search across one tenant's message
+// content. The tenant is required and enforced via the session-id prefix
+// ("sess_<tenant>_<name>") so a search can never read another tenant's history.
+func (s *SessionStore) SearchMessages(query, tenant string) ([]SearchResult, error) {
+	if tenant == "" {
+		return nil, fmt.Errorf("SearchMessages: tenant is required")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	prefix := "sess_" + tenant + "_"
 	rows, err := s.db.Query(`
 		SELECT m.session_id, m.content, m.role
 		FROM messages m
 		JOIN messages_fts f ON m.id = f.rowid
-		WHERE messages_fts MATCH ?
+		WHERE messages_fts MATCH ? AND substr(m.session_id, 1, ?) = ?
 		ORDER BY m.id DESC
 		LIMIT 50
-	`, query)
+	`, query, len(prefix), prefix)
 	if err != nil {
 		return nil, err
 	}

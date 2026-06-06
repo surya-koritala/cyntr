@@ -413,7 +413,7 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 	// driven off the IPC bus rather than an inbound request context, but the
 	// returned ctx is plumbed into downstream provider/tool calls so child
 	// spans nest correctly.
-	ctx, span := runtimeTracer.Start(context.Background(), "agent.chat")// Attributes are kept low-cardinality (no message body) so this is
+	ctx, span := runtimeTracer.Start(context.Background(), "agent.chat") // Attributes are kept low-cardinality (no message body) so this is
 	// safe to enable at 100% sampling in production.
 
 	span.SetAttributes(
@@ -956,12 +956,22 @@ func (r *Runtime) handleSessions(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (r *Runtime) handleSessionMessages(msg ipc.Message) (ipc.Message, error) {
-	sessionID, ok := msg.Payload.(string)
+	params, ok := msg.Payload.(map[string]string)
 	if !ok {
-		return ipc.Message{}, fmt.Errorf("expected string, got %T", msg.Payload)
+		return ipc.Message{}, fmt.Errorf("expected map[string]string, got %T", msg.Payload)
+	}
+	tenant, sessionID := params["tenant"], params["sid"]
+	if tenant == "" || sessionID == "" {
+		return ipc.Message{}, fmt.Errorf("agent.session.messages: tenant and sid are required")
 	}
 	if r.store == nil {
 		return ipc.Message{}, fmt.Errorf("session store not configured")
+	}
+	// Tenant isolation: a session id is "sess_<tenant>_<name>". Reject any id
+	// that does not belong to the caller's tenant so a raw id cannot read
+	// another tenant's history.
+	if !strings.HasPrefix(sessionID, "sess_"+tenant+"_") {
+		return ipc.Message{}, fmt.Errorf("session %q not found in tenant %q", sessionID, tenant)
 	}
 
 	_, messages, err := r.store.LoadSession(sessionID)
@@ -1309,14 +1319,18 @@ func (r *Runtime) handleMemoryDelete(msg ipc.Message) (ipc.Message, error) {
 }
 
 func (r *Runtime) handleSearch(msg ipc.Message) (ipc.Message, error) {
-	query, ok := msg.Payload.(string)
+	params, ok := msg.Payload.(map[string]string)
 	if !ok {
-		return ipc.Message{}, fmt.Errorf("expected string query, got %T", msg.Payload)
+		return ipc.Message{}, fmt.Errorf("expected map[string]string{tenant,query}, got %T", msg.Payload)
+	}
+	tenant, query := params["tenant"], params["query"]
+	if tenant == "" {
+		return ipc.Message{}, fmt.Errorf("agent.search: tenant is required")
 	}
 	if r.store == nil {
 		return ipc.Message{Type: ipc.MessageTypeResponse, Payload: []SearchResult{}}, nil
 	}
-	results, err := r.store.SearchMessages(query)
+	results, err := r.store.SearchMessages(query, tenant)
 	if err != nil {
 		return ipc.Message{}, err
 	}
