@@ -11,6 +11,7 @@ const (
 	ctxKeyTenant toolCtxKey = iota
 	ctxKeyAgent
 	ctxKeyUser
+	ctxKeyChannel
 )
 
 // WithToolCaller annotates the context with the calling tenant, agent, and user
@@ -29,4 +30,18 @@ func ToolCaller(ctx context.Context) (tenant, agentName, user string) {
 	agentName, _ = ctx.Value(ctxKeyAgent).(string)
 	user, _ = ctx.Value(ctxKeyUser).(string)
 	return
+}
+
+// WithChannel annotates the context with the coordination channel id (the
+// orchestration batch's TraceID) so a worker subagent's tools — e.g.
+// context_read — can scope reads to the batch they were spawned in (#48).
+func WithChannel(ctx context.Context, channel string) context.Context {
+	return context.WithValue(ctx, ctxKeyChannel, channel)
+}
+
+// Channel returns the coordination channel id bound to the context, or "" when
+// the turn was not spawned as part of an orchestration.
+func Channel(ctx context.Context) string {
+	channel, _ := ctx.Value(ctxKeyChannel).(string)
+	return channel
 }

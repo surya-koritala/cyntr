@@ -35,7 +35,8 @@ func (t *OrchestrateTool) Description() string {
 }
 func (t *OrchestrateTool) Parameters() map[string]agent.ToolParam {
 	return map[string]agent.ToolParam{
-		"tasks": {Type: "string", Description: `JSON array of tasks: [{"agent":"a","message":"m"}]. Agents run in your tenant.`, Required: true},
+		"tasks":          {Type: "string", Description: `JSON array of tasks: [{"agent":"a","message":"m"}]. Agents run in your tenant.`, Required: true},
+		"shared_context": {Type: "string", Description: `Optional JSON object of notes to share with every child, e.g. {"plan":"...","schema":"..."}. As the coordinator you write it; the children read it read-only via context_read. Use it to hand a plan or intermediate result to the workers.`, Required: false},
 	}
 }
 
@@ -64,7 +65,7 @@ func (t *OrchestrateTool) Execute(ctx context.Context, input map[string]string) 
 
 	// Children inherit the caller's tenant + user from the tool context, so
 	// the model cannot fan out into another tenant.
-	tenant, _, user := agent.ToolCaller(ctx)
+	tenant, agentName, user := agent.ToolCaller(ctx)
 	if tenant == "" {
 		return "", fmt.Errorf("orchestrate: no tenant in tool context")
 	}
@@ -81,8 +82,17 @@ func (t *OrchestrateTool) Execute(ctx context.Context, input map[string]string) 
 	}
 
 	// One correlation id for the whole fan-out so every child's audit trail
-	// links back to this orchestration.
+	// links back to this orchestration. It is also the shared-context channel
+	// id: children receive it as their TraceID and read this batch's notes
+	// through it (#48).
 	batchTrace := genTraceID()
+
+	// As the coordinator, write any shared context BEFORE fanning out so the
+	// children can read it. Children are never given a write tool, so the
+	// channel is writable only here (coordinator) and read-only for workers.
+	if err := t.writeSharedContext(ctx, tenant, agentName, batchTrace, input["shared_context"]); err != nil {
+		return "", err
+	}
 
 	results := make([]orchestrateResult, len(tasks))
 	sem := make(chan struct{}, t.maxConcurrency)
@@ -130,6 +140,41 @@ func (t *OrchestrateTool) Execute(ctx context.Context, input map[string]string) 
 		sb.WriteString("\n\n---\n\n")
 	}
 	return sb.String(), nil
+}
+
+// writeSharedContext parses the optional shared_context JSON object and writes
+// each key/value into the batch's channel through the runtime. The coordinator
+// agent is recorded as the author. A malformed object is a hard error so the
+// model learns to fix it rather than silently losing the handoff.
+func (t *OrchestrateTool) writeSharedContext(ctx context.Context, tenant, author, channel, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var notes map[string]string
+	if err := json.Unmarshal([]byte(raw), &notes); err != nil {
+		return fmt.Errorf("invalid shared_context JSON (want an object of string values): %w", err)
+	}
+	for key, content := range notes {
+		if key == "" {
+			continue
+		}
+		writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, err := t.bus.Request(writeCtx, ipc.Message{
+			Source:  "orchestrate",
+			Target:  "agent_runtime",
+			Topic:   agent.TopicContextWrite,
+			TraceID: channel,
+			Payload: agent.SharedContextEntry{
+				Tenant: tenant, Channel: channel, Key: key, Content: content, Author: author,
+			},
+		})
+		cancel()
+		if err != nil {
+			return fmt.Errorf("write shared context %q: %w", key, err)
+		}
+	}
+	return nil
 }
 
 func genTraceID() string {
