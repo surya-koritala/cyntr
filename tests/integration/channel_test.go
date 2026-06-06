@@ -2,6 +2,9 @@ package integration
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -48,6 +51,7 @@ rules:
 	agentRuntime.RegisterProvider(providers.NewMock("Hello from Cyntr!"))
 
 	webhookAdapter := webhook.New("127.0.0.1:0")
+	webhookAdapter.SetSigningSecret("itest-secret")
 	channelMgr := channel.NewManager()
 	channelMgr.AddAdapter(webhookAdapter)
 
@@ -85,9 +89,13 @@ rules:
 
 	time.Sleep(200 * time.Millisecond)
 
-	// Send webhook message
+	// Send a signed webhook message
 	body := `{"tenant":"marketing","agent":"assistant","user_id":"U123","channel_id":"C456","text":"Hi there"}`
-	resp, err := http.Post("http://"+webhookAdapter.Addr()+"/webhook", "application/json", strings.NewReader(body))
+	mac := hmac.New(sha256.New, []byte("itest-secret"))
+	mac.Write([]byte(body))
+	whReq, _ := http.NewRequest("POST", "http://"+webhookAdapter.Addr()+"/webhook", strings.NewReader(body))
+	whReq.Header.Set("X-Webhook-Signature", hex.EncodeToString(mac.Sum(nil)))
+	resp, err := http.DefaultClient.Do(whReq)
 	if err != nil {
 		t.Fatalf("webhook: %v", err)
 	}
