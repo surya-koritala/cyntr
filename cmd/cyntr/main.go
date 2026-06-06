@@ -152,6 +152,15 @@ func runStart() {
 	usageStore, _ := agent.NewUsageStore(dataPath("usage.db"))
 	agentRuntime.SetUsageStore(usageStore)
 
+	// Shared-context channel (#48): backs stateful subagent coordination — a
+	// coordinator writes a plan/intermediate result that its worker subagents
+	// read read-only via context_read.
+	if contextStore, err := agent.NewContextStore(dataPath("shared_context.db")); err != nil {
+		log.Warn("shared-context store disabled", map[string]any{"error": err.Error()})
+	} else {
+		agentRuntime.SetContextStore(contextStore)
+	}
+
 	// Per-workspace context files (A7): AGENTS.md / CYNTR.md / SOUL.md /
 	// TOOLS.md under <workspace>/<tenant>/<agent>/ are prepended to every
 	// chat's system context. Root configurable via CYNTR_WORKSPACE_DIR.
@@ -199,6 +208,7 @@ func runStart() {
 	toolReg.Register(agenttools.NewJiraTool())
 	toolReg.Register(agenttools.NewDelegateTool(k.Bus()))
 	toolReg.Register(agenttools.NewOrchestrateTool(k.Bus()))
+	toolReg.Register(agenttools.NewContextReadTool(k.Bus()))
 	toolReg.Register(agenttools.NewSkillRouterTool(k.Bus()))
 	codeTool := agenttools.NewCodeInterpreterTool()
 	// Tool-RPC bridge (E21): scripts may call cyntr.call_tool(...) in one turn.

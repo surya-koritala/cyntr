@@ -94,6 +94,7 @@ type Runtime struct {
 	memoryStore   *MemoryStore
 	usageStore    *UsageStore
 	contextLoader *ContextLoader
+	contextStore  *ContextStore
 }
 
 // SetSessionStore attaches a SessionStore to the runtime for persistent conversations.
@@ -115,6 +116,12 @@ func (r *Runtime) SetUsageStore(store *UsageStore) {
 // content is prepended to every chat's system context.
 func (r *Runtime) SetContextLoader(cl *ContextLoader) {
 	r.contextLoader = cl
+}
+
+// SetContextStore attaches the shared-context store that backs stateful
+// subagent coordination (#48).
+func (r *Runtime) SetContextStore(cs *ContextStore) {
+	r.contextStore = cs
 }
 
 type agentInstance struct {
@@ -186,6 +193,8 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.bus.Handle("agent_runtime", "agent.search", r.handleSearch)
 	r.bus.Handle("agent_runtime", "agent.versions", r.handleVersions)
 	r.bus.Handle("agent_runtime", "agent.rollback", r.handleRollback)
+	r.bus.Handle("agent_runtime", TopicContextWrite, r.handleContextWrite)
+	r.bus.Handle("agent_runtime", TopicContextRead, r.handleContextRead)
 	return r.LoadSavedAgents()
 }
 
@@ -790,6 +799,12 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				var execErr error
 				toolStart := time.Now()
 				toolCtx := WithToolCaller(context.Background(), req.Tenant, req.Agent, req.User)
+				// Carry the orchestration batch id (set by orchestrate as the
+				// fan-out TraceID) so a worker's context_read scopes to its
+				// own batch's shared channel (#48).
+				if msg.TraceID != "" {
+					toolCtx = WithChannel(toolCtx, msg.TraceID)
+				}
 				result, execErr = r.executeToolWithRetry(toolCtx, tc.Name, toolInput)
 				toolDuration := time.Since(toolStart)
 				if toolDuration > 2*time.Second {
@@ -1173,6 +1188,65 @@ func formatSkillInstructions(instructions map[string]string) string {
 		sb.WriteString("\n\n---\n\n")
 	}
 	return sb.String()
+}
+
+// Shared-context coordination topics (#48). Write is reached only via the
+// orchestrate tool (the coordinator path); read is reached via the read-only
+// context_read tool that worker subagents carry.
+const (
+	TopicContextWrite = "agent.context.write"
+	TopicContextRead  = "agent.context.read"
+)
+
+// ContextReadRequest asks for every shared note in (Tenant, Channel).
+type ContextReadRequest struct {
+	Tenant  string `json:"tenant"`
+	Channel string `json:"channel"`
+}
+
+// ContextReadResult carries the notes back to a worker's context_read tool.
+type ContextReadResult struct {
+	Entries []SharedContextEntry `json:"entries"`
+}
+
+// handleContextWrite persists a coordinator's shared note. The runtime forces
+// the tenant/channel/author from the trusted call rather than trusting the
+// model, and runs content through the same redaction as every other persisted
+// surface.
+func (r *Runtime) handleContextWrite(msg ipc.Message) (ipc.Message, error) {
+	e, ok := msg.Payload.(SharedContextEntry)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected SharedContextEntry, got %T", msg.Payload)
+	}
+	if r.contextStore == nil {
+		return ipc.Message{}, fmt.Errorf("shared context store not configured")
+	}
+	if e.Tenant == "" || e.Channel == "" || e.Key == "" {
+		return ipc.Message{}, fmt.Errorf("agent.context.write: tenant, channel and key are required")
+	}
+	e.Content = RedactPII(MaskSecrets(e.Content))
+	if err := r.contextStore.Write(e); err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: "ok"}, nil
+}
+
+// handleContextRead returns the notes for a (tenant, channel). Tenant and
+// channel are both required and never crossed, so a worker can only read its
+// own batch's channel within its own tenant.
+func (r *Runtime) handleContextRead(msg ipc.Message) (ipc.Message, error) {
+	req, ok := msg.Payload.(ContextReadRequest)
+	if !ok {
+		return ipc.Message{}, fmt.Errorf("expected ContextReadRequest, got %T", msg.Payload)
+	}
+	if r.contextStore == nil {
+		return ipc.Message{}, fmt.Errorf("shared context store not configured")
+	}
+	entries, err := r.contextStore.Read(req.Tenant, req.Channel)
+	if err != nil {
+		return ipc.Message{}, err
+	}
+	return ipc.Message{Type: ipc.MessageTypeResponse, Payload: ContextReadResult{Entries: entries}}, nil
 }
 
 // handleMemorySave persists a long-term memory. Used by the learning loop to
