@@ -6,9 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"time"
 
 	"github.com/cyntr-dev/cyntr/modules/agent"
+)
+
+var (
+	awsAccountRe = regexp.MustCompile(`^[0-9]{12}$`)
+	awsRoleRe    = regexp.MustCompile(`^[A-Za-z0-9+=,.@_/-]{1,128}$`)
+	awsRegionRe  = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 )
 
 type AWSTool struct{}
@@ -44,15 +51,26 @@ func (t *AWSTool) Execute(ctx context.Context, input map[string]string) (string,
 		region = "us-east-1"
 	}
 
-	roleARN := fmt.Sprintf("arn:aws:iam::%s:role/%s", accountID, roleName)
+	// Validate the identifiers that go into the role ARN. Without this they are
+	// interpolated into a shell command — a command-injection vector.
+	if !awsAccountRe.MatchString(accountID) {
+		return "", fmt.Errorf("invalid account_id (want 12 digits)")
+	}
+	if !awsRoleRe.MatchString(roleName) {
+		return "", fmt.Errorf("invalid role_name")
+	}
+	if !awsRegionRe.MatchString(region) {
+		return "", fmt.Errorf("invalid region")
+	}
 
-	// Assume role
-	assumeCmd := fmt.Sprintf("aws sts assume-role --role-arn %s --role-session-name cyntr-session --output json", roleARN)
+	roleARN := fmt.Sprintf("arn:aws:iam::%s:role/%s", accountID, roleName)
 
 	assumeCtx, assumeCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer assumeCancel()
 
-	cmd := exec.CommandContext(assumeCtx, "bash", "-c", assumeCmd)
+	// Assume role via discrete argv (no shell) so the ARN cannot inject.
+	cmd := exec.CommandContext(assumeCtx, "aws", "sts", "assume-role",
+		"--role-arn", roleARN, "--role-session-name", "cyntr-session", "--output", "json")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -72,16 +90,19 @@ func (t *AWSTool) Execute(ctx context.Context, input map[string]string) (string,
 		return "", fmt.Errorf("parse credentials: %w", err)
 	}
 
-	// Execute command with assumed role credentials
-	envPrefix := fmt.Sprintf("AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s AWS_SESSION_TOKEN=%s AWS_DEFAULT_REGION=%s",
-		creds.Credentials.AccessKeyId, creds.Credentials.SecretAccessKey, creds.Credentials.SessionToken, region)
-
-	fullCmd := fmt.Sprintf("%s %s", envPrefix, command)
-
 	execCtx, execCancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer execCancel()
 
-	execCmd := exec.CommandContext(execCtx, "bash", "-c", fullCmd)
+	// Run the operator-supplied AWS CLI command with the assumed-role
+	// credentials passed via the environment (not string-interpolated into the
+	// shell, which previously let the session token break out of the command).
+	execCmd := exec.CommandContext(execCtx, "bash", "-c", command)
+	execCmd.Env = append(execCmd.Environ(),
+		"AWS_ACCESS_KEY_ID="+creds.Credentials.AccessKeyId,
+		"AWS_SECRET_ACCESS_KEY="+creds.Credentials.SecretAccessKey,
+		"AWS_SESSION_TOKEN="+creds.Credentials.SessionToken,
+		"AWS_DEFAULT_REGION="+region,
+	)
 	var execOut, execErr bytes.Buffer
 	execCmd.Stdout = &execOut
 	execCmd.Stderr = &execErr

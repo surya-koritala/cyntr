@@ -5,9 +5,44 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cyntr-dev/cyntr/modules/agent"
 )
+
+// fileToolRoot is the directory the file tools are confined to. It defaults to
+// the process working directory and can be set with CYNTR_FILE_TOOL_ROOT.
+func fileToolRoot() string {
+	if r := os.Getenv("CYNTR_FILE_TOOL_ROOT"); r != "" {
+		return r
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return wd
+}
+
+// confinePath resolves path (absolute or relative to the root) and rejects it if
+// it escapes the configured root — preventing arbitrary-path / ../ traversal.
+func confinePath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	absRoot, err := filepath.Abs(fileToolRoot())
+	if err != nil {
+		return "", fmt.Errorf("resolve root: %w", err)
+	}
+	abs := filepath.Clean(path)
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Clean(filepath.Join(absRoot, path))
+	}
+	rel, err := filepath.Rel(absRoot, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q is outside the permitted root", path)
+	}
+	return abs, nil
+}
 
 type FileReadTool struct{}
 
@@ -19,9 +54,9 @@ func (t *FileReadTool) Parameters() map[string]agent.ToolParam {
 	}
 }
 func (t *FileReadTool) Execute(ctx context.Context, input map[string]string) (string, error) {
-	path := input["path"]
-	if path == "" {
-		return "", fmt.Errorf("path is required")
+	path, err := confinePath(input["path"])
+	if err != nil {
+		return "", err
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -48,11 +83,11 @@ func (t *FileWriteTool) Parameters() map[string]agent.ToolParam {
 	}
 }
 func (t *FileWriteTool) Execute(ctx context.Context, input map[string]string) (string, error) {
-	path := input["path"]
-	content := input["content"]
-	if path == "" {
-		return "", fmt.Errorf("path is required")
+	path, err := confinePath(input["path"])
+	if err != nil {
+		return "", err
 	}
+	content := input["content"]
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return "", fmt.Errorf("create directory: %w", err)
 	}
@@ -73,10 +108,13 @@ func (t *FileSearchTool) Parameters() map[string]agent.ToolParam {
 	}
 }
 func (t *FileSearchTool) Execute(ctx context.Context, input map[string]string) (string, error) {
-	dir := input["directory"]
 	pattern := input["pattern"]
-	if dir == "" || pattern == "" {
+	if input["directory"] == "" || pattern == "" {
 		return "", fmt.Errorf("directory and pattern required")
+	}
+	dir, err := confinePath(input["directory"])
+	if err != nil {
+		return "", err
 	}
 	matches, err := filepath.Glob(filepath.Join(dir, pattern))
 	if err != nil {

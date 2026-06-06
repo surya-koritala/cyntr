@@ -17,6 +17,7 @@ func TestHTTPToolName(t *testing.T) {
 }
 
 func TestHTTPToolGet(t *testing.T) {
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "hello from server")
 	}))
@@ -36,6 +37,7 @@ func TestHTTPToolGet(t *testing.T) {
 }
 
 func TestHTTPToolPost(t *testing.T) {
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	var receivedBody string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b := make([]byte, 1024)
@@ -58,6 +60,7 @@ func TestHTTPToolPost(t *testing.T) {
 }
 
 func TestHTTPToolHeaders(t *testing.T) {
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	var receivedHeader string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedHeader = r.Header.Get("X-Custom")

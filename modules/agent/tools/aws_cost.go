@@ -35,6 +35,12 @@ func (t *CostExplorerTool) Execute(ctx context.Context, input map[string]string)
 	if groupBy == "" {
 		groupBy = "SERVICE"
 	}
+	// Allowlist the dimension — it is otherwise interpolated into the CLI call.
+	switch groupBy {
+	case "SERVICE", "REGION", "LINKED_ACCOUNT", "INSTANCE_TYPE", "USAGE_TYPE":
+	default:
+		return "", fmt.Errorf("invalid group_by (allowed: SERVICE, REGION, LINKED_ACCOUNT, INSTANCE_TYPE, USAGE_TYPE)")
+	}
 
 	now := time.Now()
 	var startDate, endDate string
@@ -58,12 +64,14 @@ func (t *CostExplorerTool) Execute(ctx context.Context, input map[string]string)
 		endDate = now.Format("2006-01-02")
 	}
 
-	cmd := fmt.Sprintf(`aws ce get-cost-and-usage --time-period Start=%s,End=%s --granularity MONTHLY --metrics "UnblendedCost" --group-by Type=DIMENSION,Key=%s --output json`, startDate, endDate, groupBy)
-
 	execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	execCmd := exec.CommandContext(execCtx, "bash", "-c", cmd)
+	// Discrete argv (no shell) so neither the dates nor the dimension can inject.
+	execCmd := exec.CommandContext(execCtx, "aws", "ce", "get-cost-and-usage",
+		"--time-period", fmt.Sprintf("Start=%s,End=%s", startDate, endDate),
+		"--granularity", "MONTHLY", "--metrics", "UnblendedCost",
+		"--group-by", "Type=DIMENSION,Key="+groupBy, "--output", "json")
 	var stdout, stderr bytes.Buffer
 	execCmd.Stdout = &stdout
 	execCmd.Stderr = &stderr
