@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cyntr-dev/cyntr/cmd/cyntr/migrate"
+	cyntrtrajectory "github.com/cyntr-dev/cyntr/cmd/cyntr/trajectory"
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/config"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
@@ -26,6 +28,8 @@ import (
 	discordpkg "github.com/cyntr-dev/cyntr/modules/channel/discord"
 	emailpkg "github.com/cyntr-dev/cyntr/modules/channel/email"
 	googlechatpkg "github.com/cyntr-dev/cyntr/modules/channel/googlechat"
+	ircpkg "github.com/cyntr-dev/cyntr/modules/channel/irc"
+	linepkg "github.com/cyntr-dev/cyntr/modules/channel/line"
 	matrixpkg "github.com/cyntr-dev/cyntr/modules/channel/matrix"
 	mattermostpkg "github.com/cyntr-dev/cyntr/modules/channel/mattermost"
 	signalpkg "github.com/cyntr-dev/cyntr/modules/channel/signal"
@@ -85,6 +89,10 @@ func main() {
 		runChat(os.Args[2:])
 	case "eval":
 		runEval(os.Args[2:])
+	case "migrate":
+		runMigrate(os.Args[2:])
+	case "trajectory":
+		os.Exit(cyntrtrajectory.Run(os.Args[2:]))
 	case "docs":
 		runDocs(os.Args[2:])
 	case "backup":
@@ -100,6 +108,26 @@ func main() {
 
 func printUsage() {
 	showHelp()
+}
+
+// runMigrate handles `cyntr migrate <target>`. Offline (reads ~/.openclaw
+// directly), like init/doctor — it does not need the running server/API.
+func runMigrate(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: cyntr migrate <openclaw> [--dry-run] [--tenant <t>] [--dir <openclaw-home>] [--config <path>] [--skills-dir <path>]")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "openclaw":
+		opts := migrate.ParseArgs(args[1:])
+		if _, err := migrate.RunMigrateOpenClaw(opts); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate openclaw: %v\n", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "unknown migrate target: %s (expected: openclaw)\n", args[0])
+		os.Exit(1)
+	}
 }
 
 func runStart() {
@@ -169,6 +197,14 @@ func runStart() {
 		workspaceRoot = "workspace"
 	}
 	agentRuntime.SetContextLoader(agent.NewContextLoader(workspaceRoot))
+
+	// Switchable personalities (F24): per-tenant named system-prompt fragments
+	// selectable per conversation via '/personality <name>'.
+	if personalityStore, err := agent.NewPersonalityStore(dataPath("personalities.db")); err != nil {
+		log.Warn("personality store disabled", map[string]any{"error": err.Error()})
+	} else {
+		agentRuntime.SetPersonalityStore(personalityStore)
+	}
 
 	// Start data retention scheduler (cleans up old sessions/memories/usage)
 	agent.StartRetentionScheduler(sessionStore, memoryStore, usageStore, agent.RetentionPolicy{
@@ -244,6 +280,7 @@ func runStart() {
 	})
 	toolReg.Register(codeTool)
 	toolReg.Register(agenttools.NewTranscribeTool())
+	toolReg.Register(agenttools.NewTextToSpeechTool())
 	toolReg.Register(agenttools.NewWebSearchTool())
 	toolReg.Register(agenttools.NewWebReaderTool())
 	toolReg.Register(agenttools.NewPDFReaderTool())
@@ -585,6 +622,49 @@ func runStart() {
 		log.Info("channel adapter registered", map[string]any{"adapter": "whatsapp", "tenant": waTenant, "agent": waAgent, "listen": waAddr})
 	}
 
+	// Register IRC adapter if configured (B11) — pure-Go, persistent TCP.
+	if ircServer := os.Getenv("IRC_SERVER"); ircServer != "" { // host:port, e.g. "irc.libera.chat:6667"
+		ircNick := os.Getenv("IRC_NICK")
+		if ircNick == "" {
+			ircNick = "cyntr"
+		}
+		ircTenant := os.Getenv("IRC_TENANT")
+		if ircTenant == "" {
+			ircTenant = "default"
+		}
+		ircAgent := os.Getenv("IRC_AGENT")
+		if ircAgent == "" {
+			ircAgent = "assistant"
+		}
+		var ircChannels []string
+		if chans := os.Getenv("IRC_CHANNELS"); chans != "" {
+			ircChannels = strings.Split(chans, ",")
+		}
+		channelMgr.AddAdapter(ircpkg.New(ircServer, ircNick, ircChannels, ircTenant, ircAgent))
+		log.Info("channel adapter registered", map[string]any{"adapter": "irc", "tenant": ircTenant, "agent": ircAgent, "server": ircServer})
+	}
+
+	// Register LINE adapter if configured (B11) — signed webhook, fails closed.
+	if lineToken := os.Getenv("LINE_CHANNEL_ACCESS_TOKEN"); lineToken != "" {
+		lineSecret := os.Getenv("LINE_CHANNEL_SECRET")
+		lineTenant := os.Getenv("LINE_TENANT")
+		if lineTenant == "" {
+			lineTenant = "default"
+		}
+		lineAgent := os.Getenv("LINE_AGENT")
+		if lineAgent == "" {
+			lineAgent = "assistant"
+		}
+		lineAddr := os.Getenv("LINE_LISTEN_ADDR")
+		if lineAddr == "" {
+			lineAddr = "127.0.0.1:3005"
+		}
+		lineAdapter := linepkg.New(lineAddr, lineToken, lineTenant, lineAgent)
+		lineAdapter.SetChannelSecret(lineSecret) // inbound verification; fails closed when empty
+		channelMgr.AddAdapter(lineAdapter)
+		log.Info("channel adapter registered", map[string]any{"adapter": "line", "tenant": lineTenant, "agent": lineAgent, "listen": lineAddr})
+	}
+
 	// Register Telegram adapter if configured
 	tgToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if tgToken != "" {
@@ -789,6 +869,22 @@ func runStart() {
 	// Eval runner
 	evalRunner := eval.New()
 	k.Register(evalRunner)
+
+	// Trajectory capture (G28) — opt-in, OFF by default. Subscribes to
+	// agent.turn_completed and persists full trajectories for opted-in
+	// (tenant, agent) pairs; exposes JSONL export + recording toggle over IPC.
+	if trajStore, terr := eval.NewTrajectoryStore(dataPath("trajectories.db")); terr != nil {
+		log.Warn("trajectory capture disabled", map[string]any{"error": terr.Error()})
+	} else {
+		trajOpts := []eval.TrajectoryOption{
+			eval.WithTrajectoryLogger(func(m string, kv map[string]any) { log.Info(m, kv) }),
+		}
+		if keys := os.Getenv("CYNTR_TRAJECTORY_RECORD"); keys != "" {
+			trajOpts = append(trajOpts, eval.WithRecordingDefault(strings.Split(keys, ",")...))
+		}
+		k.Register(eval.NewTrajectoryModule(trajStore, trajOpts...))
+		log.Info("trajectory module registered", map[string]any{"db": "trajectories.db"})
+	}
 
 	// Curator (F3 — records skill invocations, exposes scores + prune suggestions)
 	curatorMod := curator.New(dataPath("curator.db"))
