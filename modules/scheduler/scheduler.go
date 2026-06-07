@@ -117,8 +117,12 @@ func (s *Scheduler) checkAndRun(now time.Time) {
 			continue
 		}
 
-		// Run the job
-		go s.executeJob(job)
+		// Run the job. Pass a snapshot copy: checkAndRun mutates LastRun/NextRun
+		// on the shared *Job below (and on later ticks) while executeJob reads
+		// Job fields from another goroutine, so the goroutine must not share the
+		// live pointer.
+		jobCopy := *job
+		go s.executeJob(&jobCopy)
 
 		job.LastRun = now
 		if job.CronExpr != "" {
@@ -148,7 +152,7 @@ func (s *Scheduler) executeJob(job *Job) {
 		logger.Error("scheduled job failed", map[string]any{"job_id": job.ID, "agent": job.Agent, "error": err.Error()})
 		// Record failure
 		s.recordJobRun(job.ID, JobRun{
-			ID: fmt.Sprintf("jr_%d", time.Now().UnixNano()),
+			ID:    fmt.Sprintf("jr_%d", time.Now().UnixNano()),
 			JobID: job.ID, Status: "failure",
 			Error: err.Error(), StartedAt: start, Duration: time.Since(start),
 		})
@@ -159,7 +163,7 @@ func (s *Scheduler) executeJob(job *Job) {
 	if !ok {
 		logger.Warn("scheduled job unexpected response", map[string]any{"job_id": job.ID})
 		s.recordJobRun(job.ID, JobRun{
-			ID: fmt.Sprintf("jr_%d", time.Now().UnixNano()),
+			ID:    fmt.Sprintf("jr_%d", time.Now().UnixNano()),
 			JobID: job.ID, Status: "failure",
 			Error: "unexpected response type", StartedAt: start, Duration: time.Since(start),
 		})
@@ -190,7 +194,7 @@ func (s *Scheduler) executeJob(job *Job) {
 
 	// Record success
 	s.recordJobRun(job.ID, JobRun{
-		ID: fmt.Sprintf("jr_%d", time.Now().UnixNano()),
+		ID:    fmt.Sprintf("jr_%d", time.Now().UnixNano()),
 		JobID: job.ID, Status: "success",
 		Output: chatResp.Content, StartedAt: start, Duration: time.Since(start),
 	})

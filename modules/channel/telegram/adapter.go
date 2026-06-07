@@ -3,6 +3,7 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,18 +15,22 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/channel"
 )
 
+// maxInboundBody bounds the size of an inbound webhook body to mitigate DoS.
+const maxInboundBody = 1 << 20 // 1 MiB
+
 var logger = log.Default().WithModule("channel_telegram")
 
 type Adapter struct {
-	listenAddr string
-	botToken   string
-	tenant     string
-	agent      string
-	handler    channel.InboundHandler
-	listener   net.Listener
-	server     *http.Server
-	client     *http.Client
-	apiURL     string
+	listenAddr  string
+	botToken    string
+	secretToken string // expected X-Telegram-Bot-Api-Secret-Token; empty = reject all inbound
+	tenant      string
+	agent       string
+	handler     channel.InboundHandler
+	listener    net.Listener
+	server      *http.Server
+	client      *http.Client
+	apiURL      string
 }
 
 func New(listenAddr, botToken, tenant, agent string) *Adapter {
@@ -36,6 +41,10 @@ func New(listenAddr, botToken, tenant, agent string) *Adapter {
 }
 
 func (a *Adapter) SetAPIURL(url string) { a.apiURL = url }
+
+// SetSecretToken configures the expected X-Telegram-Bot-Api-Secret-Token. When
+// unset, all inbound webhook requests are rejected (fail closed).
+func (a *Adapter) SetSecretToken(token string) { a.secretToken = token }
 func (a *Adapter) Addr() string {
 	if a.listener == nil {
 		return ""
@@ -88,9 +97,19 @@ func (a *Adapter) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
+
+	// Verify the Telegram secret token (fail closed if none configured).
+	if a.secretToken == "" || subtle.ConstantTimeCompare(
+		[]byte(r.Header.Get("X-Telegram-Bot-Api-Secret-Token")),
+		[]byte(a.secretToken),
+	) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	w.WriteHeader(200)
 
-	body, _ := io.ReadAll(r.Body)
+	body, _ := io.ReadAll(io.LimitReader(r.Body, maxInboundBody))
 	var update struct {
 		Message struct {
 			Chat struct {

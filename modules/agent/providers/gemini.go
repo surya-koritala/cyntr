@@ -62,12 +62,15 @@ func (g *Gemini) Chat(ctx context.Context, messages []agent.Message, tools []age
 		return agent.Message{}, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", g.baseURL, g.model, g.apiKey)
+	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent", g.baseURL, g.model)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return agent.Message{}, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Send the API key via header rather than the URL query string so it does
+	// not leak into request logs, proxies, or browser history.
+	req.Header.Set("x-goog-api-key", g.apiKey)
 
 	resp, err := g.client.Do(req)
 	if err != nil {

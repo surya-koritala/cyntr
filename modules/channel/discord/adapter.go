@@ -76,6 +76,10 @@ func (a *Adapter) Addr() string {
 }
 func (a *Adapter) Name() string { return "discord" }
 
+// Tenant returns the tenant that owns this adapter, so the channel manager can
+// scope outbound dispatch and refuse cross-tenant delivery.
+func (a *Adapter) Tenant() string { return a.tenant }
+
 func (a *Adapter) Start(ctx context.Context, handler channel.InboundHandler) error {
 	a.handler = handler
 	mux := http.NewServeMux()

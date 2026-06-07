@@ -55,6 +55,8 @@ func TestPeerManagerRemove(t *testing.T) {
 }
 
 func TestPeerManagerCheckHealth(t *testing.T) {
+	// httptest binds to 127.0.0.1; opt in to allow private addresses past the SSRF guard.
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
 	// Create a mock peer server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

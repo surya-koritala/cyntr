@@ -98,17 +98,20 @@ func NewSandboxedExecutor(inner Executor) *SandboxedExecutor {
 
 func (e *SandboxedExecutor) Name() string { return "sandboxed-" + e.inner.Name() }
 
-// Execute checks capabilities before delegating to the inner executor.
+// Execute enforces the skill's declared capability allowlist before delegating
+// to the inner executor. The inner ScriptExecutor runs an arbitrary shell
+// script, so it requires the Shell capability. A skill that does not declare
+// Shell must fail closed rather than silently gaining shell access.
 func (e *SandboxedExecutor) Execute(ctx context.Context, s *InstalledSkill, input string) (*ExecutionResult, error) {
-	// Enforce capability restrictions
-	if s.Manifest.Capabilities.Shell {
-		// Shell access must be explicitly allowed — this is a check, not a grant
+	if s == nil {
+		return nil, fmt.Errorf("nil skill")
 	}
 
-	// Check if this is an OpenClaw skill (untrusted)
-	if s.Signature == "" {
-		// Unsigned skill — enforce maximum restrictions
-		// In a real WASM runtime, this would limit WASI capabilities
+	// The script-backed runtime executes a shell handler, which is shell
+	// access. Require the skill to have declared the Shell capability;
+	// otherwise refuse to run (fail closed).
+	if !s.Manifest.Capabilities.Shell {
+		return nil, fmt.Errorf("skill %q denied: shell handler requires the 'shell' capability, which is not declared", s.Manifest.Name)
 	}
 
 	return e.inner.Execute(ctx, s, input)

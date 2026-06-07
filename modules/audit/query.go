@@ -7,6 +7,15 @@ import (
 	"strings"
 )
 
+const (
+	// defaultQueryLimit caps an unspecified (Limit <= 0) audit query so a
+	// caller cannot pull an entire tenant's history in one request.
+	defaultQueryLimit = 1000
+	// maxQueryLimit is the hard upper bound; any larger request is clamped to
+	// protect the process from unbounded result materialization (DoS).
+	maxQueryLimit = 10000
+)
+
 func QueryEntries(db *sql.DB, filter QueryFilter) ([]Entry, error) {
 	// Tenant scoping is mandatory: an empty tenant must never widen the result
 	// set to every tenant's audit log.
@@ -44,9 +53,17 @@ func QueryEntries(db *sql.DB, filter QueryFilter) ([]Entry, error) {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	query += " ORDER BY rowid ASC"
-	if filter.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", filter.Limit)
+	// Always bound the result set. A non-positive Limit means "unspecified",
+	// which we treat as the default rather than unlimited; anything above the
+	// hard cap is clamped down.
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = defaultQueryLimit
 	}
+	if limit > maxQueryLimit {
+		limit = maxQueryLimit
+	}
+	query += fmt.Sprintf(" LIMIT %d", limit)
 
 	rows, err := db.Query(query, args...)
 	if err != nil {

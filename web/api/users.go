@@ -124,8 +124,9 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	keyHash := hex.EncodeToString(hash[:])
 	user, err := sessionStore.GetUserByKeyHash(keyHash)
 	if err != nil {
-		// Fallback: might be the root admin key
-		Respond(w, 200, map[string]string{"user": "admin", "role": "admin"})
+		// Unknown credential — never grant an identity. A token whose
+		// hash is not on record is not authenticated.
+		RespondError(w, 401, "UNAUTHORIZED", "invalid credentials")
 		return
 	}
 	Respond(w, 200, user)

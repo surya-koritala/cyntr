@@ -144,6 +144,7 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		received := make(chan string, 1)
 		a := telegram.New("127.0.0.1:0", "bot-token", "demo", "assistant")
 		a.SetAPIURL(telegramAPI.URL)
+		a.SetSecretToken("tg-secret-token")
 		if err := a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
 			received <- msg.Text
 			return "Telegram reply", nil
@@ -153,8 +154,28 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		defer a.Stop(ctx)
 		time.Sleep(100 * time.Millisecond)
 
-		http.Post("http://"+a.Addr()+"/telegram/webhook", "application/json",
-			strings.NewReader(`{"message":{"chat":{"id":123},"from":{"id":456},"text":"Hello Telegram"}}`))
+		tgBody := `{"message":{"chat":{"id":123},"from":{"id":456},"text":"Hello Telegram"}}`
+
+		// Negative: missing/wrong secret token is rejected.
+		badReq, _ := http.NewRequest("POST", "http://"+a.Addr()+"/telegram/webhook", strings.NewReader(tgBody))
+		badReq.Header.Set("Content-Type", "application/json")
+		badReq.Header.Set("X-Telegram-Bot-Api-Secret-Token", "wrong")
+		if badResp, err := http.DefaultClient.Do(badReq); err == nil {
+			badResp.Body.Close()
+			if badResp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("expected 401 for bad telegram secret, got %d", badResp.StatusCode)
+			}
+		}
+
+		// Signed (authenticated) inbound message.
+		tgReq, _ := http.NewRequest("POST", "http://"+a.Addr()+"/telegram/webhook", strings.NewReader(tgBody))
+		tgReq.Header.Set("Content-Type", "application/json")
+		tgReq.Header.Set("X-Telegram-Bot-Api-Secret-Token", "tg-secret-token")
+		if tgResp, err := http.DefaultClient.Do(tgReq); err != nil {
+			t.Fatalf("telegram post: %v", err)
+		} else {
+			tgResp.Body.Close()
+		}
 
 		select {
 		case txt := <-received:
@@ -233,6 +254,7 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		received := make(chan string, 1)
 		a := whatsapp.New("127.0.0.1:0", "token", "phone123", "verify-token", "demo", "assistant")
 		a.SetAPIURL(whatsappAPI.URL)
+		a.SetAppSecret("wa-app-secret")
 		if err := a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
 			received <- msg.Text
 			return "WhatsApp reply", nil
@@ -252,9 +274,33 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 			t.Fatalf("verification failed: status %d", resp.StatusCode)
 		}
 
-		// Inbound message
-		http.Post("http://"+a.Addr()+"/whatsapp/webhook", "application/json",
-			strings.NewReader(`{"entry":[{"changes":[{"value":{"messages":[{"from":"1234","text":{"body":"Hello WhatsApp"},"type":"text"}]}}]}]}`))
+		waBody := `{"entry":[{"changes":[{"value":{"messages":[{"from":"1234","text":{"body":"Hello WhatsApp"},"type":"text"}]}}]}]}`
+		waSign := func(body string) string {
+			mac := hmac.New(sha256.New, []byte("wa-app-secret"))
+			mac.Write([]byte(body))
+			return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+		}
+
+		// Negative: missing/invalid X-Hub-Signature-256 is rejected.
+		badReq, _ := http.NewRequest("POST", "http://"+a.Addr()+"/whatsapp/webhook", strings.NewReader(waBody))
+		badReq.Header.Set("Content-Type", "application/json")
+		badReq.Header.Set("X-Hub-Signature-256", waSign("tampered body"))
+		if badResp, err := http.DefaultClient.Do(badReq); err == nil {
+			badResp.Body.Close()
+			if badResp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("expected 401 for bad whatsapp signature, got %d", badResp.StatusCode)
+			}
+		}
+
+		// Signed inbound message over the exact body.
+		waReq, _ := http.NewRequest("POST", "http://"+a.Addr()+"/whatsapp/webhook", strings.NewReader(waBody))
+		waReq.Header.Set("Content-Type", "application/json")
+		waReq.Header.Set("X-Hub-Signature-256", waSign(waBody))
+		if waResp, err := http.DefaultClient.Do(waReq); err != nil {
+			t.Fatalf("whatsapp post: %v", err)
+		} else {
+			waResp.Body.Close()
+		}
 
 		select {
 		case txt := <-received:
@@ -272,6 +318,7 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		a := email.New("127.0.0.1:0", "smtp.test", "587", "bot@cyntr.dev", "demo", "assistant")
 		// Inject a no-op send function so tests don't need a real SMTP server
 		a.SetSendFunc(func(addr string, from string, to []string, msg []byte) error { return nil })
+		a.SetAuthToken("email-shared-secret")
 		if err := a.Start(ctx, func(msg channel.InboundMessage) (string, error) {
 			received <- msg.Text
 			return "Email reply", nil
@@ -281,8 +328,28 @@ func TestAllChannelAdaptersEndToEnd(t *testing.T) {
 		defer a.Stop(ctx)
 		time.Sleep(100 * time.Millisecond)
 
-		http.Post("http://"+a.Addr()+"/email/inbound", "application/json",
-			strings.NewReader(`{"from":"user@corp.com","to":"bot@cyntr.dev","subject":"Help","body":"Hello Email"}`))
+		emailBody := `{"from":"user@corp.com","to":"bot@cyntr.dev","subject":"Help","body":"Hello Email"}`
+
+		// Negative: missing/wrong shared secret is rejected.
+		badReq, _ := http.NewRequest("POST", "http://"+a.Addr()+"/email/inbound", strings.NewReader(emailBody))
+		badReq.Header.Set("Content-Type", "application/json")
+		badReq.Header.Set("Authorization", "Bearer wrong")
+		if badResp, err := http.DefaultClient.Do(badReq); err == nil {
+			badResp.Body.Close()
+			if badResp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("expected 401 for bad email secret, got %d", badResp.StatusCode)
+			}
+		}
+
+		// Authenticated inbound message.
+		emReq, _ := http.NewRequest("POST", "http://"+a.Addr()+"/email/inbound", strings.NewReader(emailBody))
+		emReq.Header.Set("Content-Type", "application/json")
+		emReq.Header.Set("Authorization", "Bearer email-shared-secret")
+		if emResp, err := http.DefaultClient.Do(emReq); err != nil {
+			t.Fatalf("email post: %v", err)
+		} else {
+			emResp.Body.Close()
+		}
 
 		select {
 		case txt := <-received:

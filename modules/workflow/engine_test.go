@@ -104,6 +104,11 @@ func TestWorkflowRunSimple(t *testing.T) {
 }
 
 func TestWorkflowRunWithWebhook(t *testing.T) {
+	// The webhook step validates the target URL through the SSRF guard.
+	// The httptest server binds to 127.0.0.1, so opt in to the sanctioned
+	// in-test allowance for private addresses (production stays guarded).
+	t.Setenv("CYNTR_SSRF_ALLOW_PRIVATE", "1")
+
 	_, bus := setupWorkflowTest(t)
 
 	webhookReceived := make(chan string, 1)

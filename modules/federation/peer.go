@@ -6,6 +6,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/cyntr-dev/cyntr/kernel/netguard"
 )
 
 // PeerManager manages federation peers.
@@ -21,9 +23,10 @@ func NewPeerManager(localID string) *PeerManager {
 	return &PeerManager{
 		localID: localID,
 		peers:   make(map[string]*Peer),
-		client: &http.Client{
-			Timeout: 5 * time.Second,
-		},
+		// Peer endpoints are operator/attacker-supplied URLs fetched
+		// server-side, so the health client is SSRF-guarded and re-validates
+		// redirects.
+		client: netguard.GuardedHTTPClient(5 * time.Second),
 	}
 }
 
@@ -76,6 +79,15 @@ func (pm *PeerManager) CheckHealth(name string) error {
 	}
 	endpoint := p.Endpoint
 	pm.mu.RUnlock()
+
+	if err := netguard.ValidatePublicURL(endpoint); err != nil {
+		pm.mu.Lock()
+		if peer, ok := pm.peers[name]; ok {
+			peer.Status = PeerUnreachable
+		}
+		pm.mu.Unlock()
+		return fmt.Errorf("peer %q endpoint rejected: %w", name, err)
+	}
 
 	resp, err := pm.client.Get(endpoint + "/api/v1/federation/health")
 	if err != nil {

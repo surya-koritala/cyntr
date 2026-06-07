@@ -542,9 +542,12 @@ GCP:
 	fmt.Println("  │                                       │")
 	fmt.Printf("  │   Dashboard: http://localhost:%-8s│\n", dashboardPort)
 	fmt.Println("  │                                       │")
-	fmt.Printf("  │   API Key: %.28s...  │\n", apiKey)
+	fmt.Println("  │   API Key: saved to .env              │")
 	fmt.Println("  │                                       │")
 	fmt.Println("  └───────────────────────────────────────┘")
+	fmt.Println()
+	fmt.Println("  Your CYNTR_API_KEY and provider keys were written to .env (mode 0600).")
+	fmt.Println("  Keep this file secret: do not commit it and do not share its contents.")
 
 	if enableCloudOps && len(cloudProviders) > 0 {
 		fmt.Println()

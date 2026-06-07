@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -62,14 +64,54 @@ func (t *StdioTransport) Send(ctx context.Context, request []byte) ([]byte, erro
 		return nil, fmt.Errorf("write to stdin: %w", err)
 	}
 
-	if !t.scanner.Scan() {
-		if err := t.scanner.Err(); err != nil {
-			return nil, fmt.Errorf("read stdout: %w", err)
-		}
-		return nil, fmt.Errorf("MCP server process closed stdout")
+	// Determine the id of the request we just sent. A JSON-RPC notification
+	// (a request without an "id") gets no reply, so do not block reading one —
+	// otherwise we would consume the next request's response.
+	var sent struct {
+		ID     *json.RawMessage `json:"id"`
+		Method string           `json:"method"`
 	}
+	_ = json.Unmarshal(request, &sent)
+	// A request without an id, or any "notifications/*" method, is a one-way
+	// notification per the MCP/JSON-RPC spec and gets no reply.
+	if sent.ID == nil || strings.HasPrefix(sent.Method, "notifications/") {
+		return nil, nil
+	}
+	wantID := string(*sent.ID)
 
-	return t.scanner.Bytes(), nil
+	// Read stdout lines until we find the response correlated to wantID,
+	// skipping server-initiated notifications and any stale/mismatched ids.
+	for {
+		if !t.scanner.Scan() {
+			if err := t.scanner.Err(); err != nil {
+				return nil, fmt.Errorf("read stdout: %w", err)
+			}
+			return nil, fmt.Errorf("MCP server process closed stdout")
+		}
+		line := t.scanner.Bytes()
+
+		var probe struct {
+			ID     *json.RawMessage `json:"id"`
+			Method string           `json:"method"`
+		}
+		if err := json.Unmarshal(line, &probe); err != nil {
+			// Not valid JSON-RPC; ignore log/diagnostic noise on stdout.
+			continue
+		}
+		// Notifications (no id, but a method) are skipped.
+		if probe.ID == nil {
+			continue
+		}
+		if string(*probe.ID) != wantID {
+			// Response to a different (stale) request; skip it.
+			continue
+		}
+
+		// Copy: scanner.Bytes() is only valid until the next Scan.
+		out := make([]byte, len(line))
+		copy(out, line)
+		return out, nil
+	}
 }
 
 func (t *StdioTransport) Close() error {

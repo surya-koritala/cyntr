@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -342,22 +343,56 @@ func (d *Distiller) Tick(ctx context.Context) []*DistillResult {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for _, tu := range users {
-		tu := tu
+	// Bound the fan-out. Without a cap, a tick covering thousands of active
+	// users would spawn one goroutine each, all racing into the store (and,
+	// past the per-user gates, the LLM) at once — a self-inflicted DoS. The
+	// LLM-level semaphore (d.sem) only guards the model call, not the
+	// pre-flight store reads, so we add a worker-pool bound here too.
+	workers := tickWorkerCap(cap(d.sem))
+	jobs := make(chan TenantUser)
+
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			r, _ := d.DistillUser(ctx, tu.Tenant, tu.User)
-			if r == nil {
-				return
+			for tu := range jobs {
+				r, _ := d.DistillUser(ctx, tu.Tenant, tu.User)
+				if r == nil {
+					continue
+				}
+				mu.Lock()
+				results = append(results, r)
+				mu.Unlock()
 			}
-			mu.Lock()
-			results = append(results, r)
-			mu.Unlock()
 		}()
 	}
+
+	for _, tu := range users {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return results
+		case jobs <- tu:
+		}
+	}
+	close(jobs)
 	wg.Wait()
 	return results
+}
+
+// defaultTickWorkers caps fan-out concurrency for a scheduled tick when no
+// LLM-level concurrency was configured.
+const defaultTickWorkers = 5
+
+// tickWorkerCap derives the fan-out worker count. It tracks the configured
+// LLM concurrency when set (cap of d.sem) so we never start more workers than
+// can make progress, and falls back to a small fixed bound otherwise.
+func tickWorkerCap(semCap int) int {
+	if semCap > 0 {
+		return semCap
+	}
+	return defaultTickWorkers
 }
 
 // ----- helpers -----
@@ -406,10 +441,45 @@ func buildSummaryBlock(activity []ActivitySummary) string {
 		// Strip newlines so each summary stays a single bullet.
 		s := strings.ReplaceAll(a.Summary, "\n", " ")
 		s = strings.TrimSpace(s)
+		// Redact secrets/PII before the summary is baked into the durable
+		// profile. A secret leaked into a recent chat must not be persisted
+		// (and re-fed to the model on every future distill).
+		s = redactSecrets(s)
 		b.WriteString(s)
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// secretPatterns matches common secret/credential and high-value PII shapes.
+// Self-contained on purpose: the distiller deliberately avoids importing the
+// agent package (which would create an import cycle).
+var secretPatterns = []*regexp.Regexp{
+	// Bearer / Authorization tokens.
+	regexp.MustCompile(`(?i)\b(?:bearer|authorization)\s*[:=]?\s*[A-Za-z0-9._\-]{12,}`),
+	// "key/token/secret/password = value" style assignments.
+	regexp.MustCompile(`(?i)\b(?:api[_-]?key|secret|password|passwd|token|access[_-]?key|client[_-]?secret|private[_-]?key)\b\s*[:=]\s*\S+`),
+	// AWS access key IDs.
+	regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`),
+	// Common provider key prefixes (OpenAI/Anthropic/GitHub/Slack/Google).
+	regexp.MustCompile(`\b(?:sk-[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_\-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_\-]{30,})\b`),
+	// JWTs (three base64url segments).
+	regexp.MustCompile(`\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b`),
+	// PEM private key blocks (collapsed to one line above, so match the header).
+	regexp.MustCompile(`-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----`),
+	// US SSNs.
+	regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),
+	// Credit-card-like 16-digit groups.
+	regexp.MustCompile(`\b(?:\d[ -]?){13,16}\b`),
+}
+
+// redactSecrets replaces detected secrets/credentials and high-value PII with
+// a [REDACTED] marker so they never get persisted into the user profile.
+func redactSecrets(s string) string {
+	for _, pat := range secretPatterns {
+		s = pat.ReplaceAllString(s, "[REDACTED]")
+	}
+	return s
 }
 
 // stripCodeFence pulls the body out of a ```markdown ... ``` block if the

@@ -50,21 +50,27 @@ func TestWatcherDetectsModification(t *testing.T) {
 	defer w.Stop()
 
 	skillDir := filepath.Join(dir, "mod-skill")
+	manifestPath := filepath.Join(skillDir, "skill.yaml")
 	os.MkdirAll(skillDir, 0755)
-	os.WriteFile(filepath.Join(skillDir, "skill.yaml"), []byte("name: mod-skill\nversion: 1.0.0\n"), 0644)
+	os.WriteFile(manifestPath, []byte("name: mod-skill\nversion: 1.0.0\n"), 0644)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// Modify the manifest
-	time.Sleep(100 * time.Millisecond) // ensure different mtime
-	os.WriteFile(filepath.Join(skillDir, "skill.yaml"), []byte("name: mod-skill\nversion: 2.0.0\n"), 0644)
-
-	time.Sleep(300 * time.Millisecond)
-
-	if reloadCount.Load() == 0 {
+	// Wait for the initial install (first reload) rather than sleeping a fixed
+	// amount, which is flaky under coarse scheduler/filesystem timing.
+	if !waitForCount(&reloadCount, 1, 3*time.Second) {
 		t.Skip("filesystem delivered no watch events (e.g. OneDrive/WSL mounts) — skipping fs-watch assertion")
 	}
-	if reloadCount.Load() < 2 {
+
+	// Modify the manifest. Force a strictly newer mtime so the change is
+	// detected even on filesystems with coarse mtime resolution (OneDrive/WSL),
+	// where two writes in the same second can share an identical timestamp.
+	os.WriteFile(manifestPath, []byte("name: mod-skill\nversion: 2.0.0\n"), 0644)
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(manifestPath, future, future); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	// Wait for the modification to be picked up (second reload).
+	if !waitForCount(&reloadCount, 2, 3*time.Second) {
 		t.Fatalf("expected at least 2 reloads, got %d", reloadCount.Load())
 	}
 
@@ -72,6 +78,18 @@ func TestWatcherDetectsModification(t *testing.T) {
 	if skill.Manifest.Version != "2.0.0" {
 		t.Fatalf("expected v2, got %q", skill.Manifest.Version)
 	}
+}
+
+// waitForCount polls counter until it reaches at least want, or timeout elapses.
+func waitForCount(counter *atomic.Int64, want int64, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if counter.Load() >= want {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return counter.Load() >= want
 }
 
 func TestWatcherStopsCleanly(t *testing.T) {

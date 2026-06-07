@@ -73,10 +73,13 @@ func (s *PairingStore) IsPaired(tenant, channel, userID string) bool {
 // IssueCode creates (or refreshes) a pending pairing code for a sender and
 // returns it. Re-issuing for the same sender replaces the prior code.
 func (s *PairingStore) IssueCode(tenant, channel, userID string) (string, error) {
-	code := pairingCode()
+	code, err := pairingCode()
+	if err != nil {
+		return "", fmt.Errorf("pairing: issue code: %w", err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		`INSERT INTO pending_pairings (tenant, channel, user_id, code, created_at) VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(tenant, channel, user_id) DO UPDATE SET code=excluded.code, created_at=excluded.created_at`,
 		tenant, channel, userID, code, time.Now().Unix())
@@ -216,14 +219,28 @@ func (g *Gate) Check(msg InboundMessage) (bool, string) {
 	}
 }
 
-// pairingCode returns a short, unambiguous uppercase code.
-func pairingCode() string {
+// pairingCode returns a short, unambiguous uppercase code. It draws each
+// character with unbiased rejection sampling over the 31-char alphabet (plain
+// "byte % len" would bias toward the first 8 characters, since 256 is not a
+// multiple of 31) and surfaces any crypto/rand failure rather than emitting a
+// low-entropy code.
+func pairingCode() (string, error) {
 	const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789" // no I/O/0/1/L
-	buf := make([]byte, 6)
-	rand.Read(buf)
+	const codeLen = 6
+	// Largest multiple of len(alphabet) that fits in a byte; values at or above
+	// this are rejected so the accepted range maps uniformly onto the alphabet.
+	limit := byte(256 - (256 % len(alphabet)))
 	var b strings.Builder
-	for _, c := range buf {
-		b.WriteByte(alphabet[int(c)%len(alphabet)])
+	b.Grow(codeLen)
+	one := make([]byte, 1)
+	for b.Len() < codeLen {
+		if _, err := rand.Read(one); err != nil {
+			return "", fmt.Errorf("pairing: read random: %w", err)
+		}
+		if one[0] >= limit {
+			continue // reject to avoid modulo bias
+		}
+		b.WriteByte(alphabet[int(one[0])%len(alphabet)])
 	}
-	return b.String()
+	return b.String(), nil
 }

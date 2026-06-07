@@ -18,8 +18,15 @@ func createTestSkillWithHandler(t *testing.T, dir, script string) *InstalledSkil
 	os.WriteFile(filepath.Join(handlersDir, "run.sh"), []byte(script), 0755)
 
 	return &InstalledSkill{
-		Manifest: SkillManifest{Name: "test", Version: "1.0.0"},
-		Path:     skillDir,
+		// Declare the shell capability so the sandboxed executor permits the
+		// shell-backed handler to run. The sandbox fails closed when this is
+		// absent (see TestSandboxedExecutorDeniesWithoutShellCapability).
+		Manifest: SkillManifest{
+			Name:         "test",
+			Version:      "1.0.0",
+			Capabilities: Capabilities{Shell: true},
+		},
+		Path: skillDir,
 	}
 }
 
@@ -115,6 +122,25 @@ func TestSandboxedExecutorDelegates(t *testing.T) {
 	}
 	if result.Output != "sandboxed\n" {
 		t.Fatalf("got %q", result.Output)
+	}
+}
+
+func TestSandboxedExecutorDeniesWithoutShellCapability(t *testing.T) {
+	dir := t.TempDir()
+	skill := createTestSkillWithHandler(t, dir, "#!/bin/sh\necho should-not-run")
+	// Revoke the shell capability: the sandbox must fail closed and refuse to
+	// run the shell-backed handler.
+	skill.Manifest.Capabilities.Shell = false
+
+	inner := NewScriptExecutor(5 * time.Second)
+	e := NewSandboxedExecutor(inner)
+
+	result, err := e.Execute(context.Background(), skill, "")
+	if err == nil {
+		t.Fatal("expected denial when 'shell' capability is not declared")
+	}
+	if result != nil {
+		t.Fatalf("expected nil result on denial, got %+v", result)
 	}
 }
 

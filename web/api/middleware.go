@@ -10,10 +10,11 @@ import (
 
 // AuthConfig holds authentication settings for the API.
 type AuthConfig struct {
-	Enabled   bool
-	APIKeys   map[string]string   // key -> description
-	KeyScopes map[string][]string // key -> scopes (read, agent, admin)
-	JWTSecret string
+	Enabled    bool
+	APIKeys    map[string]string   // key -> description
+	KeyScopes  map[string][]string // key -> scopes (read, agent, admin)
+	KeyTenants map[string]string   // key -> tenant the key is bound to (empty = unrestricted/admin)
+	JWTSecret  string
 }
 
 // routeScopes maps HTTP methods to the minimum required scope.
@@ -68,7 +69,9 @@ func (am *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check Authorization header
+		// Accept credentials only via headers. A key in a query param
+		// (?key=) leaks into access logs, browser history, and Referer
+		// headers, so it is no longer supported.
 		authHeader := r.Header.Get("Authorization")
 		var token string
 		if authHeader != "" {
@@ -78,12 +81,8 @@ func (am *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 				token = authHeader
 			}
 		}
-
-		// Support API key via query param (for EventSource/SSE)
 		if token == "" {
-			if qkey := r.URL.Query().Get("key"); qkey != "" {
-				token = qkey
-			}
+			token = r.Header.Get("X-API-Key")
 		}
 
 		if token == "" {
@@ -106,7 +105,14 @@ func (am *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 					return
 				}
 
+				// Bind the caller to the tenant this key was issued for.
+				// Tenant-scoped handlers enforce that {tid} matches this
+				// value, so a key for tenant A cannot reach tenant B's data.
+				// An empty binding means an unrestricted/admin key.
 				ctx := context.WithValue(r.Context(), contextKeyAuth, "apikey")
+				if am.config.KeyTenants != nil {
+					ctx = context.WithValue(ctx, contextKeyTenant, am.config.KeyTenants[key])
+				}
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -127,6 +133,7 @@ func (am *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			}
 			ctx := context.WithValue(r.Context(), contextKeyAuth, "jwt")
 			ctx = context.WithValue(ctx, contextKeyPrincipal, p)
+			ctx = context.WithValue(ctx, contextKeyTenant, p.Tenant)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -157,6 +164,7 @@ type contextKey string
 const (
 	contextKeyAuth      contextKey = "auth"
 	contextKeyPrincipal contextKey = "principal"
+	contextKeyTenant    contextKey = "tenant"
 )
 
 // authPrincipal returns the authenticated JWT principal stashed by the
@@ -165,4 +173,32 @@ const (
 func authPrincipal(r *http.Request) (auth.Principal, bool) {
 	p, ok := r.Context().Value(contextKeyPrincipal).(auth.Principal)
 	return p, ok
+}
+
+// callerTenant returns the tenant the authenticated caller is bound to and
+// ok=true when an authenticated identity carries a tenant binding. ok is false
+// when auth is disabled (no context value) or the caller holds an unrestricted
+// key (empty binding) — in both cases tenant scoping is not enforced.
+func callerTenant(r *http.Request) (string, bool) {
+	t, ok := r.Context().Value(contextKeyTenant).(string)
+	if !ok || t == "" {
+		return "", false
+	}
+	return t, true
+}
+
+// enforceTenant checks that the path's {tid} matches the authenticated
+// caller's tenant binding. It writes a 403 and returns false on mismatch.
+// When the caller has no tenant binding (auth disabled or unrestricted/admin
+// key) it permits the request — those callers are trusted across tenants.
+func enforceTenant(w http.ResponseWriter, r *http.Request, tid string) bool {
+	caller, bound := callerTenant(r)
+	if !bound {
+		return true
+	}
+	if caller != tid {
+		RespondError(w, 403, "FORBIDDEN", "API key is not authorized for this tenant")
+		return false
+	}
+	return true
 }

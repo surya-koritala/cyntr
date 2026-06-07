@@ -22,6 +22,7 @@ import (
 type NewsAggregatorTool struct {
 	client    *http.Client
 	mu        sync.RWMutex
+	refreshMu sync.Mutex // single-flights refresh() to prevent a thundering herd
 	cache     []NewsItem
 	consumed  map[string]bool // track returned article links to avoid duplicates
 	lastFetch time.Time
@@ -307,7 +308,17 @@ func (t *NewsAggregatorTool) Execute(ctx context.Context, input map[string]strin
 	t.mu.RUnlock()
 
 	if stale {
-		t.refresh()
+		// Single-flight: only one goroutine performs the refresh. Concurrent
+		// callers block on refreshMu, then see the freshly-populated cache and
+		// skip their own refresh (re-checking staleness under the lock).
+		t.refreshMu.Lock()
+		t.mu.RLock()
+		stillStale := time.Since(t.lastFetch) > t.cacheTTL
+		t.mu.RUnlock()
+		if stillStale {
+			t.refresh()
+		}
+		t.refreshMu.Unlock()
 	}
 
 	// Filter by category, skip already-consumed articles, shuffle for diversity
@@ -411,13 +422,13 @@ type rssChannel struct {
 }
 
 type rssItem struct {
-	Title       string      `xml:"title"`
-	Link        string      `xml:"link"`
-	Description string      `xml:"description"`
-	PubDate     string      `xml:"pubDate"`
-	Enclosure   rssEnclosure `xml:"enclosure"`
-	MediaThumb  rssMedia    `xml:"thumbnail"`
-	MediaContent rssMedia   `xml:"content"`
+	Title        string       `xml:"title"`
+	Link         string       `xml:"link"`
+	Description  string       `xml:"description"`
+	PubDate      string       `xml:"pubDate"`
+	Enclosure    rssEnclosure `xml:"enclosure"`
+	MediaThumb   rssMedia     `xml:"thumbnail"`
+	MediaContent rssMedia     `xml:"content"`
 }
 
 type rssEnclosure struct {
@@ -470,7 +481,7 @@ func (t *NewsAggregatorTool) parseRSS(category, sourceName string, data []byte) 
 				Link:        item.Link,
 				Description: desc,
 				Image:       img,
-				Source:       sourceName,
+				Source:      sourceName,
 				Category:    category,
 				PubDate:     item.PubDate,
 			})
@@ -491,10 +502,10 @@ type atomFeed struct {
 }
 
 type atomEntry struct {
-	Title   string    `xml:"title"`
-	Link    atomLink  `xml:"link"`
-	Summary string    `xml:"summary"`
-	Content string    `xml:"content"`
+	Title   string   `xml:"title"`
+	Link    atomLink `xml:"link"`
+	Summary string   `xml:"summary"`
+	Content string   `xml:"content"`
 }
 
 type atomLink struct {
@@ -532,7 +543,7 @@ func (t *NewsAggregatorTool) parseAtom(category, sourceName string, data []byte)
 				Link:        entry.Link.Href,
 				Description: desc,
 				Image:       img,
-				Source:       sourceName,
+				Source:      sourceName,
 				Category:    category,
 			})
 		}

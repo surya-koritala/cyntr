@@ -172,12 +172,29 @@ func (a *Anthropic) buildRequest(messages []agent.Message, tools []agent.ToolDef
 				for _, att := range msg.Attachments {
 					if att.Type == "image" {
 						imgBlock := map[string]any{"type": "image"}
-						if len(att.URL) > 5 && att.URL[:5] == "data:" {
-							// base64 encoded inline image
+						if strings.HasPrefix(att.URL, "data:") {
+							// base64 encoded inline data URI:
+							//   data:<media_type>;base64,<raw base64>
+							// source.data expects the raw base64 only, and
+							// media_type the MIME type — strip the prefix.
+							mediaType := att.MimeType
+							data := att.URL
+							if comma := strings.IndexByte(att.URL, ','); comma >= 0 {
+								meta := att.URL[len("data:"):comma]
+								data = att.URL[comma+1:]
+								// meta looks like "image/png;base64" — derive
+								// the media type from it when present.
+								if semi := strings.IndexByte(meta, ';'); semi >= 0 {
+									meta = meta[:semi]
+								}
+								if meta != "" {
+									mediaType = meta
+								}
+							}
 							imgBlock["source"] = map[string]any{
 								"type":       "base64",
-								"media_type": att.MimeType,
-								"data":       att.URL,
+								"media_type": mediaType,
+								"data":       data,
 							}
 						} else {
 							imgBlock["source"] = map[string]any{
@@ -322,6 +339,9 @@ type sseEvent struct {
 
 func (a *Anthropic) parseSSEStream(ctx context.Context, body io.Reader, ch chan<- agent.StreamChunk) {
 	scanner := bufio.NewScanner(body)
+	// SSE data lines (especially input_json_delta payloads) can exceed the
+	// default 64KB token size — raise the buffer so long lines aren't dropped.
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var currentEvent sseEvent
 
 	for scanner.Scan() {
@@ -348,6 +368,12 @@ func (a *Anthropic) parseSSEStream(ctx context.Context, body io.Reader, ch chan<
 		} else if strings.HasPrefix(line, "data: ") {
 			currentEvent.Data = strings.TrimPrefix(line, "data: ")
 		}
+	}
+
+	// Surface scanner errors (e.g. token too long, read failure) instead of
+	// silently truncating the stream.
+	if err := scanner.Err(); err != nil {
+		ch <- agent.StreamChunk{Type: "error", Error: fmt.Errorf("read SSE stream: %w", err)}
 	}
 }
 

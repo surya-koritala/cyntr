@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cyntr-dev/cyntr/auth"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
 	"github.com/cyntr-dev/cyntr/modules/curator"
 )
@@ -107,27 +108,29 @@ func (s *Server) handleCuratorConsolidate(w http.ResponseWriter, r *http.Request
 // than a normal agent call (they trigger LLM spend and can disable
 // skills) so we require admin explicitly.
 //
-// When auth is disabled (single-tenant dev), this is a no-op. With
-// auth enabled, we re-validate the bearer token against the
-// configured admin keys.
+// Authorization is derived only from the authenticated principal —
+// never from a client-supplied header. When auth is disabled
+// (single-tenant dev) there is no auth context and we permit the
+// request, mirroring the AuthMiddleware which lets everything through.
 func requireCuratorAdmin(w http.ResponseWriter, r *http.Request) bool {
-	// If the request reached this handler with auth disabled, the
-	// AuthMiddleware already let everything through; mirror that.
-	hdr := r.Header.Get("X-Cyntr-Admin")
-	if hdr == "1" {
-		return true
-	}
-	// In production we rely on the AuthMiddleware having gated the
-	// request already (POST -> ScopeAgent). For curator we tighten
-	// the gate: callers must hold the admin role marker. We use the
-	// existing contextKeyAuth value plus an X-Cyntr-Admin opt-in so
-	// existing admin tooling keeps working without a middleware
-	// rewrite. Test scaffolding sets the header directly.
+	// No auth context = auth was disabled at the server level =
+	// permit in dev. Production deploys set Enabled=true.
 	if r.Context().Value(contextKeyAuth) == nil {
-		// No auth context = auth was disabled at the server level =
-		// permit in dev. Production deploys set Enabled=true.
 		return true
 	}
-	RespondError(w, 403, "FORBIDDEN", "curator admin operations require an admin API key (X-Cyntr-Admin: 1)")
+	// Authenticated via JWT: require the admin scope on the principal.
+	if p, ok := authPrincipal(r); ok {
+		if hasScope(jwtScopes(p), auth.ScopeAdmin) {
+			return true
+		}
+		RespondError(w, 403, "FORBIDDEN", "curator admin operations require the admin scope")
+		return false
+	}
+	// Authenticated via API key. The middleware already enforced that a
+	// DELETE requires admin scope, but judge/prune are POSTs (agent
+	// scope). We cannot re-derive the key's scopes here without the
+	// config, so fail closed: API-key callers must use a JWT with the
+	// admin role to perform curator admin operations.
+	RespondError(w, 403, "FORBIDDEN", "curator admin operations require an admin-scoped identity")
 	return false
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
+	"github.com/cyntr-dev/cyntr/kernel/netguard"
 	"github.com/cyntr-dev/cyntr/modules/skill"
 )
 
@@ -204,6 +205,15 @@ func (s *Server) handleSkillMarketplaceInstall(w http.ResponseWriter, r *http.Re
 			})
 			return
 		}
+	}
+
+	// Defense in depth against SSRF: the marketplace.Download path runs its
+	// own guard, but we also reject a fetch to a non-public address here
+	// before any network call. This blocks loopback, link-local (incl. the
+	// 169.254.169.254 cloud-metadata endpoint), private, and ULA targets.
+	if err := netguard.ValidatePublicURL(body.DownloadURL); err != nil {
+		RespondError(w, 400, "INVALID_URL", err.Error())
+		return
 	}
 
 	// Download the skill from URL

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestURLEncode(t *testing.T) {
 	tests := []struct {
@@ -11,11 +14,12 @@ func TestURLEncode(t *testing.T) {
 		{"x=y", "x%3Dy"},
 		{"no spaces", "no+spaces"},
 		{"", ""},
+		{"100%", "100%25"},
 	}
 	for _, tt := range tests {
-		result := urlEncode(tt.input)
+		result := url.QueryEscape(tt.input)
 		if result != tt.expected {
-			t.Errorf("urlEncode(%q) = %q, want %q", tt.input, result, tt.expected)
+			t.Errorf("url.QueryEscape(%q) = %q, want %q", tt.input, result, tt.expected)
 		}
 	}
 }

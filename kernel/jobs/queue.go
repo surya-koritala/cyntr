@@ -80,7 +80,17 @@ type Queue struct {
 	stopCh  chan struct{}
 	doneCh  chan struct{}
 	started bool
+
+	// baseCtx is the lifecycle context handed to handlers; cancelBase cancels it
+	// in Stop so handlers respecting ctx unblock and Stop can drain.
+	baseCtx    context.Context
+	cancelBase context.CancelFunc
 }
+
+// defaultJobTimeout bounds a single handler invocation when the caller does not
+// configure one via WithJobTimeout. Without an upper bound a wedged handler
+// would keep Stop blocked forever in wg.Wait.
+const defaultJobTimeout = 5 * time.Minute
 
 // Option configures a Queue.
 type Option func(*Queue)
@@ -100,7 +110,8 @@ func WithGlobalLimit(n int) Option { return func(q *Queue) { q.globalCap = n } }
 // WithPollInterval sets how often the ticker scans for due jobs (default 1s).
 func WithPollInterval(d time.Duration) Option { return func(q *Queue) { q.pollInterval = d } }
 
-// WithJobTimeout bounds a single handler invocation (default 0 = no timeout).
+// WithJobTimeout bounds a single handler invocation (default 5m). Pass 0 to
+// explicitly disable the per-handler timeout.
 func WithJobTimeout(d time.Duration) Option { return func(q *Queue) { q.jobTimeout = d } }
 
 // WithBackoff sets the retry delay as a function of the (1-based) attempt
@@ -155,6 +166,7 @@ func NewQueue(dbPath string, opts ...Option) (*Queue, error) {
 		globalCap:    8,
 		leaseBatch:   100,
 		pollInterval: time.Second,
+		jobTimeout:   defaultJobTimeout,
 		now:          time.Now,
 		backoff:      defaultBackoff,
 	}
@@ -222,11 +234,13 @@ func (q *Queue) Start() {
 	q.started = true
 	q.stopCh = make(chan struct{})
 	q.doneCh = make(chan struct{})
+	q.baseCtx, q.cancelBase = context.WithCancel(context.Background())
+	ctx := q.baseCtx
 	q.mu.Unlock()
-	go q.loop()
+	go q.loop(ctx)
 }
 
-func (q *Queue) loop() {
+func (q *Queue) loop(ctx context.Context) {
 	defer close(q.doneCh)
 	t := time.NewTicker(q.pollInterval)
 	defer t.Stop()
@@ -235,7 +249,7 @@ func (q *Queue) loop() {
 		case <-q.stopCh:
 			return
 		case <-t.C:
-			q.tick(context.Background())
+			q.tick(ctx)
 		}
 	}
 }
@@ -250,6 +264,11 @@ func (q *Queue) Stop() {
 	}
 	q.started = false
 	close(q.stopCh)
+	// Cancel the lifecycle context so in-flight handlers that honor ctx unblock
+	// and Stop can drain instead of hanging forever.
+	if q.cancelBase != nil {
+		q.cancelBase()
+	}
 	q.mu.Unlock()
 	<-q.doneCh
 	q.wg.Wait()
@@ -264,9 +283,7 @@ func (q *Queue) Close() error {
 // tick performs one lease-and-dispatch pass. It is exported-for-test via
 // RunOnce; the background loop calls it on each poll.
 func (q *Queue) tick(ctx context.Context) {
-	q.mu.Lock()
-	claimed := q.leaseLocked()
-	q.mu.Unlock()
+	claimed := q.lease()
 	for _, job := range claimed {
 		q.wg.Add(1)
 		go q.run(ctx, job)
@@ -278,9 +295,7 @@ func (q *Queue) tick(ctx context.Context) {
 // testing and for callers that want to drive the queue manually instead of
 // via the ticker.
 func (q *Queue) RunOnce(ctx context.Context) {
-	q.mu.Lock()
-	claimed := q.leaseLocked()
-	q.mu.Unlock()
+	claimed := q.lease()
 	var wg sync.WaitGroup
 	for _, job := range claimed {
 		q.wg.Add(1)
@@ -293,11 +308,21 @@ func (q *Queue) RunOnce(ctx context.Context) {
 	wg.Wait()
 }
 
-// leaseLocked selects due jobs whose kind has a registered handler, respecting
-// the global and per-tenant concurrency caps, atomically claims them
-// (pending -> running), and returns the claimed jobs. Caller must hold q.mu.
-func (q *Queue) leaseLocked() []Job {
+// lease selects due jobs whose kind has a registered handler, respecting the
+// global and per-tenant concurrency caps, atomically claims them
+// (pending -> running), and returns the claimed jobs.
+//
+// q.mu guards only the in-memory handlers/inflight maps; it is held in short
+// bursts (snapshotting capacity, and bumping inflight at claim time) and is
+// never held across the DB query or the per-row UPDATEs, so a slow disk cannot
+// stall Enqueue/Get/run-completion. The claim itself is made atomic by the
+// conditional UPDATE (WHERE state='pending') and its RowsAffected check, not by
+// the mutex.
+func (q *Queue) lease() []Job {
+	// Snapshot capacity and registered kinds under a brief lock.
+	q.mu.Lock()
 	if len(q.handlers) == 0 {
+		q.mu.Unlock()
 		return nil
 	}
 	used := 0
@@ -305,6 +330,11 @@ func (q *Queue) leaseLocked() []Job {
 		used += c
 	}
 	slots := q.globalCap - used
+	kinds := make(map[string]struct{}, len(q.handlers))
+	for k := range q.handlers {
+		kinds[k] = struct{}{}
+	}
+	q.mu.Unlock()
 	if slots <= 0 {
 		return nil
 	}
@@ -340,25 +370,44 @@ func (q *Queue) leaseLocked() []Job {
 		if slots <= 0 {
 			break
 		}
-		if _, ok := q.handlers[c.j.Kind]; !ok {
+		if _, ok := kinds[c.j.Kind]; !ok {
 			continue // no handler yet — leave pending
 		}
+		// Reserve a per-tenant slot under a brief lock. We bump inflight before
+		// the DB UPDATE and roll it back if the claim is lost, so the in-memory
+		// cap stays consistent without holding the lock across the DB call.
+		q.mu.Lock()
 		if q.inflight[c.j.Tenant] >= q.perTenantCap {
+			q.mu.Unlock()
 			continue // tenant is at its cap this round
 		}
+		q.inflight[c.j.Tenant]++
+		q.mu.Unlock()
+
 		res, err := q.db.Exec(
 			`UPDATE jobs SET state=?, updated_at=? WHERE id=? AND state=?`,
 			StateRunning, now.Format(time.RFC3339Nano), c.j.ID, StatePending,
 		)
-		if err != nil {
-			continue
+		claimedRow := false
+		if err == nil {
+			if n, _ := res.RowsAffected(); n == 1 {
+				claimedRow = true
+			}
 		}
-		if n, _ := res.RowsAffected(); n != 1 {
-			continue // lost the claim race
+		if !claimedRow {
+			// Lost the claim race or the UPDATE failed; release the reservation.
+			q.mu.Lock()
+			if q.inflight[c.j.Tenant] > 0 {
+				q.inflight[c.j.Tenant]--
+				if q.inflight[c.j.Tenant] == 0 {
+					delete(q.inflight, c.j.Tenant)
+				}
+			}
+			q.mu.Unlock()
+			continue
 		}
 		c.j.RunAfter, _ = parseTime(c.runAfter)
 		c.j.State = StateRunning
-		q.inflight[c.j.Tenant]++
 		slots--
 		claimed = append(claimed, c.j)
 	}
@@ -475,6 +524,10 @@ func parseTime(s string) (time.Time, error) {
 
 func genID() string {
 	buf := make([]byte, 12)
-	rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		// crypto/rand should never fail; fall back to a high-resolution
+		// time-based value so we never return an all-zero (PK-colliding) ID.
+		return fmt.Sprintf("%024x", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(buf)
 }

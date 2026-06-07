@@ -59,7 +59,10 @@ func TestWebhookAdapterRejectsUnsigned(t *testing.T) {
 	// Wrong signature -> rejected.
 	req, _ := http.NewRequest("POST", "http://"+adapter.Addr()+"/webhook", strings.NewReader(body))
 	req.Header.Set("X-Webhook-Signature", "deadbeef")
-	resp2, _ := http.DefaultClient.Do(req)
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("bad signature should be 401, got %d", resp2.StatusCode)

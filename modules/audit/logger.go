@@ -71,7 +71,20 @@ func (l *Logger) handleWrite(msg ipc.Message) (ipc.Message, error) {
 	return ipc.Message{}, nil
 }
 
+// authorizedQuerySources is the fail-closed allowlist of bus sources permitted
+// to perform the privileged audit read. The audit log spans every tenant, so
+// the topic must not be reachable by arbitrary in-process senders (e.g. tools);
+// callers go through the API or CLI, which already authenticate the principal
+// and scope the query to that principal's tenant before reaching us.
+var authorizedQuerySources = map[string]bool{
+	"api": true,
+	"cli": true,
+}
+
 func (l *Logger) handleQuery(msg ipc.Message) (ipc.Message, error) {
+	if !authorizedQuerySources[msg.Source] {
+		return ipc.Message{}, fmt.Errorf("audit.query: not authorized for source %q", msg.Source)
+	}
 	filter, ok := msg.Payload.(QueryFilter)
 	if !ok {
 		return ipc.Message{}, fmt.Errorf("expected QueryFilter, got %T", msg.Payload)

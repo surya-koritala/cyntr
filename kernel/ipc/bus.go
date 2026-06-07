@@ -60,6 +60,12 @@ func (b *Bus) Handle(module, topic string, h Handler) {
 		b.handlers[module] = make(map[string]handlerEntry)
 	}
 
+	// Re-registering a handler overwrites the map entry; close the previous
+	// inbox so its consumer goroutine exits instead of leaking.
+	if prev, ok := b.handlers[module][topic]; ok {
+		close(prev.inbox)
+	}
+
 	entry := handlerEntry{
 		handler: h,
 		inbox:   make(chan requestEnvelope, b.bufferSize),
@@ -69,6 +75,13 @@ func (b *Bus) Handle(module, topic string, h Handler) {
 	go func(fn Handler) {
 		for req := range entry.inbox {
 			go func(r requestEnvelope) {
+				// A handler panic must never crash the process. Recover and
+				// surface it as an error on the reply channel.
+				defer func() {
+					if rec := recover(); rec != nil {
+						r.replyCh <- replyEnvelope{err: fmt.Errorf("ipc: handler panicked: %v", rec)}
+					}
+				}()
 				resp, err := fn(r.msg)
 				if err != nil {
 					r.replyCh <- replyEnvelope{err: err}
@@ -102,7 +115,6 @@ func (b *Bus) Request(ctx context.Context, msg Message) (Message, error) {
 		b.mu.RUnlock()
 		return Message{}, ErrNoHandler
 	}
-	b.mu.RUnlock()
 
 	if msg.ID == "" {
 		msg.ID = generateID()
@@ -117,10 +129,25 @@ func (b *Bus) Request(ctx context.Context, msg Message) (Message, error) {
 	replyCh := make(chan replyEnvelope, 1)
 	env := requestEnvelope{msg: msg, replyCh: replyCh}
 
-	select {
-	case entry.inbox <- env:
-	default:
-		return Message{}, ErrModuleOverloaded
+	// Send while still holding the read lock so Close (which takes the write
+	// lock before closing inboxes) cannot close entry.inbox underneath us. The
+	// recover is belt-and-suspenders against any future regression.
+	sendErr := func() (err error) {
+		defer func() {
+			if recover() != nil {
+				err = ErrBusClosed
+			}
+		}()
+		select {
+		case entry.inbox <- env:
+			return nil
+		default:
+			return ErrModuleOverloaded
+		}
+	}()
+	b.mu.RUnlock()
+	if sendErr != nil {
+		return Message{}, sendErr
 	}
 
 	select {
@@ -134,6 +161,12 @@ func (b *Bus) Request(ctx context.Context, msg Message) (Message, error) {
 func (b *Bus) Subscribe(module, topic string, h Handler) *Subscription {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.closed {
+		// Reject subscriptions on a closed bus. Return a non-nil handle with a
+		// no-op cancel so callers that store it and later call Cancel are safe.
+		return &Subscription{Topic: topic, Module: module, cancelFn: func() {}}
+	}
 
 	id := generateID()
 	b.subscribers[topic] = append(b.subscribers[topic], subscriberEntry{
@@ -206,6 +239,10 @@ func (b *Bus) Close() {
 
 func generateID() string {
 	buf := make([]byte, 8)
-	rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		// crypto/rand should never fail; fall back to a time-based value so we
+		// never return an all-zero (collision-prone) ID.
+		return fmt.Sprintf("%016x", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(buf)
 }

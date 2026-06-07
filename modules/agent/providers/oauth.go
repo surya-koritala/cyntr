@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -166,7 +167,11 @@ func (m *OAuthManager) tokenRequest(ctx context.Context, form url.Values) (OAuth
 		Error        string `json:"error"`
 		ErrorDesc    string `json:"error_description"`
 	}
-	json.NewDecoder(resp.Body).Decode(&body)
+	// Bound the response body to defend against an unbounded/hostile token
+	// endpoint, and surface decode errors instead of ignoring them.
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
+		return OAuthToken{}, fmt.Errorf("oauth: decode token response (status %d): %w", resp.StatusCode, err)
+	}
 	if resp.StatusCode >= 300 || body.Error != "" {
 		return OAuthToken{}, fmt.Errorf("oauth: token endpoint error: %s %s (status %d)", body.Error, body.ErrorDesc, resp.StatusCode)
 	}
