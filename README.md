@@ -2,7 +2,7 @@
   <h1 align="center">Cyntr</h1>
   <p align="center"><strong>Self-hosted AI agent platform. Single Go binary, multi-tenant, policy-gated, federated.</strong></p>
   <p align="center">
-    <a href="https://github.com/surya-koritala/cyntr/releases"><img src="https://img.shields.io/badge/release-v1.1.0-green" alt="Release"></a>
+    <a href="https://github.com/surya-koritala/cyntr/releases"><img src="https://img.shields.io/badge/release-v1.3.0-green" alt="Release"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go">
     <img src="https://img.shields.io/badge/tests-37%20packages-brightgreen" alt="Tests">

@@ -1,0 +1,61 @@
+name: Release
+
+# Publishes prebuilt single-binary assets when a version tag is pushed.
+# The install one-liner (install.sh / install.ps1) downloads these assets, so
+# users do NOT need Go installed — matching the "single binary, no Docker" promise.
+#
+# To cut a release:  git tag -a v1.3.0 -m "v1.3.0" && git push origin v1.3.0
+# (or push the tag the GitHub UI created when you publish a release).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # required to upload release assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          EXT=""
+          [ "$GOOS" = "windows" ] && EXT=".exe"
+          OUT="cyntr_${GOOS}_${GOARCH}${EXT}"
+          # Inject the version so the binary self-reports the tag — the in-repo
+          # constant is only the dev default; the release ldflag is authoritative.
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${VERSION} -X github.com/cyntr-dev/cyntr/web/api.Version=${VERSION}" \
+            -o "$OUT" ./cmd/cyntr
+          sha256sum "$OUT" > "${OUT}.sha256"
+          echo "built $OUT ($(du -h "$OUT" | cut -f1))"
+
+      - name: Upload assets to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            cyntr_*
+          fail_on_unmatched_files: true

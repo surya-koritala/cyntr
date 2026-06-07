@@ -58,7 +58,9 @@ import (
 	webapi "github.com/cyntr-dev/cyntr/web/api"
 )
 
-const version = "1.1.0"
+// version is the dev-build default; release binaries override it via ldflags
+// (-X main.version=<tag>) in .github/workflows/release.yml.
+const version = "1.3.0"
 
 func main() {
 	if len(os.Args) < 2 {

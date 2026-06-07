@@ -162,7 +162,7 @@ Refuses to run if the server is up (would corrupt SQLite). Stop cyntr first.
 cyntr version
 ```
 
-Prints `cyntr v1.1.0`. Exit `0`.
+Prints `cyntr v1.3.0`. Exit `0`.
 
 ---
 
