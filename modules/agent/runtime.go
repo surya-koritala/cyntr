@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -85,16 +86,17 @@ func checkAgentRateLimit(key string, limit int) error {
 // Runtime is the Agent Runtime kernel module.
 // It manages agent instances and orchestrates model calls + tool execution.
 type Runtime struct {
-	mu            sync.RWMutex
-	bus           *ipc.Bus
-	providers     map[string]ModelProvider
-	toolReg       *ToolRegistry
-	agents        map[string]*agentInstance // "tenant/name" -> instance
-	store         *SessionStore
-	memoryStore   *MemoryStore
-	usageStore    *UsageStore
-	contextLoader *ContextLoader
-	contextStore  *ContextStore
+	mu               sync.RWMutex
+	bus              *ipc.Bus
+	providers        map[string]ModelProvider
+	toolReg          *ToolRegistry
+	agents           map[string]*agentInstance // "tenant/name" -> instance
+	store            *SessionStore
+	memoryStore      *MemoryStore
+	usageStore       *UsageStore
+	contextLoader    *ContextLoader
+	contextStore     *ContextStore
+	personalityStore *PersonalityStore
 }
 
 // SetSessionStore attaches a SessionStore to the runtime for persistent conversations.
@@ -122,6 +124,12 @@ func (r *Runtime) SetContextLoader(cl *ContextLoader) {
 // subagent coordination (#48).
 func (r *Runtime) SetContextStore(cs *ContextStore) {
 	r.contextStore = cs
+}
+
+// SetPersonalityStore attaches the switchable-personality catalog (F24). The
+// selected persona's prompt is prepended to each chat's system context.
+func (r *Runtime) SetPersonalityStore(ps *PersonalityStore) {
+	r.personalityStore = ps
 }
 
 type agentInstance struct {
@@ -440,6 +448,36 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 		return ipc.Message{}, fmt.Errorf("agent %q not found in tenant %q", req.Agent, req.Tenant)
 	}
 
+	// '/personality <name>' (F24) is a control command, not a model turn —
+	// intercept it before any provider/quota work and switch the session persona.
+	if r.personalityStore != nil {
+		if name, isCmd := ParsePersonalityCommand(req.Message); isCmd {
+			sess := inst.session.ID()
+			r.personalityStore.SeedDefaults(req.Tenant)
+			if name == "" {
+				names := r.personalityStore.PersonalityNames(req.Tenant)
+				active := r.personalityStore.ActiveName(req.Tenant, sess)
+				return ipc.Message{Type: ipc.MessageTypeResponse, Payload: ChatResponse{
+					Agent:   req.Agent,
+					Content: fmt.Sprintf("Active personality: %q. Available: %s", active, strings.Join(names, ", ")),
+				}}, nil
+			}
+			p, err := r.personalityStore.Select(req.Tenant, sess, name)
+			if err != nil {
+				if errors.Is(err, ErrUnknownPersonality) {
+					return ipc.Message{Type: ipc.MessageTypeResponse, Payload: ChatResponse{
+						Agent:   req.Agent,
+						Content: fmt.Sprintf("Unknown personality %q. Available: %s", name, strings.Join(r.personalityStore.PersonalityNames(req.Tenant), ", ")),
+					}}, nil
+				}
+				return ipc.Message{}, err
+			}
+			return ipc.Message{Type: ipc.MessageTypeResponse, Payload: ChatResponse{
+				Agent: req.Agent, Content: "Personality set to " + p.Name + ".",
+			}}, nil
+		}
+	}
+
 	// Enforce per-agent rate limit
 	if err := checkAgentRateLimit(key, inst.config.RateLimit); err != nil {
 		span.SetStatus(codes.Error, "rate limited")
@@ -523,6 +561,13 @@ func (r *Runtime) handleChat(msg ipc.Message) (ipc.Message, error) {
 				}
 			}
 		}
+	}
+	// Switchable personality (F24): prepend the active persona's prompt. Returns
+	// the prelude unchanged when no persona is selected, so it composes with the
+	// context-file/profile/memory prelude above.
+	if r.personalityStore != nil {
+		r.personalityStore.SeedDefaults(req.Tenant)
+		contextPrelude = r.personalityStore.Compose(req.Tenant, inst.session.ID(), contextPrelude)
 	}
 	if contextPrelude != "" {
 		inst.session.SetMemories(contextPrelude)

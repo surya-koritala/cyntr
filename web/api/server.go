@@ -30,6 +30,10 @@ type Server struct {
 	// observability module installs it via SetPrometheusHandler when an OTLP
 	// endpoint is configured; otherwise the endpoint returns 404.
 	promHandler http.Handler
+	// voice holds the STT/TTS tools for the voice round-trip endpoint (B8).
+	// nil => the endpoint lazily builds vendor/gateway-backed tools per call.
+	// Tests inject mock-backed tools via SetVoiceTools.
+	voice *voiceTools
 }
 
 // SetTenantManager sets the tenant manager after construction.
@@ -132,6 +136,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/agents", s.handleAgentCreate)
 	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/agents/{name}/chat", s.handleAgentChat)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}/stream", s.handleAgentChatStream)
+	// Voice round-trip (B8): audio -> STT -> agent turn -> TTS -> audio.
+	s.mux.HandleFunc("POST /api/v1/tenants/{tid}/agents/{name}/voice", s.handleAgentVoice)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}/agents/{name}", s.handleAgentGet)
 	s.mux.HandleFunc("DELETE /api/v1/tenants/{tid}/agents/{name}", s.handleAgentDelete)
 	s.mux.HandleFunc("PUT /api/v1/tenants/{tid}/agents/{name}", s.handleAgentUpdate)
