@@ -2,7 +2,9 @@
 
 # Cyntr vs Hermes
 
-Hermes (163k stars on GitHub) is the most-loved open agent platform on the planet. If you're reading this, you're probably picking between Hermes and Cyntr for a real project. This is the honest comparison.
+Hermes Agent (by Nous Research, ~185k stars on GitHub as of June 2026) is one of the most-loved open agent platforms on the planet. If you're reading this, you're probably picking between Hermes and Cyntr for a real project. This is the honest comparison.
+
+> Facts about Hermes below are taken from its public GitHub/docs (June 2026). If we've gotten something wrong, please file an issue — we'd rather fix it than be confidently wrong.
 
 **Short version:** Hermes and Cyntr are aimed at different buyers. Hermes is the better choice for a solo developer or small team building a personal-assistant style agent across many messaging surfaces; Cyntr is the better choice for an engineering org that needs multi-tenant isolation, policy as code, federation, and a single static binary they can ship into a regulated environment.
 
@@ -10,34 +12,34 @@ Hermes (163k stars on GitHub) is the most-loved open agent platform on the plane
 
 | Dimension | Hermes | Cyntr |
 |-----------|--------|-------|
-| **License** | Open-source | Apache 2.0 |
-| **Language** | TypeScript / Node | Go |
-| **Deployment** | Node + npm + (usually) a process supervisor | Single static binary |
-| **Footprint** | Node runtime + deps; ~100MB image | ~30MB binary; SQLite for state |
-| **External infra required** | None for basics; vector DB if you want long memory | None — SQLite handles everything |
-| **Memory & self-improvement** | First-class; long-term memory + skill-learning is the marquee feature | Sessions + agent long-term memory, no self-improvement |
-| **Channel breadth** | Telegram, Discord, X, Farcaster, Lens, voice, more | Slack, Teams, Discord, Telegram, WhatsApp, Email, Google Chat, Webhook |
-| **Skill model** | Plugins as TS packages; community plugin ecosystem | YAML skills with tool grants; marketplace + OpenClaw import |
-| **Multi-tenant** | Single-instance default; multi-character | First-class tenants with isolation modes, RBAC, per-tenant quotas, OIDC |
-| **Policy engine** | Per-character guardrails in code | YAML rules + OPA/Rego, allow/deny/require_approval, hot-reload |
+| **License** | MIT | Apache 2.0 |
+| **Language** | Python (+ some TypeScript) | Go |
+| **Deployment** | Python (uv) + a gateway process; Docker, or serverless (Modal/Daytona) | Single static binary |
+| **Footprint** | Python env + deps | ~30MB binary; SQLite for state |
+| **External infra required** | None for basics; uses SQLite (FTS5) for session history | None — SQLite handles everything |
+| **Memory & self-improvement** | **The marquee feature** — a closed learning loop: agent-curated memory (MEMORY.md/USER.md), FTS5 history + LLM summary, autonomous skill creation + refinement | Sessions + per-(tenant,user) memory; opt-in trajectory capture; curator can judge/improve skills — but no autonomous self-rewrite loop |
+| **Channel breadth** | Telegram, Discord, Slack, WhatsApp, Signal, Email (single gateway process) | Slack, Teams, Discord, Telegram, WhatsApp, Email, Google Chat, SMS, Matrix, Signal, IRC, LINE, Nostr, Webhook |
+| **Skill model** | Python skills/plugins in `~/.hermes/skills`; agentskills.io standard; imports OpenClaw | YAML skills with tool grants; marketplace + OpenClaw import |
+| **Multi-tenant** | Single-user (multi-tenant messaging via gateway pairing) | First-class tenants with isolation modes, RBAC, per-tenant quotas, OIDC |
+| **Policy engine** | Command allowlist patterns + DM pairing | YAML rules + OPA/Rego, allow/deny/require_approval, hot-reload |
 | **Audit log** | App logs | SHA-256 hash-chained, tamper-evident |
 | **Federation** | None | Cross-node delegation with peer-enforced policy |
-| **Eval framework** | Community | Built-in (`cyntr eval`), JUnit output |
-| **Workflow engine** | Plugin | Built-in (`agent_chat`, `tool_call`, `condition`, `parallel`, `human_input`...) |
-| **Observability** | Logs + custom | OpenTelemetry traces/metrics, Prometheus endpoint |
-| **Provider count** | 5+ (incl. local) | 8 (Anthropic, OpenAI, Azure, Gemini, OpenRouter, Ollama, Mock + custom) |
+| **Eval framework** | Batch trajectory generation/compression (for training) | Built-in (`cyntr eval`), JUnit output |
+| **Workflow engine** | Cron scheduler + subagents | Built-in (`agent_chat`, `tool_call`, `condition`, `parallel`, `human_input`...) |
+| **Observability** | Logs + `/insights`/`/usage` introspection | OpenTelemetry traces/metrics, Prometheus endpoint |
+| **Provider count** | 300+ via Nous Portal / 200+ via OpenRouter, plus Anthropic/OpenAI/NIM/etc. | 8 (Anthropic, OpenAI, Azure, Gemini, OpenRouter, Ollama, Mock + custom) |
 
 ## Where Hermes is the right choice
 
-**1. You want a persona across many social surfaces.** Hermes was built for character agents — a single agent identity that lives across Telegram + Discord + X + Farcaster + voice. Channel diversity is its strongest moat.
+**1. You want an agent that gets smarter over time.** Hermes's marquee feature is a genuine closed learning loop — it curates its own memory, creates skills from experience, and refines them in use. If "compounds the longer it runs" is your goal, this is the strongest pick.
 
-**2. Long-term memory and self-improvement matter to you.** Hermes ships a memory system that the agent can read and write against unprompted, and skills the agent can teach itself. Cyntr's memory is more conservative — explicit writes, explicit reads.
+**2. You want the widest model and skill reach.** 300+ models via Nous Portal / 200+ via OpenRouter, dynamic `/model` switching, plus a large community skill ecosystem (and it imports OpenClaw skills). Cyntr's provider list (8) and native catalog are deliberately narrower.
 
-**3. You're a TypeScript shop and prefer plugin-style extensibility.** Hermes plugins are TS packages with a familiar npm-ish workflow. Cyntr extensibility is YAML tools, YAML skills, and Go modules — different shape.
+**3. You're a Python shop and prefer plugin-style extensibility.** Hermes skills/plugins are Python in `~/.hermes/skills` with a familiar workflow. Cyntr extensibility is YAML tools, YAML skills, and Go modules — a different shape.
 
-**4. You want a thriving plugin ecosystem.** With 163k stars, the network effect is real. Hermes plugins outnumber Cyntr skills by a wide margin and that gap won't close soon.
+**4. You want a thriving ecosystem and community.** At ~185k stars the network effect is real; Hermes's skill/plugin breadth outnumbers Cyntr's native catalog by a wide margin and that gap won't close soon.
 
-**5. Your deploy target is "a Node host my friend gave me."** Hermes runs anywhere Node runs. Cyntr does too (it's a static binary), but if your habit is `npm install` you'll feel at home faster with Hermes.
+**5. Your deploy target is a personal box or serverless.** Hermes runs on a $5 VPS, Termux, Docker, or hibernating serverless (Modal/Daytona). Cyntr runs anywhere too (static binary), but Hermes is purpose-built for the single-user, always-on personal-agent shape.
 
 ## Where Cyntr is the right choice
 
@@ -55,13 +57,13 @@ Hermes (163k stars on GitHub) is the most-loved open agent platform on the plane
 
 ## Where they're roughly equal
 
-- **LLM provider coverage.** Both support every major commercial provider plus Ollama for local. Pick the project, not the provider list.
-- **Slack/Discord/Telegram.** Both have real adapters. Cyntr's Slack story (slash commands, Block Kit, reactions for approvals, threaded replies) is more enterprise-flavored; Hermes's social-graph integrations (X, Farcaster, Lens) are more consumer-flavored.
+- **LLM provider coverage.** Both reach every major commercial provider plus local (Ollama). Hermes reaches far more models via aggregators; Cyntr ships a curated set. For "can it talk to model X," assume yes for both.
+- **Slack/Discord/Telegram/WhatsApp.** Both have real adapters for the mainstream messengers. Cyntr's Slack story (slash commands, Block Kit, reactions for approvals, threaded replies) is more enterprise-flavored; Hermes leans personal-assistant.
 - **Multi-agent orchestration.** Both support agent-to-agent delegation. Cyntr structures it as named crews (pipeline / parallel / sequential modes); Hermes treats it as plugin-driven coordination.
 
 ## How to decide
 
-Pick **Hermes** if your project's center of gravity is: a character, social channels, a TS team, plugins, plugin ecosystem effects.
+Pick **Hermes** if your project's center of gravity is: a self-improving personal agent, a Python team, the widest model/skill reach, ecosystem effects.
 
 Pick **Cyntr** if your project's center of gravity is: an engineering org, multi-tenancy, policy review, audit, federation, single-binary ops.
 
@@ -71,17 +73,19 @@ If you're between the two, the deciding question is usually: *who in your organi
 
 There is no automated migration in either direction. Concepts that map cleanly:
 
-- Hermes "character" ↔ Cyntr "agent (in a tenant)"
-- Hermes "plugin" ↔ Cyntr "tool" (for capabilities) or "skill" (for prompt + tool bundles)
-- Hermes "client" ↔ Cyntr "channel adapter"
+- Hermes "agent/personality" ↔ Cyntr "agent (in a tenant)" + switchable personalities
+- Hermes "skill/plugin" ↔ Cyntr "tool" (for capabilities) or "skill" (for prompt + tool bundles)
+- Hermes "gateway adapter" ↔ Cyntr "channel adapter"
+- Both can import OpenClaw SKILL.md skills (`hermes claw migrate` ↔ `cyntr migrate openclaw`)
 
 Concepts that don't map:
 
-- Hermes long-term memory and self-improvement — Cyntr has no direct equivalent.
-- Cyntr federation — Hermes has no direct equivalent.
+- Hermes's autonomous learning loop (self-created/self-refining skills) — Cyntr has opt-in trajectory capture and a curator, but no autonomous self-rewrite.
+- Cyntr federation, hard multi-tenancy, and policy-as-code — Hermes has no direct equivalent.
 
 ## Related
 
+- [Cyntr vs OpenClaw](vs-openclaw.md)
 - [Cyntr vs Dify](vs-dify.md)
 - [Cyntr vs LangChain](vs-langchain.md)
 - [Concepts: Multi-tenant](../concepts/multi-tenant.md)

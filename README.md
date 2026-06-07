@@ -87,7 +87,8 @@ Full architecture: [docs/concepts/architecture.md](docs/concepts/architecture.md
 
 Cyntr vs everything else: [docs/comparison/](docs/comparison/). Short version:
 
-- **vs [Hermes](docs/comparison/vs-hermes.md)** — Hermes wins on memory, self-improvement, and social channel breadth. Cyntr wins on multi-tenant, policy, federation, and single-binary ops.
+- **vs [Hermes](docs/comparison/vs-hermes.md)** — Hermes wins on memory, self-improvement, and model/skill reach. Cyntr wins on multi-tenant, policy, federation, and single-binary ops.
+- **vs [OpenClaw](docs/comparison/vs-openclaw.md)** — OpenClaw wins on personal-assistant breadth (5,400+ skills, 20+ channels). Cyntr wins on multi-tenant governance — and imports OpenClaw skills.
 - **vs [Dify](docs/comparison/vs-dify.md)** — Dify wins on visual workflows for non-engineers. Cyntr wins on engineering ergonomics and footprint.
 - **vs [LangChain](docs/comparison/vs-langchain.md)** — Category distinction: LangChain is a library, Cyntr is a platform. Often used together.
 

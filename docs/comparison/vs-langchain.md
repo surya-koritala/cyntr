@@ -55,5 +55,6 @@ The Cyntr agent calls this tool; the worker is pure LangChain.
 ## Related
 
 - [Cyntr vs Hermes](vs-hermes.md)
+- [Cyntr vs OpenClaw](vs-openclaw.md)
 - [Cyntr vs Dify](vs-dify.md)
 - [Concepts: Architecture](../concepts/architecture.md)

@@ -1,12 +1,14 @@
 # Cyntr Roadmap
 
-> Current version: **v0.8.0** | 142 Go files | 765 tests | 29 tools | 25 skills | 16 dashboard pages | 55 API routes
+> Current version: **v1.3.0** — see [Completed Releases](#completed-releases) for the shipped history.
+
+> **Status:** every milestone below through **v1.2.0** has shipped, plus **v1.3.0**. The dated **Completed Releases** table is the source of truth; the milestone sections are retained as historical planning detail (they describe what was planned at the time). For active work see **[Next (post-v1.3.0)](#next-post-v130)**.
 
 > **Exploratory initiative:** [Best of OpenClaw + Hermes](docs/roadmap/best-of-openclaw-hermes.md) — a detailed, ticket-by-ticket sprint plan to fold the strongest features from OpenClaw and Hermes (self-improvement/learning loop, cross-session recall, expanded channels, sandboxed/serverless backends, voice/canvas, broader providers, research tooling) into Cyntr's single-binary, multi-tenant, policy-gated platform.
 
 ---
 
-## v0.8.1 — Bug Fixes & Polish (Next)
+## v0.8.1 — Bug Fixes & Polish ✅ (folded into v0.9.0)
 
 **Focus:** Fix known issues from v0.8.0, visual testing, dashboard polish.
 
@@ -27,7 +29,7 @@
 
 ---
 
-## v0.9.0 — Production Hardening
+## v0.9.0 — Production Hardening ✅ Shipped
 
 **Focus:** Make Cyntr deployable to a real team. Security, reliability, observability.
 
@@ -48,7 +50,7 @@
 
 ---
 
-## v1.0.0 — General Availability
+## v1.0.0 — General Availability ✅ Shipped
 
 **Focus:** Production-ready for enterprises. Complete feature set. Full documentation.
 
@@ -71,7 +73,7 @@
 
 ---
 
-## v1.1.0 — Intelligence & Scale
+## v1.1.0 — Intelligence & Scale ✅ Shipped
 
 **Focus:** Make agents smarter and Cyntr scalable.
 
@@ -88,7 +90,7 @@
 
 ---
 
-## v1.2.0 — Enterprise & Compliance
+## v1.2.0 — Enterprise & Compliance ✅ Shipped (draft tag; rolled into v1.3.0)
 
 | ID | Feature | Type | Test Plan |
 |----|---------|------|-----------|
@@ -117,8 +119,30 @@
 | v0.7.0 | 2026-03-22 | 25 enterprise skills across 6 categories |
 | v0.7.1 | 2026-03-22 | Audit fixes: metrics wired, event triggers firing, dashboard tools |
 | v0.8.0 | 2026-03-22 | Streaming chat, agent templates, multi-user, conversation search, mobile responsive |
+| v0.9.0 | 2026-03-24 | Full MCP support + MCP marketplace |
+| v0.9.1 | 2026-03-24 | Multi-agent crews, CLI chat, Docker |
+| v0.9.2 | 2026-03-24 | Intelligence features |
+| v1.0.0 | 2026-03-24 | General availability |
+| v1.0.1 | 2026-03-26 | Bug fixes & feature completions |
+| v1.1.0 | 2026-03-26 | Webhook integrations, SLA monitoring, observability |
+| v1.2.0 | 2026-05-27 | tool_plan, OPA/Rego policy, federation demo, Curator v1, Cloud Ops vertical (draft tag; rolled into v1.3.0) |
+| v1.3.0 | 2026-06-06 | Security hardening (full-repo audit), #48 subagent coordination, prebuilt-binary install + release CI, OpenClaw+Hermes feature wave: doctor, personalities, OpenClaw migrate, trajectory capture/compress, IRC/LINE/Nostr channels, voice TTS, Rich TUI, live canvas, node protocol, guided onboarding |
 
 ---
+
+## Next (post-v1.3.0)
+
+The OpenClaw+Hermes initiative (epic) is delivered. Genuinely-remaining work,
+not yet scheduled:
+
+| Item | Type | Notes |
+|------|------|-------|
+| Native companion apps (macOS/iOS/Android) | Clients | The node protocol (B10) shipped with a reference web client; native apps are separate projects. |
+| PostgreSQL backend behind the storage interface | Scale | The storage layer is already a Go interface; wire a Postgres implementation for teams that outgrow SQLite. |
+| Visual workflow builder (drag-and-drop) | UX | The honest gap vs Dify. The workflow engine exists (JSON/API); a builder UI does not. |
+| Hosted control plane for fleets | Product | Manage many self-hosted nodes from one place. |
+| Streaming polish (Slack + dashboard) | UX | Provider-level token streaming to channels/dashboard. |
+| Skill catalog breadth | Ecosystem | Plumbing is solid (catalog + GitHub search + OpenClaw import); the native catalog is small. |
 
 ## How to Contribute
 
