@@ -33,6 +33,24 @@ single-binary assets (built by `.github/workflows/release.yml` on each `v*` tag)
 - **#48 — native stateful subagent coordination**: a tenant-scoped, policy-gated
   shared-context channel built on the existing recall store + IPC bus (no external
   shared-memory dependency).
+- **OpenClaw + Hermes feature wave** (epic #36, delivered):
+  - `cyntr doctor` — pluggable diagnostics (provider keys, channel tokens, DB,
+    policy parse, risky DM policy, OIDC, port conflicts, sandbox); exit code by
+    worst severity; secrets redacted.
+  - Switchable **personalities** — per-tenant named personas via `/personality <name>`.
+  - `cyntr migrate openclaw [--dry-run]` — conflict-safe import of `~/.openclaw`
+    skills + config.
+  - **Trajectory** capture (opt-in) + `cyntr trajectory run`/`compress` for
+    eval/training datasets (PII-stripped canonical schema).
+  - New channels: **IRC** (pure-Go), **LINE** (signed webhook), **Nostr** (relay
+    adapter, BIP-340 signing).
+  - **Voice TTS** — `text_to_speech` tool + `.../voice` STT→turn→TTS endpoint.
+  - **Rich TUI** — `cyntr tui` (multiline, slash autocomplete, streaming, interrupt).
+  - **Live canvas (A2UI)** — `canvas_render` tool + tenant-scoped WebSocket + reference UI.
+  - **Companion node protocol** — WS pairing + capability handshake, reference web
+    client, and `cyntr node pair <node>` / `POST /api/v1/node/pair` to issue codes.
+  - **Guided onboarding** — `cyntr init` reworked into one idempotent flow ending in a
+    doctor report.
 - **Release pipeline** (`.github/workflows/release.yml`): cross-compiles binaries for
   linux/darwin/windows (amd64+arm64) and uploads them with SHA-256 checksums on tag push.
 
@@ -49,8 +67,10 @@ single-binary assets (built by `.github/workflows/release.yml` on each `v*` tag)
   build (or fails silently). Version strings across code, README, and docs corrected from
   the stale `1.1.0` to `1.3.0`.
 
-> **Publishing note:** the website at cyntr.dev serves a copy of `install.sh` — redeploy
-> the site after this release so the public one-liner picks up the new script.
+> **Note:** cyntr.dev is served by GitHub Pages from `main/docs` and redeploys
+> automatically on merge, so the public `install.sh` is already current. The
+> one-liner downloads the *latest published release's* binary — so it only works
+> once this release is published with assets (via the release pipeline on the tag).
 
 ## [1.2.0] — 2026-05-27 (draft)
 Platform upgrade: `tool_plan`, OPA/Rego policy, federation demo, Curator v1, Cloud Ops vertical.

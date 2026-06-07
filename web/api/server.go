@@ -125,6 +125,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/system/health", s.handleSystemHealth)
 	s.mux.HandleFunc("GET /api/v1/system/version", s.handleSystemVersion)
 
+	// Companion node pairing (B10): issue a pairing code for a node.
+	s.mux.HandleFunc("POST /api/v1/node/pair", s.handleNodePairIssue)
+
 	// Tenants (CRUD)
 	s.mux.HandleFunc("GET /api/v1/tenants", s.handleTenantList)
 	s.mux.HandleFunc("GET /api/v1/tenants/{tid}", s.handleTenantGet)
