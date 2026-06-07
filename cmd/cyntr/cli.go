@@ -202,7 +202,10 @@ func runCLI(args []string) {
 		}
 
 	case "schedule":
-		if len(args) < 2 { fmt.Fprintln(os.Stderr, "usage: cyntr schedule <add|list|remove>"); os.Exit(1) }
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: cyntr schedule <add|list|remove>")
+			os.Exit(1)
+		}
 		switch args[1] {
 		case "add":
 			if len(args) < 6 {
@@ -219,10 +222,34 @@ func runCLI(args []string) {
 		case "list":
 			apiGet("/api/v1/schedules")
 		case "remove":
-			if len(args) < 3 { fmt.Fprintln(os.Stderr, "usage: cyntr schedule remove <id>"); os.Exit(1) }
+			if len(args) < 3 {
+				fmt.Fprintln(os.Stderr, "usage: cyntr schedule remove <id>")
+				os.Exit(1)
+			}
 			apiPost("/api/v1/schedules/"+args[2]+"/remove", map[string]string{})
 		default:
 			fmt.Fprintf(os.Stderr, "unknown schedule command: %s\n", args[1])
+			os.Exit(1)
+		}
+
+	case "node":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: cyntr node pair <node-name> [caps]   # caps: comma-separated voice,canvas,camera,screen")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "pair":
+			if len(args) < 3 {
+				fmt.Fprintln(os.Stderr, "usage: cyntr node pair <node-name> [voice,canvas,camera,screen]")
+				os.Exit(1)
+			}
+			payload := map[string]any{"node": args[2]}
+			if len(args) > 3 {
+				payload["capabilities"] = strings.Split(args[3], ",")
+			}
+			apiPost("/api/v1/node/pair", payload)
+		default:
+			fmt.Fprintf(os.Stderr, "unknown node command: %s\n", args[1])
 			os.Exit(1)
 		}
 
@@ -240,7 +267,8 @@ func runCLI(args []string) {
 // suggestCommand finds the closest known command to the input.
 func suggestCommand(input string) string {
 	commands := []string{"init", "start", "stop", "status", "doctor", "version", "help",
-		"tenant", "agent", "audit", "policy", "skill", "federation", "schedule"}
+		"tenant", "agent", "audit", "policy", "skill", "federation", "schedule",
+		"chat", "tui", "eval", "migrate", "trajectory", "node", "backup", "restore"}
 
 	bestMatch := ""
 	bestScore := 0
@@ -274,7 +302,11 @@ func similarity(a, b string) int {
 	}
 	// Bonus for similar length
 	diff := len(a) - len(b)
-	if diff < 0 { diff = -diff }
-	if diff <= 1 { matches++ }
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff <= 1 {
+		matches++
+	}
 	return matches
 }
