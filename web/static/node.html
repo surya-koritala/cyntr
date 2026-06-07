@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cyntr Companion Node — reference client</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { font-size: 1.25rem; }
+    fieldset { border: 1px solid #8884; border-radius: 8px; margin-bottom: 1rem; }
+    label { display: block; font-size: .85rem; margin: .4rem 0 .15rem; }
+    input[type=text] { width: 100%; padding: .45rem; box-sizing: border-box; border-radius: 6px; border: 1px solid #8886; }
+    .caps { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .4rem; }
+    .caps label { display: inline-flex; align-items: center; gap: .35rem; margin: 0; }
+    button { padding: .5rem .9rem; border-radius: 6px; border: 0; background: #2563eb; color: #fff; cursor: pointer; }
+    button.secondary { background: #6b7280; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: end; }
+    #log { background: #0001; border-radius: 8px; padding: .75rem; height: 280px; overflow: auto; font-family: ui-monospace, monospace; font-size: .8rem; white-space: pre-wrap; }
+    .in { color: #2563eb; } .out { color: #16a34a; } .err { color: #dc2626; } .sys { color: #6b7280; }
+    .badge { display: inline-block; font-size: .75rem; background: #16a34a22; color: #16a34a; padding: .1rem .45rem; border-radius: 99px; }
+  </style>
+</head>
+<body>
+  <h1>Cyntr Companion Node — reference web client</h1>
+  <p class="sys">
+    Demonstrates the B10 node protocol: pair with a code, negotiate capabilities,
+    and exchange sample voice/canvas frames. Native macOS/iOS/Android apps are
+    deferred to separate projects — this browser client is the reference.
+  </p>
+
+  <fieldset>
+    <legend>Connection</legend>
+    <label for="url">Gateway WebSocket URL</label>
+    <input id="url" type="text" value="" placeholder="ws://localhost:8080/api/v1/node/ws" />
+    <label for="code">Pairing code (issued by an operator for your tenant)</label>
+    <input id="code" type="text" placeholder="e.g. K7M4PQ" autocomplete="off" />
+    <label for="node">Node id</label>
+    <input id="node" type="text" value="web-reference" />
+    <label>Capabilities to offer</label>
+    <div class="caps">
+      <label><input type="checkbox" class="cap" value="voice" checked /> voice</label>
+      <label><input type="checkbox" class="cap" value="canvas" checked /> canvas</label>
+      <label><input type="checkbox" class="cap" value="camera" /> camera</label>
+      <label><input type="checkbox" class="cap" value="screen" /> screen</label>
+    </div>
+    <div class="row" style="margin-top:.75rem">
+      <button id="connect">Pair & connect</button>
+      <button id="disconnect" class="secondary" disabled>Disconnect</button>
+      <span id="status" class="sys">disconnected</span>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Negotiated session</legend>
+    <div id="session" class="sys">none</div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Sample messages</legend>
+    <div class="row">
+      <button id="sendVoice" disabled>Send sample voice</button>
+      <button id="sendCanvas" disabled>Send sample canvas</button>
+      <button id="ping" class="secondary" disabled>Ping</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Wire log</legend>
+    <div id="log"></div>
+  </fieldset>
+
+  <script src="node.js"></script>
+</body>
+</html>

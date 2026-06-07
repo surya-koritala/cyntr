@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cyntr Live Canvas (A2UI)</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #0f1115; color: #e6e6e6; }
+    header { padding: 12px 16px; background: #171a21; border-bottom: 1px solid #2a2e37; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    header input { background: #0f1115; border: 1px solid #2a2e37; color: #e6e6e6; padding: 6px 8px; border-radius: 6px; }
+    header button { background: #3a6df0; color: #fff; border: 0; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+    #status { margin-left: auto; font-size: 13px; opacity: 0.8; }
+    #status.ok { color: #4caf50; }
+    #status.err { color: #ef5350; }
+    main { padding: 16px; max-width: 900px; margin: 0 auto; }
+    .canvas-title { font-size: 20px; font-weight: 600; margin: 8px 0 16px; }
+    .node { margin: 12px 0; }
+    .node table { border-collapse: collapse; width: 100%; }
+    .node th, .node td { border: 1px solid #2a2e37; padding: 6px 10px; text-align: left; }
+    .node th { background: #171a21; }
+    .node img { max-width: 100%; border-radius: 8px; }
+    .node button { background: #2a2e37; color: #e6e6e6; border: 1px solid #3a3f4b; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+    .node pre { background: #171a21; padding: 10px; border-radius: 8px; overflow-x: auto; }
+    .empty { opacity: 0.6; font-style: italic; }
+  </style>
+</head>
+<body>
+  <header>
+    <label>Tenant <input id="tenant" value="finance" /></label>
+    <label>Session <input id="session" value="s1" /></label>
+    <label>Key <input id="key" placeholder="JWT or API key" size="28" /></label>
+    <button id="connect">Connect</button>
+    <span id="status">disconnected</span>
+  </header>
+  <main>
+    <div id="title" class="canvas-title"></div>
+    <div id="canvas"><p class="empty">No canvas yet. Connect and wait for the agent to render one.</p></div>
+  </main>
+  <script src="canvas.js"></script>
+</body>
+</html>
