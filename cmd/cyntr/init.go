@@ -6,265 +6,312 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/cyntr-dev/cyntr/kernel/config"
+	"gopkg.in/yaml.v3"
 )
 
+// runInit is the CLI entry point (main.go: case "init": runInit()). It drives
+// the guided onboarding wizard against the real stdin/stdout in the current
+// working directory. The actual logic lives in runInitWizard so tests can feed
+// scripted answers and assert on the generated files.
 func runInit() {
-	scanner := bufio.NewScanner(os.Stdin)
+	if err := runInitWizard(os.Stdin, os.Stdout, "."); err != nil {
+		fmt.Fprintln(os.Stderr, "  init failed:", err)
+		os.Exit(1)
+	}
+}
 
-	fmt.Println()
-	fmt.Println("  ┌───────────────────────────────────────┐")
-	fmt.Println("  │                                       │")
-	fmt.Println("  │   Cyntr Setup Wizard                  │")
-	fmt.Println("  │   Enterprise AI Agent Platform        │")
-	fmt.Println("  │                                       │")
-	fmt.Println("  └───────────────────────────────────────┘")
-	fmt.Println()
+// wiz is the wizard's shared I/O context. Prompts read a line from in and echo
+// to out so the flow is fully drivable from a test (feed stdin -> assert files).
+type wiz struct {
+	sc  *bufio.Scanner
+	out io.Writer
+	dir string
+}
 
-	// Check if config already exists
-	if _, err := os.Stat("cyntr.yaml"); err == nil {
-		fmt.Print("  Config already exists. Overwrite? (y/N): ")
-		scanner.Scan()
-		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
-			fmt.Println("  Aborted.")
-			return
+func (w *wiz) printf(format string, a ...any) { fmt.Fprintf(w.out, format, a...) }
+func (w *wiz) println(a ...any)               { fmt.Fprintln(w.out, a...) }
+
+// ask prompts for free-form text, showing defaultVal in brackets. Empty input
+// keeps the default. This is the idempotency primitive: on a re-run we pass the
+// previously-configured value as defaultVal, so just hitting enter preserves it.
+func (w *wiz) ask(label, defaultVal string) string {
+	if defaultVal != "" {
+		w.printf("%s [%s]: ", label, defaultVal)
+	} else {
+		w.printf("%s: ", label)
+	}
+	if !w.sc.Scan() {
+		return defaultVal
+	}
+	val := strings.TrimSpace(w.sc.Text())
+	if val == "" {
+		return defaultVal
+	}
+	return val
+}
+
+// askYN prompts for a yes/no answer. defaultYes controls what an empty answer
+// means and which letter is capitalized. Any non y/n input re-prompts rather
+// than silently picking a side.
+func (w *wiz) askYN(label string, defaultYes bool) bool {
+	suffix := "(y/N)"
+	if defaultYes {
+		suffix = "(Y/n)"
+	}
+	for {
+		w.printf("%s %s: ", label, suffix)
+		if !w.sc.Scan() {
+			return defaultYes
 		}
-		fmt.Println()
+		switch strings.ToLower(strings.TrimSpace(w.sc.Text())) {
+		case "":
+			return defaultYes
+		case "y", "yes":
+			return true
+		case "n", "no":
+			return false
+		default:
+			w.println("    Please answer y or n.")
+		}
+	}
+}
+
+// askChoice prompts for a numbered menu choice in [1, max]. Out-of-range or
+// non-numeric input re-prompts instead of crashing.
+func (w *wiz) askChoice(label, defaultVal string, max int) string {
+	for {
+		v := w.ask(label, defaultVal)
+		n := 0
+		ok := len(v) > 0
+		for _, r := range v {
+			if r < '0' || r > '9' {
+				ok = false
+				break
+			}
+			n = n*10 + int(r-'0')
+		}
+		if ok && n >= 1 && n <= max {
+			return v
+		}
+		w.printf("    Please choose a number between 1 and %d.\n", max)
+	}
+}
+
+func (w *wiz) path(name string) string { return filepath.Join(w.dir, name) }
+
+// runInitWizard is the testable core. It is IDEMPOTENT: existing cyntr.yaml and
+// .env values are loaded and offered as defaults, never blindly clobbered. It
+// always finishes by running the doctor checks and printing their report.
+func runInitWizard(in io.Reader, out io.Writer, dir string) error {
+	w := &wiz{sc: bufio.NewScanner(in), out: out, dir: dir}
+
+	w.println()
+	w.println("  ┌───────────────────────────────────────┐")
+	w.println("  │   Cyntr Setup Wizard                   │")
+	w.println("  │   Enterprise AI Agent Platform         │")
+	w.println("  └───────────────────────────────────────┘")
+	w.println()
+
+	// Load existing config (idempotent re-run). A malformed file is treated as
+	// empty defaults rather than aborting, so the wizard can repair it.
+	cfg := config.DefaultConfig()
+	configExisted := false
+	if data, err := os.ReadFile(w.path("cyntr.yaml")); err == nil {
+		configExisted = true
+		var existing config.CyntrConfig
+		if yaml.Unmarshal(data, &existing) == nil {
+			cfg = existing
+		}
+		if cfg.Version == "" {
+			cfg.Version = "1"
+		}
+		if cfg.Tenants == nil {
+			cfg.Tenants = map[string]config.TenantConfig{}
+		}
+		w.println("  Existing cyntr.yaml found — your current values are offered as")
+		w.println("  defaults. Press enter to keep them.")
+		w.println()
 	}
 
-	// Step 1
-	fmt.Println("  Step 1 of 6: Basic Configuration")
-	fmt.Println("  ─────────────────────────────────")
-	fmt.Println()
-	tenantName := prompt(scanner, "  Organization/team name", "default")
-	listenAddr := prompt(scanner, "  API address", "127.0.0.1:8080")
-	dashboardPort := prompt(scanner, "  Dashboard port", "7700")
+	// Load existing .env so secrets/settings survive a re-run.
+	env := readEnvFile(w.path(".env"))
 
-	// Step 2
-	fmt.Println()
-	fmt.Println("  Step 2 of 6: AI Model Provider")
-	fmt.Println("  ──────────────────────────────")
-	fmt.Println()
-	fmt.Println("  1) Anthropic (Claude)  — recommended")
-	fmt.Println("  2) OpenAI (GPT)")
-	fmt.Println("  3) Azure OpenAI (Azure AI Foundry)")
-	fmt.Println("  4) Google (Gemini)")
-	fmt.Println("  5) OpenRouter (100+ models)")
-	fmt.Println("  6) Ollama (local models)")
-	fmt.Println("  7) Skip for now")
-	fmt.Println()
+	// --- Step 1: basics --------------------------------------------------
+	w.println("  Step 1 of 5: Basic Configuration")
+	w.println("  ─────────────────────────────────")
+	w.println()
 
-	providerChoice := prompt(scanner, "  Choose", "1")
+	tenantName := pickTenant(cfg)
+	tenantName = w.ask("  Organization/team name", tenantName)
+	listenAddr := w.ask("  API address", orDefault(cfg.Listen.Address, "127.0.0.1:8080"))
+	webui := w.ask("  Dashboard webui (host:port)", orDefault(cfg.Listen.WebUI, ":7700"))
 
-	var envLines []string
-	agentModelName := "mock" // provider name used for agent configs
+	// --- Step 2: provider (incl. OAuth, D20) -----------------------------
+	w.println()
+	w.println("  Step 2 of 5: AI Model Provider")
+	w.println("  ──────────────────────────────")
+	w.println()
+	w.println("  1) Anthropic (Claude)      — API key")
+	w.println("  2) OpenAI (GPT)            — API key")
+	w.println("  3) Azure OpenAI            — API key")
+	w.println("  4) Google (Gemini)         — API key")
+	w.println("  5) OpenRouter              — API key")
+	w.println("  6) Ollama (local)          — no key")
+	w.println("  7) OAuth subscription login — ChatGPT/Codex etc. (no API key)")
+	w.println("  8) Skip for now")
+	w.println()
+
+	defProvider := detectProviderDefault(env)
+	agentModelName := "mock"
+	providerChoice := w.askChoice("  Choose", defProvider, 8)
 
 	switch providerChoice {
 	case "1":
-		key := prompt(scanner, "  Anthropic API key", "")
-		if key != "" {
-			envLines = append(envLines, "ANTHROPIC_API_KEY="+key)
-			model := prompt(scanner, "  Model", "claude-sonnet-4-20250514")
-			if model != "" {
-				envLines = append(envLines, "ANTHROPIC_MODEL="+model)
-			}
+		if key := w.ask("  Anthropic API key", masked(env["ANTHROPIC_API_KEY"])); key != "" && !isMask(key) {
+			env["ANTHROPIC_API_KEY"] = key
+		}
+		if env["ANTHROPIC_API_KEY"] != "" {
+			env["ANTHROPIC_MODEL"] = w.ask("  Model", orDefault(env["ANTHROPIC_MODEL"], "claude-sonnet-4-20250514"))
 			agentModelName = "claude"
 		}
 	case "2":
-		key := prompt(scanner, "  OpenAI API key", "")
-		if key != "" {
-			envLines = append(envLines, "OPENAI_API_KEY="+key)
-			model := prompt(scanner, "  Model", "gpt-4")
-			if model != "" {
-				envLines = append(envLines, "OPENAI_MODEL="+model)
-			}
+		if key := w.ask("  OpenAI API key", masked(env["OPENAI_API_KEY"])); key != "" && !isMask(key) {
+			env["OPENAI_API_KEY"] = key
+		}
+		if env["OPENAI_API_KEY"] != "" {
+			env["OPENAI_MODEL"] = w.ask("  Model", orDefault(env["OPENAI_MODEL"], "gpt-4o"))
 			agentModelName = "gpt"
 		}
 	case "3":
-		fmt.Println()
-		fmt.Println("    Find these in Azure AI Foundry → your deployment → Consume tab")
-		fmt.Println("    Endpoint should be the BASE URL only, e.g.:")
-		fmt.Println("      https://myresource.openai.azure.com")
-		fmt.Println("      https://myresource.cognitiveservices.azure.com")
-		fmt.Println("    Do NOT include /openai/... path or ?api-version query string.")
-		fmt.Println()
-		key := prompt(scanner, "  Azure API key", "")
-		if key != "" {
-			envLines = append(envLines, "AZURE_OPENAI_API_KEY="+key)
-			endpoint := prompt(scanner, "  Endpoint (base URL only)", "")
-			// Strip any path/query the user may have pasted
-			if idx := strings.Index(endpoint, "/openai"); idx > 0 {
-				endpoint = endpoint[:idx]
+		if key := w.ask("  Azure API key", masked(env["AZURE_OPENAI_API_KEY"])); key != "" && !isMask(key) {
+			env["AZURE_OPENAI_API_KEY"] = key
+		}
+		if env["AZURE_OPENAI_API_KEY"] != "" {
+			ep := w.ask("  Endpoint (base URL only)", env["AZURE_OPENAI_ENDPOINT"])
+			if idx := strings.Index(ep, "/openai"); idx > 0 {
+				ep = ep[:idx]
 			}
-			if idx := strings.Index(endpoint, "?"); idx > 0 {
-				endpoint = endpoint[:idx]
+			if idx := strings.Index(ep, "?"); idx > 0 {
+				ep = ep[:idx]
 			}
-			endpoint = strings.TrimRight(endpoint, "/")
-			envLines = append(envLines, "AZURE_OPENAI_ENDPOINT="+endpoint)
-			deployment := prompt(scanner, "  Deployment name", "gpt-4o")
-			envLines = append(envLines, "AZURE_OPENAI_DEPLOYMENT="+deployment)
-			apiVersion := prompt(scanner, "  API version", "2024-08-01-preview")
-			envLines = append(envLines, "AZURE_OPENAI_API_VERSION="+apiVersion)
+			env["AZURE_OPENAI_ENDPOINT"] = strings.TrimRight(ep, "/")
+			env["AZURE_OPENAI_DEPLOYMENT"] = w.ask("  Deployment name", orDefault(env["AZURE_OPENAI_DEPLOYMENT"], "gpt-4o"))
+			env["AZURE_OPENAI_API_VERSION"] = w.ask("  API version", orDefault(env["AZURE_OPENAI_API_VERSION"], "2024-08-01-preview"))
 			agentModelName = "azure-openai"
 		}
 	case "4":
-		key := prompt(scanner, "  Gemini API key", "")
-		if key != "" {
-			envLines = append(envLines, "GEMINI_API_KEY="+key)
-			model := prompt(scanner, "  Model", "gemini-pro")
-			if model != "" {
-				envLines = append(envLines, "GEMINI_MODEL="+model)
-			}
+		if key := w.ask("  Gemini API key", masked(env["GEMINI_API_KEY"])); key != "" && !isMask(key) {
+			env["GEMINI_API_KEY"] = key
+		}
+		if env["GEMINI_API_KEY"] != "" {
+			env["GEMINI_MODEL"] = w.ask("  Model", orDefault(env["GEMINI_MODEL"], "gemini-1.5-pro"))
 			agentModelName = "gemini"
 		}
 	case "5":
-		key := prompt(scanner, "  OpenRouter API key", "")
-		if key != "" {
-			envLines = append(envLines, "OPENROUTER_API_KEY="+key)
-			model := prompt(scanner, "  Model", "anthropic/claude-3.5-sonnet")
-			if model != "" {
-				envLines = append(envLines, "OPENROUTER_MODEL="+model)
-			}
+		if key := w.ask("  OpenRouter API key", masked(env["OPENROUTER_API_KEY"])); key != "" && !isMask(key) {
+			env["OPENROUTER_API_KEY"] = key
+		}
+		if env["OPENROUTER_API_KEY"] != "" {
+			env["OPENROUTER_MODEL"] = w.ask("  Model", orDefault(env["OPENROUTER_MODEL"], "anthropic/claude-3.5-sonnet"))
 			agentModelName = "openrouter"
 		}
 	case "6":
-		url := prompt(scanner, "  Ollama URL", "http://localhost:11434")
-		envLines = append(envLines, "OLLAMA_URL="+url)
-		model := prompt(scanner, "  Model", "llama3")
-		envLines = append(envLines, "OLLAMA_MODEL="+model)
+		env["OLLAMA_URL"] = w.ask("  Ollama URL", orDefault(env["OLLAMA_URL"], "http://localhost:11434"))
+		env["OLLAMA_MODEL"] = w.ask("  Model", orDefault(env["OLLAMA_MODEL"], "llama3"))
 		agentModelName = "ollama"
-	}
-
-	// Step 3
-	fmt.Println()
-	fmt.Println("  Step 3 of 6: Messaging Channels (optional)")
-	fmt.Println("  ───────────────────────────────────────────")
-	fmt.Println()
-
-	if promptYN(scanner, "  Enable Slack?") {
-		token := prompt(scanner, "    Bot token (xoxb-...)", "")
-		if token != "" {
-			envLines = append(envLines, "SLACK_BOT_TOKEN="+token)
-			envLines = append(envLines, "SLACK_TENANT="+tenantName)
-			slackAgent := prompt(scanner, "    Agent to handle Slack messages", "assistant")
-			envLines = append(envLines, "SLACK_AGENT="+slackAgent)
-			fmt.Println()
-			fmt.Println("    Note: Slack must reach your Cyntr instance.")
-			fmt.Println("    For local dev, use ngrok: ngrok http 3000")
-			fmt.Println("    Then set your Slack app's Event Subscription URL to:")
-			fmt.Println("      https://<ngrok-url>/slack/events")
+	case "7":
+		// OAuth subscription login (D20). The wizard records the OAuth client
+		// config; the running server exchanges the code via providers.OAuthManager.
+		w.println()
+		w.println("    OAuth lets a tenant authenticate with a subscription login")
+		w.println("    instead of an API key. Enter your provider's OAuth client config.")
+		w.println("    The access token is obtained at runtime, not stored here.")
+		w.println()
+		prov := w.ask("  Provider name (e.g. chatgpt)", orDefault(env["OAUTH_PROVIDER"], "chatgpt"))
+		env["OAUTH_PROVIDER"] = prov
+		env["OAUTH_TOKEN_URL"] = w.ask("  Token URL", orDefault(env["OAUTH_TOKEN_URL"], "https://auth.openai.com/oauth/token"))
+		if id := w.ask("  OAuth client ID", masked(env["OAUTH_CLIENT_ID"])); id != "" && !isMask(id) {
+			env["OAUTH_CLIENT_ID"] = id
 		}
-	}
-
-	if promptYN(scanner, "  Enable Teams?") {
-		appID := prompt(scanner, "    App ID", "")
-		if appID != "" {
-			envLines = append(envLines, "TEAMS_APP_ID="+appID)
-			secret := prompt(scanner, "    App Secret", "")
-			envLines = append(envLines, "TEAMS_APP_SECRET="+secret)
-			envLines = append(envLines, "TEAMS_TENANT="+tenantName)
+		if sec := w.ask("  OAuth client secret (optional)", masked(env["OAUTH_CLIENT_SECRET"])); sec != "" && !isMask(sec) {
+			env["OAUTH_CLIENT_SECRET"] = sec
 		}
+		env["OAUTH_REDIRECT_URL"] = w.ask("  Redirect URL", orDefault(env["OAUTH_REDIRECT_URL"], "http://localhost:7700/oauth/callback"))
+		agentModelName = prov
 	}
 
-	if promptYN(scanner, "  Enable WhatsApp?") {
-		token := prompt(scanner, "    Access token", "")
-		if token != "" {
-			envLines = append(envLines, "WHATSAPP_ACCESS_TOKEN="+token)
-			phoneID := prompt(scanner, "    Phone number ID", "")
-			envLines = append(envLines, "WHATSAPP_PHONE_NUMBER_ID="+phoneID)
-			envLines = append(envLines, "WHATSAPP_VERIFY_TOKEN=cyntr-verify")
-			envLines = append(envLines, "WHATSAPP_TENANT="+tenantName)
-		}
-	}
+	// --- Step 3: channels with safe DM pairing defaults (B12) ------------
+	w.println()
+	w.println("  Step 3 of 5: Messaging Channels (optional)")
+	w.println("  ───────────────────────────────────────────")
+	w.println()
+	w.println("  Inbound DMs are untrusted. Cyntr defaults to PAIRING: an unknown")
+	w.println("  sender must be approved by an operator before reaching the agent.")
+	w.println()
 
-	if promptYN(scanner, "  Enable Telegram?") {
-		token := prompt(scanner, "    Bot token", "")
-		if token != "" {
-			envLines = append(envLines, "TELEGRAM_BOT_TOKEN="+token)
-			envLines = append(envLines, "TELEGRAM_TENANT="+tenantName)
+	// Default DM policy. On a re-run keep whatever was set; otherwise the safe
+	// default is "pairing" (never "open").
+	defDM := orDefault(env["CYNTR_DM_POLICY"], "pairing")
+	if w.askYN("  Use safe DM pairing default (recommended)?", strings.EqualFold(defDM, "pairing")) {
+		env["CYNTR_DM_POLICY"] = "pairing"
+	} else {
+		w.println("    1) open    — anyone may message the agent (NOT recommended)")
+		w.println("    2) closed  — no inbound is processed")
+		switch w.askChoice("    DM policy", map[bool]string{true: "1", false: "2"}[strings.EqualFold(defDM, "open")], 2) {
+		case "1":
+			env["CYNTR_DM_POLICY"] = "open"
+		case "2":
+			env["CYNTR_DM_POLICY"] = "closed"
 		}
 	}
 
-	if promptYN(scanner, "  Enable Discord?") {
-		token := prompt(scanner, "    Bot token", "")
-		if token != "" {
-			envLines = append(envLines, "DISCORD_BOT_TOKEN="+token)
-			envLines = append(envLines, "DISCORD_TENANT="+tenantName)
+	type chanDef struct {
+		name      string
+		label     string
+		tokenEnv  string
+		tokenName string
+		extra     func()
+	}
+	channels := []chanDef{
+		{name: "slack", label: "Slack", tokenEnv: "SLACK_BOT_TOKEN", tokenName: "Bot token (xoxb-...)"},
+		{name: "telegram", label: "Telegram", tokenEnv: "TELEGRAM_BOT_TOKEN", tokenName: "Bot token"},
+		{name: "discord", label: "Discord", tokenEnv: "DISCORD_BOT_TOKEN", tokenName: "Bot token"},
+	}
+	for _, ch := range channels {
+		already := env[ch.tokenEnv] != ""
+		if !w.askYN("  Enable "+ch.label+"?", already) {
+			continue
 		}
+		if tok := w.ask("    "+ch.tokenName, masked(env[ch.tokenEnv])); tok != "" && !isMask(tok) {
+			env[ch.tokenEnv] = tok
+		}
+		if env[ch.tokenEnv] == "" {
+			continue
+		}
+		upper := strings.ToUpper(ch.name)
+		env[upper+"_TENANT"] = tenantName
+		env[upper+"_AGENT"] = w.ask("    Agent to handle "+ch.label+" messages", orDefault(env[upper+"_AGENT"], "assistant"))
+		// Per-channel DM policy override (safe default = pairing).
+		env[upper+"_DM_POLICY"] = orDefault(env[upper+"_DM_POLICY"], "pairing")
 	}
 
-	if promptYN(scanner, "  Enable Google Chat?") {
-		webhook := prompt(scanner, "    Webhook URL", "")
-		if webhook != "" {
-			envLines = append(envLines, "GOOGLE_CHAT_WEBHOOK_URL="+webhook)
-			envLines = append(envLines, "GOOGLE_CHAT_TENANT="+tenantName)
-			envLines = append(envLines, "GOOGLE_CHAT_AGENT=assistant")
-		}
-	}
-
-	// Step 4
-	fmt.Println()
-	fmt.Println("  Step 4 of 6: Cloud Infrastructure Access (optional)")
-	fmt.Println("  ───────────────────────────────────────────────────")
-	fmt.Println()
-	fmt.Println("  Cyntr agents can use CLI tools to troubleshoot cloud infrastructure.")
-	fmt.Println("  This creates a read-only cloud-ops agent with shell access.")
-	fmt.Println()
-	fmt.Println("  Prerequisites:")
-	fmt.Println("    AWS:   'aws' CLI installed + 'aws configure' done (use a read-only IAM role)")
-	fmt.Println("    Azure: 'az' CLI installed + 'az login' done (use a Reader role)")
-	fmt.Println("    GCP:   'gcloud' CLI installed + 'gcloud auth login' done (use Viewer role)")
-	fmt.Println()
-
-	enableCloudOps := false
-	var cloudProviders []string
-
-	if promptYN(scanner, "  Enable cloud-ops agent?") {
-		enableCloudOps = true
-		fmt.Println()
-		if promptYN(scanner, "    AWS access? (requires 'aws' CLI configured)") {
-			cloudProviders = append(cloudProviders, "aws")
-		}
-		if promptYN(scanner, "    Azure access? (requires 'az' CLI configured)") {
-			cloudProviders = append(cloudProviders, "azure")
-		}
-		if promptYN(scanner, "    GCP access? (requires 'gcloud' CLI configured)") {
-			cloudProviders = append(cloudProviders, "gcp")
-		}
-	}
-
-	// Step 5
-	fmt.Println()
-	fmt.Println("  Step 5 of 6: Security Policy")
-	fmt.Println("  ────────────────────────────")
-	fmt.Println()
-	fmt.Println("  Shell access policy for agents:")
-	fmt.Println()
-	fmt.Println("  1) Deny all shell access (most secure)")
-	fmt.Println("  2) Require human approval for shell commands (recommended)")
-	fmt.Println("  3) Allow shell for cloud-ops agent only")
-	fmt.Println("  4) Allow all shell access (least secure)")
-	fmt.Println()
-
-	shellPolicy := prompt(scanner, "  Choose", "2")
-
-	// Step 6 of 6: Agent Templates
-	fmt.Println()
-	fmt.Println("  Step 6 of 6: Agent Templates (optional)")
-	fmt.Println("  ─────────────────────────────────────────")
-	fmt.Println()
-	fmt.Println("  Pre-configured agents ready to deploy:")
-	fmt.Println()
-	fmt.Println("  1) Cloud Ops         — AWS/Azure/GCP infrastructure troubleshooting")
-	fmt.Println("  2) Code Reviewer     — PR review, bug detection, best practices")
-	fmt.Println("  3) Security Scanner  — vulnerability scanning, secret detection")
-	fmt.Println("  4) General Assistant — all-purpose with all tools and skills")
-	fmt.Println("  5) All of the above")
-	fmt.Println("  6) Skip for now")
-	fmt.Println()
-
-	templateChoice := prompt(scanner, "  Choose", "4")
+	// --- Step 4: first agent ---------------------------------------------
+	w.println()
+	w.println("  Step 4 of 5: First Agent")
+	w.println("  ────────────────────────")
+	w.println()
+	w.println("  1) General Assistant  — all-purpose, all tools")
+	w.println("  2) Cloud Ops          — read-only infra troubleshooting")
+	w.println("  3) Code Reviewer      — PR review, bug detection")
+	w.println("  4) Skip")
+	w.println()
 
 	type agentTemplate struct {
 		Name         string   `json:"name"`
@@ -275,142 +322,126 @@ func runInit() {
 		Skills       []string `json:"skills"`
 		MaxTurns     int      `json:"max_turns"`
 	}
-
 	templates := map[string]agentTemplate{
-		"cloud-ops": {
-			Name: "cloud-ops", Model: agentModelName, MaxTurns: 20,
-			Tools:        []string{"shell_exec", "http_request", "web_search", "file_read", "aws_cross_account", "aws_cost_explorer", "kubectl", "send_notification"},
-			Skills:       []string{"aws-infrastructure-audit", "incident-commander", "cost-optimizer", "log-analyzer", "deployment-checker"},
-			SystemPrompt: "You are a cloud infrastructure agent with direct CLI access. Run commands immediately, don't ask for permission. ONLY use read-only commands. Never modify resources.",
-		},
-		"code-reviewer": {
-			Name: "code-reviewer", Model: agentModelName, MaxTurns: 15,
-			Tools:        []string{"file_read", "file_search", "shell_exec", "github"},
-			Skills:       []string{"code-reviewer-pro", "test-generator", "documentation-generator", "git-analyst"},
-			SystemPrompt: "You are an expert code reviewer. Analyze code for bugs, security issues, performance problems, and style. Provide specific, actionable feedback with line numbers.",
-		},
-		"security-scanner": {
-			Name: "security-scanner", Model: agentModelName, MaxTurns: 15,
-			Tools:        []string{"shell_exec", "file_read", "file_search", "http_request"},
-			Skills:       []string{"security-audit", "dependency-scanner", "secret-detector", "access-reviewer", "compliance-checker"},
-			SystemPrompt: "You are a security auditing agent. Scan infrastructure and code for vulnerabilities. Generate severity-classified findings reports.",
-		},
 		"assistant": {
-			Name: "assistant", Model: agentModelName, MaxTurns: 20,
-			Tools:        []string{"*"},
-			Skills:       []string{},
+			Name: "assistant", MaxTurns: 20, Tools: []string{"*"},
 			SystemPrompt: "You are a helpful AI assistant with access to all tools. Execute commands directly when asked. Be concise and actionable.",
 		},
+		"cloud-ops": {
+			Name: "cloud-ops", MaxTurns: 20,
+			Tools:        []string{"shell_exec", "http_request", "web_search", "file_read"},
+			Skills:       []string{"aws-infrastructure-audit", "incident-commander", "log-analyzer"},
+			SystemPrompt: "You are a read-only cloud infrastructure agent. ONLY use read/describe/list/get commands. Never modify resources.",
+		},
+		"code-reviewer": {
+			Name: "code-reviewer", MaxTurns: 15,
+			Tools:        []string{"file_read", "file_search", "shell_exec", "github"},
+			Skills:       []string{"code-reviewer-pro", "test-generator"},
+			SystemPrompt: "You are an expert code reviewer. Analyze code for bugs, security issues, and style. Provide specific, actionable feedback.",
+		},
 	}
-
-	var selectedTemplates []string
-	switch templateChoice {
+	agentName := ""
+	switch w.askChoice("  Choose", "1", 4) {
 	case "1":
-		selectedTemplates = []string{"cloud-ops"}
+		agentName = "assistant"
 	case "2":
-		selectedTemplates = []string{"code-reviewer"}
+		agentName = "cloud-ops"
 	case "3":
-		selectedTemplates = []string{"security-scanner"}
-	case "4":
-		selectedTemplates = []string{"assistant"}
-	case "5":
-		selectedTemplates = []string{"cloud-ops", "code-reviewer", "security-scanner", "assistant"}
+		agentName = "code-reviewer"
 	}
-
-	for _, name := range selectedTemplates {
-		tmpl := templates[name]
+	if agentName != "" {
+		tmpl := templates[agentName]
 		tmpl.Tenant = tenantName
-		data, _ := json.Marshal(tmpl)
-		filename := name + "-agent.json"
-		os.WriteFile(filename, data, 0644)
-		fmt.Printf("  ✓ %s\n", filename)
+		tmpl.Model = agentModelName
+		data, _ := json.MarshalIndent(tmpl, "", "  ")
+		fname := agentName + "-agent.json"
+		if err := os.WriteFile(w.path(fname), data, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", fname, err)
+		}
+		w.printf("  ✓ %s\n", fname)
 	}
 
-	// Generate API key for dashboard/API access
-	keyBuf := make([]byte, 32)
-	crand.Read(keyBuf)
-	apiKey := "cyntr_" + hex.EncodeToString(keyBuf)
-	envLines = append(envLines, "CYNTR_API_KEY="+apiKey)
-
-	// Generate files
-	fmt.Println()
-	fmt.Println("  Generating configuration...")
-	fmt.Println()
-
-	// cyntr.yaml
-	// Quote tenant name if it contains spaces
-	yamlTenantKey := tenantName
-	if strings.Contains(tenantName, " ") {
-		yamlTenantKey = `"` + tenantName + `"`
+	// Generate (or preserve) the dashboard/API key.
+	if env["CYNTR_API_KEY"] == "" {
+		keyBuf := make([]byte, 32)
+		crand.Read(keyBuf)
+		env["CYNTR_API_KEY"] = "cyntr_" + hex.EncodeToString(keyBuf)
 	}
 
-	cyntrYAML := fmt.Sprintf(`version: "1"
-listen:
-  address: "%s"
-  webui: ":%s"
-tenants:
-  %s:
-    isolation: namespace
-    policy: default
-`, listenAddr, dashboardPort, yamlTenantKey)
+	// --- Persist cyntr.yaml (merge, don't clobber) -----------------------
+	cfg.Version = orDefault(cfg.Version, "1")
+	cfg.Listen.Address = listenAddr
+	cfg.Listen.WebUI = webui
+	if cfg.Tenants == nil {
+		cfg.Tenants = map[string]config.TenantConfig{}
+	}
+	tc := cfg.Tenants[tenantName] // preserve existing tenant settings if present
+	if tc.Isolation == "" {
+		tc.Isolation = "namespace"
+	}
+	if tc.Policy == "" {
+		tc.Policy = "default"
+	}
+	cfg.Tenants[tenantName] = tc
 
-	os.WriteFile("cyntr.yaml", []byte(cyntrYAML), 0644)
-	fmt.Println("  ✓ cyntr.yaml")
+	yamlBytes, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal cyntr.yaml: %w", err)
+	}
+	if err := os.WriteFile(w.path("cyntr.yaml"), yamlBytes, 0o644); err != nil {
+		return fmt.Errorf("write cyntr.yaml: %w", err)
+	}
+	w.println()
+	w.println("  Generating configuration...")
+	w.println()
+	w.println("  ✓ cyntr.yaml")
 
-	// policy.yaml — generate based on shell policy choice
-	var shellRule string
-	switch shellPolicy {
-	case "1":
-		shellRule = `  - name: deny-shell
-    tenant: "*"
-    action: tool_call
-    tool: shell_exec
-    agent: "*"
-    decision: deny
-    priority: 20`
-	case "3":
-		shellRule = `  - name: deny-shell-global
-    tenant: "*"
-    action: tool_call
-    tool: shell_exec
-    agent: "*"
-    decision: deny
-    priority: 20
-
-  - name: allow-shell-cloudops
-    tenant: "*"
-    action: tool_call
-    tool: shell_exec
-    agent: "cloud-ops"
-    decision: allow
-    priority: 30
-
-  - name: deny-write-cloudops
-    tenant: "*"
-    action: tool_call
-    tool: file_write
-    agent: "cloud-ops"
-    decision: deny
-    priority: 30`
-	case "4":
-		shellRule = `  - name: allow-shell
-    tenant: "*"
-    action: tool_call
-    tool: shell_exec
-    agent: "*"
-    decision: allow
-    priority: 20`
-	default: // "2" — require approval (recommended)
-		shellRule = `  - name: require-approval-shell
-    tenant: "*"
-    action: tool_call
-    tool: shell_exec
-    agent: "*"
-    decision: require_approval
-    priority: 20`
+	// policy.yaml — only scaffold if absent (don't clobber operator edits).
+	if _, statErr := os.Stat(w.path("policy.yaml")); os.IsNotExist(statErr) {
+		if err := os.WriteFile(w.path("policy.yaml"), []byte(defaultPolicyYAML), 0o644); err != nil {
+			return fmt.Errorf("write policy.yaml: %w", err)
+		}
+		w.println("  ✓ policy.yaml")
+	} else {
+		w.println("  · policy.yaml (kept existing)")
 	}
 
-	policyYAML := fmt.Sprintf(`rules:
+	// .env — write the merged map (secrets preserved, new values added).
+	if err := writeEnvFile(w.path(".env"), env); err != nil {
+		return fmt.Errorf("write .env: %w", err)
+	}
+	w.println("  ✓ .env")
+
+	_ = configExisted
+
+	// --- Step 5: doctor checks (F26) -------------------------------------
+	w.println()
+	w.println("  Step 5 of 5: Verifying your setup")
+	w.println("  ──────────────────────────────────")
+
+	// Doctor checks read live process env + the cwd. Apply the .env we just
+	// wrote into this process and run from the wizard's dir so the checks see
+	// the freshly-written config. Restore afterwards.
+	restore := applyEnv(env)
+	defer restore()
+	prevDir, _ := os.Getwd()
+	if w.dir != "." && w.dir != "" {
+		if err := os.Chdir(w.dir); err == nil {
+			defer os.Chdir(prevDir)
+		}
+	}
+	runDoctorChecks(doctorChecks(), w.out)
+
+	w.println("  Setup complete. Start Cyntr with:")
+	if len(env) > 0 {
+		w.println("    set -a && source .env && set +a")
+	}
+	w.println("    cyntr start")
+	w.println()
+	return nil
+}
+
+const defaultPolicyYAML = `rules:
   - name: allow-model-calls
     tenant: "*"
     action: model_call
@@ -419,6 +450,14 @@ tenants:
     decision: allow
     priority: 10
 
+  - name: require-approval-shell
+    tenant: "*"
+    action: tool_call
+    tool: shell_exec
+    agent: "*"
+    decision: require_approval
+    priority: 20
+
   - name: allow-tools
     tenant: "*"
     action: tool_call
@@ -426,165 +465,146 @@ tenants:
     agent: "*"
     decision: allow
     priority: 5
+`
 
-%s
+// pickTenant returns the first configured tenant name (deterministically) or
+// "default" so a re-run pre-fills the existing tenant.
+func pickTenant(cfg config.CyntrConfig) string {
+	names := make([]string, 0, len(cfg.Tenants))
+	for n := range cfg.Tenants {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	if len(names) > 0 {
+		return names[0]
+	}
+	return "default"
+}
 
-  - name: allow-default
-    tenant: "*"
-    action: "*"
-    tool: "*"
-    agent: "*"
-    decision: allow
-    priority: 1
-`, shellRule)
+// detectProviderDefault maps already-set provider env vars to the menu choice
+// so a re-run pre-selects the configured provider.
+func detectProviderDefault(env map[string]string) string {
+	switch {
+	case env["ANTHROPIC_API_KEY"] != "":
+		return "1"
+	case env["OPENAI_API_KEY"] != "":
+		return "2"
+	case env["AZURE_OPENAI_API_KEY"] != "":
+		return "3"
+	case env["GEMINI_API_KEY"] != "":
+		return "4"
+	case env["OPENROUTER_API_KEY"] != "":
+		return "5"
+	case env["OLLAMA_URL"] != "":
+		return "6"
+	case env["OAUTH_CLIENT_ID"] != "" || env["OAUTH_PROVIDER"] != "":
+		return "7"
+	default:
+		return "1"
+	}
+}
 
-	os.WriteFile("policy.yaml", []byte(policyYAML), 0644)
-	fmt.Println("  ✓ policy.yaml")
+func orDefault(v, def string) string {
+	if strings.TrimSpace(v) == "" {
+		return def
+	}
+	return v
+}
 
-	// .env — quote values to handle spaces
-	if len(envLines) > 0 {
-		var quotedLines []string
-		for _, line := range envLines {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 && strings.ContainsAny(parts[1], " \t&?") {
-				quotedLines = append(quotedLines, parts[0]+"='"+parts[1]+"'")
+// masked renders a stored secret as a fixed placeholder so the wizard can offer
+// "keep existing" as a default without echoing the real value to the terminal.
+const maskToken = "********"
+
+func masked(v string) string {
+	if v == "" {
+		return ""
+	}
+	return maskToken
+}
+func isMask(v string) bool { return v == maskToken }
+
+// --- .env file handling --------------------------------------------------
+
+// readEnvFile parses a KEY=value .env file into a map. Values may be wrapped in
+// single or double quotes (as writeEnvFile emits them). Missing file -> empty.
+func readEnvFile(path string) map[string]string {
+	m := map[string]string{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return m
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		kv := strings.SplitN(line, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(kv[0])
+		val := strings.TrimSpace(kv[1])
+		if len(val) >= 2 {
+			if (val[0] == '\'' && val[len(val)-1] == '\'') || (val[0] == '"' && val[len(val)-1] == '"') {
+				val = val[1 : len(val)-1]
+			}
+		}
+		if key != "" {
+			m[key] = val
+		}
+	}
+	return m
+}
+
+// writeEnvFile writes the env map sorted, quoting values that need it. 0600 —
+// it holds credentials.
+func writeEnvFile(path string, env map[string]string) error {
+	keys := make([]string, 0, len(env))
+	for k, v := range env {
+		if v == "" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		v := env[k]
+		if strings.ContainsAny(v, " \t&?#'\"") {
+			v = "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
+		}
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(v)
+		b.WriteByte('\n')
+	}
+	return os.WriteFile(path, []byte(b.String()), 0o600)
+}
+
+// applyEnv sets each non-empty entry into the process environment and returns a
+// function that restores the prior values. Used so the end-of-wizard doctor run
+// sees the config we just wrote.
+func applyEnv(env map[string]string) func() {
+	type prev struct {
+		val string
+		ok  bool
+	}
+	saved := map[string]prev{}
+	for k, v := range env {
+		if v == "" {
+			continue
+		}
+		old, ok := os.LookupEnv(k)
+		saved[k] = prev{old, ok}
+		os.Setenv(k, v)
+	}
+	return func() {
+		for k, p := range saved {
+			if p.ok {
+				os.Setenv(k, p.val)
 			} else {
-				quotedLines = append(quotedLines, line)
+				os.Unsetenv(k)
 			}
 		}
-		os.WriteFile(".env", []byte(strings.Join(quotedLines, "\n")+"\n"), 0600)
-		fmt.Println("  ✓ .env")
 	}
-
-	// cloud-ops agent config
-	if enableCloudOps && len(cloudProviders) > 0 {
-		cloudList := strings.Join(cloudProviders, ", ")
-		sysPrompt := fmt.Sprintf(`You are a read-only cloud infrastructure troubleshooting agent.
-You have access to these cloud providers: %s.
-
-SECURITY RULES — follow these strictly:
-- ONLY use read/describe/list/get/show commands
-- NEVER create, modify, delete, or update any resources
-- NEVER run destructive commands (rm, delete, terminate, stop, reboot)
-- If asked to make changes, explain what should be done but DO NOT execute it
-- Always show the command you're about to run and explain what it does
-
-Useful commands by provider:
-`, cloudList)
-
-		for _, cp := range cloudProviders {
-			switch cp {
-			case "aws":
-				sysPrompt += `
-AWS:
-  aws sts get-caller-identity
-  aws ec2 describe-instances --region <region>
-  aws ecs list-clusters / describe-services
-  aws logs filter-log-events --log-group-name <group>
-  aws cloudwatch get-metric-statistics
-  aws s3 ls
-  aws rds describe-db-instances
-  aws lambda list-functions
-`
-			case "azure":
-				sysPrompt += `
-Azure:
-  az account show
-  az vm list --output table
-  az webapp list --output table
-  az monitor activity-log list --max-events 20
-  az aks list --output table
-  az sql server list
-  az storage account list
-  az functionapp list
-`
-			case "gcp":
-				sysPrompt += `
-GCP:
-  gcloud config list
-  gcloud compute instances list
-  gcloud container clusters list
-  gcloud logging read "severity>=ERROR" --limit=50
-  gcloud run services list
-  gcloud sql instances list
-  gcloud functions list
-`
-			}
-		}
-
-		agentJSON := fmt.Sprintf(`{
-  "name": "cloud-ops",
-  "tenant": "%s",
-  "model": "%s",
-  "system_prompt": %q,
-  "tools": ["shell_exec", "http_request", "web_search", "file_read", "file_search"],
-  "max_turns": 10
-}
-`, tenantName, agentModelName, sysPrompt)
-
-		os.WriteFile("cloud-ops-agent.json", []byte(agentJSON), 0644)
-		fmt.Println("  ✓ cloud-ops-agent.json")
-		fmt.Printf("  ✓ Cloud providers: %s\n", cloudList)
-	}
-
-	// Done
-	fmt.Println()
-	fmt.Println("  ┌───────────────────────────────────────┐")
-	fmt.Println("  │                                       │")
-	fmt.Println("  │   Setup complete!                     │")
-	fmt.Println("  │                                       │")
-	fmt.Println("  │   To start Cyntr:                     │")
-	fmt.Println("  │                                       │")
-	if len(envLines) > 0 {
-		fmt.Println("  │     set -a && source .env && set +a   │")
-	}
-	fmt.Println("  │     cyntr start                       │")
-	fmt.Println("  │                                       │")
-	fmt.Printf("  │   Dashboard: http://localhost:%-8s│\n", dashboardPort)
-	fmt.Println("  │                                       │")
-	fmt.Printf("  │   API Key: %.28s...  │\n", apiKey)
-	fmt.Println("  │                                       │")
-	fmt.Println("  └───────────────────────────────────────┘")
-
-	if enableCloudOps && len(cloudProviders) > 0 {
-		fmt.Println()
-		fmt.Println("  ─── Cloud Ops Agent ───")
-		fmt.Println()
-		fmt.Println("  After starting, register the cloud-ops agent:")
-		fmt.Println()
-		fmt.Println("    curl -X POST localhost:7700/api/v1/tenants/" + tenantName + "/agents \\")
-		fmt.Println("      -H 'Content-Type: application/json' \\")
-		fmt.Println("      -d @cloud-ops-agent.json")
-		fmt.Println()
-		fmt.Println("  Then chat with it:")
-		fmt.Println()
-		fmt.Println("    cyntr agent chat " + tenantName + " cloud-ops \"Check EC2 instance health in us-east-1\"")
-		fmt.Println()
-		fmt.Println("  Or use the dashboard chat interface at http://localhost:" + dashboardPort)
-		fmt.Println()
-		fmt.Println("  Security: The agent is read-only by system prompt and policy.")
-		fmt.Println("  For extra safety, use a read-only IAM role / service principal.")
-	}
-
-	fmt.Println()
-}
-
-func prompt(scanner *bufio.Scanner, label, defaultVal string) string {
-	if defaultVal != "" {
-		fmt.Printf("%s [%s]: ", label, defaultVal)
-	} else {
-		fmt.Printf("%s: ", label)
-	}
-	scanner.Scan()
-	val := strings.TrimSpace(scanner.Text())
-	if val == "" {
-		return defaultVal
-	}
-	return val
-}
-
-func promptYN(scanner *bufio.Scanner, label string) bool {
-	fmt.Printf("%s (y/N): ", label)
-	scanner.Scan()
-	return strings.ToLower(strings.TrimSpace(scanner.Text())) == "y"
 }

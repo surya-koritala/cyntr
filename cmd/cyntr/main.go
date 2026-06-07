@@ -13,8 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cyntr-dev/cyntr/auth"
 	"github.com/cyntr-dev/cyntr/cmd/cyntr/migrate"
 	cyntrtrajectory "github.com/cyntr-dev/cyntr/cmd/cyntr/trajectory"
+	cyntrtui "github.com/cyntr-dev/cyntr/cmd/cyntr/tui"
 	"github.com/cyntr-dev/cyntr/kernel"
 	"github.com/cyntr-dev/cyntr/kernel/config"
 	"github.com/cyntr-dev/cyntr/kernel/ipc"
@@ -32,6 +34,7 @@ import (
 	linepkg "github.com/cyntr-dev/cyntr/modules/channel/line"
 	matrixpkg "github.com/cyntr-dev/cyntr/modules/channel/matrix"
 	mattermostpkg "github.com/cyntr-dev/cyntr/modules/channel/mattermost"
+	nostrpkg "github.com/cyntr-dev/cyntr/modules/channel/nostr"
 	signalpkg "github.com/cyntr-dev/cyntr/modules/channel/signal"
 	slackpkg "github.com/cyntr-dev/cyntr/modules/channel/slack"
 	smspkg "github.com/cyntr-dev/cyntr/modules/channel/sms"
@@ -44,6 +47,7 @@ import (
 	"github.com/cyntr-dev/cyntr/modules/federation"
 	"github.com/cyntr-dev/cyntr/modules/learn"
 	"github.com/cyntr-dev/cyntr/modules/mcp"
+	"github.com/cyntr-dev/cyntr/modules/node"
 	"github.com/cyntr-dev/cyntr/modules/notify"
 	"github.com/cyntr-dev/cyntr/modules/observability"
 	"github.com/cyntr-dev/cyntr/modules/policy"
@@ -93,6 +97,8 @@ func main() {
 		runMigrate(os.Args[2:])
 	case "trajectory":
 		os.Exit(cyntrtrajectory.Run(os.Args[2:]))
+	case "tui":
+		os.Exit(cyntrtui.Run(os.Args[2:]))
 	case "docs":
 		runDocs(os.Args[2:])
 	case "backup":
@@ -281,6 +287,9 @@ func runStart() {
 	toolReg.Register(codeTool)
 	toolReg.Register(agenttools.NewTranscribeTool())
 	toolReg.Register(agenttools.NewTextToSpeechTool())
+	// Live agent-driven canvas (B9): the tool and the WS endpoint share one store.
+	canvasStore := agenttools.NewCanvasStore()
+	toolReg.Register(agenttools.NewCanvasRenderTool(k.Bus(), canvasStore))
 	toolReg.Register(agenttools.NewWebSearchTool())
 	toolReg.Register(agenttools.NewWebReaderTool())
 	toolReg.Register(agenttools.NewPDFReaderTool())
@@ -665,6 +674,25 @@ func runStart() {
 		log.Info("channel adapter registered", map[string]any{"adapter": "line", "tenant": lineTenant, "agent": lineAgent, "listen": lineAddr})
 	}
 
+	// Register Nostr adapter if configured (B11) — connects to one or more relays.
+	if nostrRelays := os.Getenv("NOSTR_RELAYS"); nostrRelays != "" { // comma-separated wss:// URLs
+		nostrTenant := os.Getenv("NOSTR_TENANT")
+		if nostrTenant == "" {
+			nostrTenant = "default"
+		}
+		nostrAgent := os.Getenv("NOSTR_AGENT")
+		if nostrAgent == "" {
+			nostrAgent = "assistant"
+		}
+		nostrKey := os.Getenv("NOSTR_PRIVATE_KEY") // 32-byte hex; empty => inbound only, Send disabled
+		if nostrAdapter, nerr := nostrpkg.New(strings.Split(nostrRelays, ","), nostrKey, nostrTenant, nostrAgent); nerr != nil {
+			log.Error("nostr adapter config invalid", map[string]any{"error": nerr.Error()})
+		} else {
+			channelMgr.AddAdapter(nostrAdapter)
+			log.Info("channel adapter registered", map[string]any{"adapter": "nostr", "tenant": nostrTenant, "agent": nostrAgent, "relays": nostrRelays, "signing": nostrKey != ""})
+		}
+	}
+
 	// Register Telegram adapter if configured
 	tgToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if tgToken != "" {
@@ -854,6 +882,11 @@ func runStart() {
 	k.Register(auditLogger)
 	k.Register(agentRuntime)
 	k.Register(channelMgr)
+
+	// Companion-app node protocol (B10): WS pairing + capability handshake for
+	// reference web/native clients. Server() is built in Init and mounted below.
+	nodeMod := node.NewModule(dataPath("node_pairings.db"))
+	k.Register(nodeMod)
 	k.Register(proxyGateway)
 	k.Register(quota.New(dataPath("quota.db")))
 	k.Register(skillRuntime)
@@ -1213,6 +1246,26 @@ func runStart() {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler)
 	mux.Handle("/events", eventBroker)
+
+	// Live canvas WS (B9): does its own fail-closed auth via the ?key= query
+	// param (JWT carries the tenant claim, or a mapped API key), so it bypasses
+	// the REST AuthMiddleware. The exact method+path pattern outranks "/api/".
+	{
+		var sm *auth.SessionManager
+		if jwtSecret := os.Getenv("CYNTR_JWT_SECRET"); jwtSecret != "" {
+			sm = auth.NewSessionManager(jwtSecret)
+		}
+		wsEnabled := os.Getenv("CYNTR_JWT_SECRET") != "" || os.Getenv("CYNTR_API_KEY") != ""
+		canvasWS := webapi.NewCanvasWS(k.Bus(), canvasStore, sm, wsEnabled)
+		if apiKey := os.Getenv("CYNTR_API_KEY"); apiKey != "" {
+			canvasWS.SetAPIKeys(map[string]auth.Principal{apiKey: {Tenant: os.Getenv("CYNTR_API_KEY_TENANT")}})
+		}
+		mux.HandleFunc("GET /api/v1/tenants/{tid}/canvas/{sid}/ws", canvasWS.Handle)
+	}
+
+	// Companion node WS (B10): authenticates via the pairing handshake itself.
+	mux.Handle("/api/v1/node/ws", nodeMod.Server())
+
 	mux.Handle("/", dashboard)
 
 	// Wrap with metrics middleware to count requests/latency/errors
