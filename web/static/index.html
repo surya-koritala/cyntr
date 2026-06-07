@@ -609,6 +609,7 @@
   <span class="topbar-sub">Agent OS</span>
   <button class="mobile-menu-btn" onclick="toggleSidebar()">&#9776;</button>
   <div class="topbar-spacer"></div>
+  <button onclick="showApiKeyPrompt()" style="background:none;border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--muted);cursor:pointer;font-size:12px;" id="apikey-btn" title="Set the API key the dashboard sends (CYNTR_API_KEY from your .env). Leave blank if the server runs without auth.">&#128273; Key</button>
   <button onclick="toggleTheme()" style="background:none;border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--muted);cursor:pointer;font-size:12px;" id="theme-btn">Light</button>
   <span id="user-indicator" style="font-size:12px;color:var(--muted);"></span>
   <div class="topbar-status">
@@ -684,6 +685,27 @@
     <div class="nav-item" data-page="federation">
       <i class="nav-icon">&#9670;</i> Federation
     </div>
+    <div class="sidebar-section">Operations</div>
+    <div class="nav-item" data-page="usage">
+  <i class="nav-icon">&#128200;</i> Usage
+</div>
+    <div class="nav-item" data-page="sla">
+  <i class="nav-icon">&#128202;</i> SLA Monitoring
+</div>
+    <div class="nav-item" data-page="observability"><i class="nav-icon">&#128202;</i> Observability</div>
+    <div class="nav-item" data-page="webhooks"><i class="nav-icon">&#128240;</i> Webhooks</div>
+    <div class="sidebar-section">Intelligence</div>
+    <div class="nav-item" data-page="evals"><i class="nav-icon">&#9989;</i> Evals</div>
+    <div class="nav-item" data-page="curator"><i class="nav-icon">&#10170;</i> Curator</div>
+    <div class="sidebar-section">Devices</div>
+    <div class="nav-item" data-page="nodes">
+      <i class="nav-icon">&#127919;</i> Nodes
+    </div>
+    <div class="sidebar-section">Settings</div>
+    <div class="nav-item" data-page="settings">
+      <i class="nav-icon">&#9881;</i> Settings
+    </div>
+
   </nav>
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
@@ -1895,6 +1917,881 @@
     </div>
   </div>
 
+
+    <section class="page" id="page-usage">
+  <div class="page-header">
+    <h2>Usage &amp; Cost</h2>
+    <p>Token usage and cost tracking across all tenants, agents, and LLM providers. View detailed records or high-level summaries by tenant, agent, or provider.</p>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Usage Records</span>
+      <button class="btn btn-secondary btn-sm" onclick="loadUsageRecords()">Refresh</button>
+    </div>
+    <div class="section-body">
+      <div class="filter-bar">
+        <div class="form-group">
+          <label for="usage-tenant">Tenant</label>
+          <input type="text" id="usage-tenant" placeholder="all tenants">
+        </div>
+        <div class="form-group">
+          <label for="usage-agent">Agent</label>
+          <input type="text" id="usage-agent" placeholder="all agents">
+        </div>
+        <div class="form-group">
+          <label for="usage-since">Since</label>
+          <input type="datetime-local" id="usage-since">
+        </div>
+        <div class="form-group">
+          <label for="usage-until">Until</label>
+          <input type="datetime-local" id="usage-until">
+        </div>
+        <div class="form-group" style="align-self:flex-end;">
+          <button class="btn btn-primary" onclick="loadUsageRecords()">Search</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Records</span>
+      <span id="usage-record-count" style="font-size:12px;color:var(--muted);">-</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Tenant</th>
+            <th>Agent</th>
+            <th>Provider</th>
+            <th>Input Tokens</th>
+            <th>Output Tokens</th>
+            <th>Total Tokens</th>
+            <th>Duration (ms)</th>
+          </tr>
+        </thead>
+        <tbody id="usage-tbody">
+          <tr><td colspan="8" class="empty-state">Run a search above or click Refresh to load usage records.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Usage Summary</span>
+      <button class="btn btn-secondary btn-sm" onclick="loadUsageSummary()">Refresh</button>
+    </div>
+    <div class="section-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="usage-summary-tenant">Tenant (optional)</label>
+          <input type="text" id="usage-summary-tenant" placeholder="leave blank for all">
+        </div>
+        <div class="form-group" style="align-self:flex-end;">
+          <button class="btn btn-primary" onclick="loadUsageSummary()">Load Summary</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Summary by Tenant / Agent / Provider</span>
+      <span id="usage-summary-count" style="font-size:12px;color:var(--muted);">-</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Tenant</th>
+            <th>Agent</th>
+            <th>Provider</th>
+            <th>Total Calls</th>
+            <th>Total Tokens</th>
+            <th>Input Tokens</th>
+            <th>Output Tokens</th>
+            <th>Avg Duration (ms)</th>
+          </tr>
+        </thead>
+        <tbody id="usage-summary-tbody">
+          <tr><td colspan="8" class="empty-state">Load a summary above.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+    <!-- ══ SLA Monitoring ══ -->
+    <section class="page" id="page-sla">
+      <div class="page-header">
+        <h2>SLA Monitoring</h2>
+        <p>Define Service Level Agreements for agents and track violations in real-time. Monitor response times and error rates against configured thresholds.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Create SLA Rule</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="sla-agent">Agent</label>
+              <input type="text" id="sla-agent" placeholder="agent-name or * for all">
+            </div>
+            <div class="form-group">
+              <label for="sla-tenant">Tenant</label>
+              <input type="text" id="sla-tenant" placeholder="tenant or * for all">
+            </div>
+            <div class="form-group">
+              <label for="sla-max-response">Max Response Time (ms)</label>
+              <input type="number" id="sla-max-response" placeholder="5000" min="0">
+            </div>
+            <div class="form-group">
+              <label for="sla-max-error">Max Error Rate (%)</label>
+              <input type="number" id="sla-max-error" placeholder="5" min="0" max="100" step="0.1">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="sla-window">Evaluation Window (minutes)</label>
+              <input type="number" id="sla-window" placeholder="5" value="5" min="1" max="1440">
+            </div>
+            <div class="form-group">
+              <label for="sla-channels">Notification Channels (comma-separated)</label>
+              <input type="text" id="sla-channels" placeholder="slack, email">
+            </div>
+            <div class="form-group" style="align-self:flex-end;display:flex;align-items:center;gap:8px;">
+              <label style="margin:0;">
+                <input type="checkbox" id="sla-enabled" checked> Enabled
+              </label>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="createSLARule()">Create Rule</button>
+            <span id="sla-create-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Active Rules</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadSLARules()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Agent</th>
+                <th>Tenant</th>
+                <th>Max Response</th>
+                <th>Max Error Rate</th>
+                <th>Window</th>
+                <th>Channels</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sla-rules-tbody">
+              <tr><td colspan="9" class="empty-state">Fetching SLA rules...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Recent Violations</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadSLAViolations()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Rule ID</th>
+                <th>Agent</th>
+                <th>Tenant</th>
+                <th>Type</th>
+                <th>Value</th>
+                <th>Threshold</th>
+                <th>Timestamp</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="sla-violations-tbody">
+              <tr><td colspan="9" class="empty-state">Fetching SLA violations...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-evals">
+      <div class="page-header">
+        <h2>Evals</h2>
+        <p>Evaluate agent performance with predefined test cases. Trigger eval runs to see actual outputs scored against expected results with pass rates and detailed metrics.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Run Eval</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="eval-tenant">Tenant</label>
+              <select id="eval-tenant"><option value="">Select tenant...</option></select>
+            </div>
+            <div class="form-group">
+              <label for="eval-agent">Agent name</label>
+              <input type="text" id="eval-agent" placeholder="agent-name">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="eval-cases">Test Cases (JSON)</label>
+              <textarea id="eval-cases" placeholder='[{"id":"test1","name":"Math","input":"What is 2+2?","expected_output":"4","match_mode":"contains"}]' style="min-height:100px;"></textarea>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="triggerEvalRun()">Trigger Run</button>
+            <span id="eval-run-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Eval Runs</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadEvalRuns()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Run ID</th>
+                <th>Status</th>
+                <th>Cases</th>
+                <th>Pass Rate</th>
+                <th>Score</th>
+                <th>Started</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="eval-runs-tbody">
+              <tr><td colspan="7" class="empty-state">Fetching eval runs...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Run Details</span>
+          <span id="eval-run-title" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Case ID</th>
+                <th>Case Name</th>
+                <th>Status</th>
+                <th>Score</th>
+                <th>Tools Used</th>
+                <th>Match Details</th>
+                <th>Duration</th>
+              </tr>
+            </thead>
+            <tbody id="eval-details-tbody">
+              <tr><td colspan="7" class="empty-state">Select a run above to view its results.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Curator ══ -->
+    <section class="page" id="page-curator">
+      <div class="page-header">
+        <h2>Skill Curator</h2>
+        <p>Monitor skill health, success rates, and performance metrics. Admin users can trigger LLM judgments, run prune passes, and view consolidation suggestions to keep your skill library clean and effective.</p>
+      </div>
+
+      <!-- Skill Scores / Overview -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Skill Scores</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadCuratorScores()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Skill Name</th>
+                <th>Invocations</th>
+                <th>Success Rate</th>
+                <th>Avg Duration</th>
+                <th>Health</th>
+                <th>Last 7d</th>
+                <th>Prior 7d</th>
+                <th>Last Invoked</th>
+              </tr>
+            </thead>
+            <tbody id="curator-scores-tbody">
+              <tr><td colspan="8" class="empty-state">Fetching skill scores...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Judge Single Skill -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Judge Skill Invocation (Admin)</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="judge-skill">Skill Name</label>
+              <input type="text" id="judge-skill" placeholder="skill-name">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="judge-user-msg">User Message</label>
+              <textarea id="judge-user-msg" placeholder="The user's request to the skill..." style="resize:vertical;min-height:60px;"></textarea>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="judge-agent-resp">Agent Response</label>
+              <textarea id="judge-agent-resp" placeholder="The skill's response..." style="resize:vertical;min-height:60px;"></textarea>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <label for="judge-tools">Tools Used (comma-separated, optional)</label>
+              <input type="text" id="judge-tools" placeholder="e.g. bash,http,slack">
+            </div>
+            <div class="form-group">
+              <label for="judge-success">Success</label>
+              <select id="judge-success">
+                <option value="true">True</option>
+                <option value="false">False</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <label for="judge-error">Error (if any)</label>
+              <input type="text" id="judge-error" placeholder="Error message if success=false">
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="runCuratorJudge()">Judge</button>
+            <span id="judge-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+          <div class="policy-result" id="judge-result"></div>
+        </div>
+      </div>
+
+      <!-- Prune Run -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Prune Pass (Admin)</span>
+        </div>
+        <div class="section-body">
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+            Trigger an immediate prune pass to identify and disable skills that have been failing for too long. 
+            The background scheduler runs this periodically — use this button to act immediately if needed.
+          </p>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="runCuratorPrune()">Run Prune</button>
+            <span id="prune-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+          <div class="section" id="prune-result-section" style="margin-top:16px;display:none;">
+            <div class="section-header">
+              <span class="section-title">Prune Report</span>
+              <span id="prune-time" style="font-size:11px;color:var(--muted);"></span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Skill</th>
+                    <th>Disabled</th>
+                    <th>Reason</th>
+                    <th>Sample Errors</th>
+                  </tr>
+                </thead>
+                <tbody id="prune-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Consolidation Suggestions -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Consolidation Suggestions</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadCuratorConsolidate()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Skill A</th>
+                <th>Skill B</th>
+                <th>Shared Tools</th>
+                <th>Jaccard Similarity</th>
+                <th>Invocations (A / B)</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody id="curator-consolidate-tbody">
+              <tr><td colspan="6" class="empty-state">Fetching consolidation suggestions...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Observability ══ -->
+    <section class="page" id="page-observability">
+      <div class="page-header">
+        <h2>Observability</h2>
+        <p>Monitor platform metrics — request latency percentiles, token usage trends, and tool execution statistics across your agents.</p>
+      </div>
+
+      <div class="filter-bar">
+        <div class="form-group">
+          <label for="obs-tenant">Tenant</label>
+          <select id="obs-tenant"><option value="">All tenants</option></select>
+        </div>
+        <div class="form-group" style="align-self:flex-end;">
+          <button class="btn btn-primary" onclick="loadObservability()">Refresh</button>
+        </div>
+      </div>
+
+      <div class="card-grid" id="obs-cards">
+        <div class="card">
+          <div class="card-label">Total Requests</div>
+          <div class="card-value v-acc" id="obs-requests">-</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Total Errors</div>
+          <div class="card-value" id="obs-errors">-</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Avg Latency</div>
+          <div class="card-value v-acc" id="obs-avg-latency">-</div>
+          <div class="card-sub">milliseconds</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Uptime</div>
+          <div class="card-value v-acc" id="obs-uptime">-</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Request Latency Percentiles (24h)</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>P50 (ms)</th>
+                <th>P95 (ms)</th>
+                <th>P99 (ms)</th>
+                <th>Samples</th>
+              </tr>
+            </thead>
+            <tbody id="obs-latency-tbody">
+              <tr><td colspan="5" class="empty-state">Fetching latency data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Token Usage by Hour (24h)</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Hour (UTC)</th>
+                <th>Input Tokens</th>
+                <th>Output Tokens</th>
+                <th>Total Tokens</th>
+              </tr>
+            </thead>
+            <tbody id="obs-tokens-tbody">
+              <tr><td colspan="4" class="empty-state">Fetching token usage data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Tool Execution Summary</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Tool</th>
+                <th>Executions</th>
+                <th>Success Rate</th>
+                <th>Avg Duration (ms)</th>
+              </tr>
+            </thead>
+            <tbody id="obs-tools-tbody">
+              <tr><td colspan="4" class="empty-state">Fetching tool statistics...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Webhooks ══ -->
+    <section class="page" id="page-webhooks">
+      <div class="page-header">
+        <h2>Webhooks</h2>
+        <p>Inbound webhooks allow external systems to trigger workflows or send messages to agents. All webhook requests require HMAC-SHA256 signature authentication using CYNTR_WEBHOOK_SECRET.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Webhook Endpoints</span>
+        </div>
+        <div class="section-body">
+          <div style="font-size:13px;color:var(--muted);line-height:1.8;">
+            <p style="margin-bottom:16px;">Two webhook endpoints are available. Both require the <code style="background:var(--surface2);padding:2px 6px;border-radius:3px;">X-Cyntr-Signature</code> header with an HMAC-SHA256 signature of the request body, computed using <code style="background:var(--surface2);padding:2px 6px;border-radius:3px;">CYNTR_WEBHOOK_SECRET</code>.</p>
+            
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">
+              <div style="font-weight:600;margin-bottom:12px;">1. Trigger Workflow</div>
+              <div style="margin-bottom:12px;">
+                <div style="color:var(--accent);font-family:monospace;font-size:12px;margin-bottom:6px;">POST /api/v1/webhooks/trigger/{workflow_id}</div>
+                <div style="color:var(--faint);font-size:12px;">Runs a registered workflow with an optional JSON payload.</div>
+              </div>
+              <div style="color:var(--muted);font-size:12px;">
+                <strong>Headers:</strong><br/>
+                <code style="background:var(--bg);padding:1px 3px;">X-Cyntr-Signature: hex(HMAC-SHA256(body, secret))</code>
+              </div>
+              <div style="color:var(--muted);font-size:12px;margin-top:8px;">
+                <strong>Body (JSON, optional):</strong><br/>
+                <code style="background:var(--bg);padding:1px 3px;">{"key":"value", ...}</code>
+              </div>
+              <div style="color:var(--ok);font-size:12px;margin-top:8px;">
+                <strong>Response:</strong><br/>
+                <code style="background:var(--bg);padding:1px 3px;">{"status":"triggered","workflow_id":"...","run_id":"...", "payload":{...}}</code>
+              </div>
+            </div>
+
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;">
+              <div style="font-weight:600;margin-bottom:12px;">2. Send Message to Agent</div>
+              <div style="margin-bottom:12px;">
+                <div style="color:var(--accent);font-family:monospace;font-size:12px;margin-bottom:6px;">POST /api/v1/webhooks/agent/{tenant}/{agent}</div>
+                <div style="color:var(--faint);font-size:12px;">Sends a message to an agent and returns the response immediately.</div>
+              </div>
+              <div style="color:var(--muted);font-size:12px;">
+                <strong>Headers:</strong><br/>
+                <code style="background:var(--bg);padding:1px 3px;">X-Cyntr-Signature: hex(HMAC-SHA256(body, secret))</code>
+              </div>
+              <div style="color:var(--muted);font-size:12px;margin-top:8px;">
+                <strong>Body (JSON):</strong><br/>
+                <code style="background:var(--bg);padding:1px 3px;">{"message":"..."}  or  {"text":"..."}  or  {"content":"..."}</code><br/>
+                <span style="font-size:11px;color:var(--faint);">Falls back to raw body text if none of these fields match.</span>
+              </div>
+              <div style="color:var(--ok);font-size:12px;margin-top:8px;">
+                <strong>Response:</strong><br/>
+                <code style="background:var(--bg);padding:1px 3px;">{"agent":"...","content":"...", "tools_used":["..."]}</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Authentication Setup</span>
+        </div>
+        <div class="section-body">
+          <div style="font-size:13px;color:var(--muted);line-height:1.8;">
+            <p style="margin-bottom:12px;"><strong>Important:</strong> Webhooks are disabled by default. To enable them, set the <code style="background:var(--surface2);padding:2px 6px;border-radius:3px;">CYNTR_WEBHOOK_SECRET</code> environment variable in your .env file before starting Cyntr.</p>
+            
+            <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.15);border-radius:8px;padding:12px;margin-bottom:16px;">
+              <strong style="color:var(--warn);">Example .env:</strong><br/>
+              <code style="background:var(--bg);padding:2px 6px;border-radius:3px;font-size:12px;font-family:monospace;">CYNTR_WEBHOOK_SECRET=your-secure-random-secret-key</code>
+            </div>
+
+            <p style="margin-bottom:12px;"><strong>Signature Verification (example in Node.js):</strong></p>
+            <pre style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;overflow-x:auto;margin:8px 0;font-size:11px;">const crypto = require('crypto');
+
+function verifySignature(body, signature, secret) {
+  const mac = crypto.createHmac('sha256', secret);
+  mac.update(body);
+  const expected = mac.digest('hex');
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expected)
+  );
+}</pre>
+
+            <p style="margin-bottom:12px;"><strong>Example curl request:</strong></p>
+            <pre style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;overflow-x:auto;margin:8px 0;font-size:11px;">BODY='{"message":"hello"}'
+SECRET='your-secret'
+SIG=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | cut -d' ' -f2)
+
+curl -X POST http://localhost:8080/api/v1/webhooks/agent/default/my-agent \
+  -H "Content-Type: application/json" \
+  -H "X-Cyntr-Signature: $SIG" \
+  -d "$BODY"</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Test Webhook</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="webhook-type">Webhook Type</label>
+              <select id="webhook-type" onchange="updateWebhookForm()">
+                <option value="trigger">Trigger Workflow</option>
+                <option value="agent">Send to Agent</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="webhook-secret">Secret (CYNTR_WEBHOOK_SECRET)</label>
+              <input type="password" id="webhook-secret" placeholder="Enter secret to sign request">
+            </div>
+          </div>
+
+          <div id="webhook-trigger-form" style="display:block;">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="webhook-workflow-id">Workflow ID</label>
+                <input type="text" id="webhook-workflow-id" placeholder="workflow-id">
+              </div>
+            </div>
+          </div>
+
+          <div id="webhook-agent-form" style="display:none;">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="webhook-tenant">Tenant</label>
+                <input type="text" id="webhook-tenant" placeholder="default">
+              </div>
+              <div class="form-group">
+                <label for="webhook-agent">Agent Name</label>
+                <input type="text" id="webhook-agent" placeholder="my-agent">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="webhook-payload">JSON Payload</label>
+              <textarea id="webhook-payload" placeholder='{"message":"hello"}'></textarea>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:12px;margin-top:12px;">
+            <button class="btn btn-primary" onclick="testWebhook()">Send Test Request</button>
+            <span id="webhook-test-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+
+          <div id="webhook-test-result"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Webhook Status</span>
+        </div>
+        <div class="section-body">
+          <div id="webhook-status-content">
+            <div style="font-size:13px;color:var(--muted);">
+              <p style="margin-bottom:12px;"><strong id="webhook-enabled-status" style="color:var(--err);">Webhooks: Not Configured</strong></p>
+              <p id="webhook-note" style="margin-bottom:0;">Set CYNTR_WEBHOOK_SECRET in your environment to enable webhook authentication.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Nodes ══ -->
+    <section class="page" id="page-nodes">
+      <div class="page-header">
+        <h2>Companion Nodes</h2>
+        <p>Issue pairing codes to connect companion nodes (voice, canvas, camera, screen devices). Use the pairing code in the reference clients to establish secure sessions.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Issue Pairing Code</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="node-tenant">Tenant</label>
+              <select id="node-tenant"><option value="">Select tenant...</option></select>
+            </div>
+            <div class="form-group">
+              <label for="node-name">Node name</label>
+              <input type="text" id="node-name" placeholder="e.g. laptop, mobile-device">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label>Capabilities</label>
+              <div class="tool-grid">
+                <label><input type="checkbox" id="node-cap-voice" value="voice"> voice</label>
+                <label><input type="checkbox" id="node-cap-canvas" value="canvas"> canvas</label>
+                <label><input type="checkbox" id="node-cap-camera" value="camera"> camera</label>
+                <label><input type="checkbox" id="node-cap-screen" value="screen"> screen</label>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="issueNodePairingCode()">Issue Code</button>
+            <span id="node-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Generated Code</span>
+        </div>
+        <div class="section-body">
+          <div id="node-code-result" class="empty-state">Issue a pairing code above.</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Reference Clients</span>
+        </div>
+        <div class="section-body" style="display:flex;flex-direction:column;gap:12px;">
+          <p style="color:var(--muted);font-size:13px;">Use these reference implementations to test node pairing and canvas rendering:</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <a href="/node.html" target="_blank" class="btn btn-secondary">Open Node Pairing Client</a>
+            <a href="/canvas.html" target="_blank" class="btn btn-secondary">Open Canvas Viewer</a>
+          </div>
+          <p style="color:var(--faint);font-size:12px;margin-top:8px;">
+            The node pairing client demonstrates the B10 protocol: pair with a code, negotiate capabilities, and exchange voice/canvas frames.
+            The canvas viewer displays live rendered content from connected sessions.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ Settings ══ -->
+    <section class="page" id="page-settings">
+      <div class="page-header">
+        <h2>Settings</h2>
+        <p>Configure notifications and branding for your Cyntr platform. Manage notification channels and customize the dashboard appearance.</p>
+      </div>
+
+      <!-- Branding Section -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Branding</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="branding-name">Platform Name</label>
+              <input type="text" id="branding-name" placeholder="Cyntr" readonly>
+            </div>
+            <div class="form-group">
+              <label for="branding-tagline">Tagline</label>
+              <input type="text" id="branding-tagline" placeholder="Agent OS" readonly>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="branding-accent">Accent Color</label>
+              <input type="text" id="branding-accent" placeholder="#6366f1" readonly>
+            </div>
+            <div class="form-group">
+              <label for="branding-logo">Logo URL</label>
+              <input type="text" id="branding-logo" placeholder="(none)" readonly>
+            </div>
+          </div>
+          <div style="color:var(--faint);font-size:12px;">
+            Branding is configured via environment variables (CYNTR_BRAND_NAME, CYNTR_BRAND_TAGLINE, CYNTR_BRAND_ACCENT, CYNTR_BRAND_LOGO).
+          </div>
+        </div>
+      </div>
+
+      <!-- Notifications Section -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Notification Channels</span>
+          <button class="btn btn-secondary btn-sm" onclick="loadNotificationChannels()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Channel</th><th>Actions</th></tr></thead>
+            <tbody id="notif-channels-tbody">
+              <tr><td colspan="2" class="empty-state">Fetching notification channels...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Test Notification Section -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Send Test Notification</span>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="notif-title">Title</label>
+              <input type="text" id="notif-title" placeholder="Test Notification">
+            </div>
+            <div class="form-group">
+              <label for="notif-severity">Severity</label>
+              <select id="notif-severity">
+                <option value="info">Info</option>
+                <option value="warning">Warning</option>
+                <option value="error">Error</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="notif-message">Message</label>
+              <textarea id="notif-message" placeholder="Test message from Cyntr dashboard..."></textarea>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" onclick="sendTestNotification()">Send Test</button>
+            <span id="notif-msg" style="font-size:13px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -1984,32 +2881,61 @@ function onPageEnter(page) {
   if (page === 'crews')      { loadCrews(); loadCrewRuns(); }
   if (page === 'playground') loadPlayground();
   if (page === 'logs')       startLogStream();
+  if (page === 'usage') { loadUsageRecords(); loadUsageSummary(); }
+  if (page === 'sla') { onSLAPageEnter(); }
+  if (page === 'evals') {
+    populateEvalTenants();
+    loadEvalRuns();
+  }
+  if (page === 'curator') { loadCuratorScores(); loadCuratorConsolidate(); }
+  if (page === 'observability') loadObservabilityPage();
+  if (page === 'webhooks') loadWebhooks();
+  if (page === 'nodes') loadNodesPage();
+  if (page === 'settings') loadSettings();
 }
 
 /* ─────────────── Helpers ─────────────── */
 
+let _authPromptShown = false;
 async function apiFetch(path, opts = {}) {
   const key = localStorage.getItem('cyntr_api_key') || '';
   if (key) {
     if (!opts.headers) opts.headers = {};
     opts.headers['Authorization'] = 'Bearer ' + key;
   }
-  const r = await fetch(path, opts);
-  if (r.status === 401 && key) {
-    // Only prompt if user had a key that was rejected (not if no key is configured)
-    showApiKeyPrompt();
+  let r;
+  try {
+    r = await fetch(path, opts);
+  } catch (e) {
+    return { ok: false, status: 0, data: null, raw: {}, error: String(e) };
+  }
+  if (r.status === 401) {
+    // Surface the auth requirement instead of silently blanking the dashboard.
+    const lbl = document.getElementById('health-label');
+    const dot = document.getElementById('health-dot');
+    if (lbl) lbl.textContent = 'Auth required — set API key';
+    if (dot) dot.style.background = '#e5484d';
+    if (!_authPromptShown) { _authPromptShown = true; showApiKeyPrompt(); }
     return { ok: false, status: 401, data: null, raw: {} };
   }
   const j = await r.json().catch(() => ({}));
   return { ok: r.ok, status: r.status, data: j.data ?? j, raw: j };
 }
 
+// showApiKeyPrompt lets the user set or clear the API key the dashboard sends.
+// The server only requires it when started with CYNTR_API_KEY; if it runs
+// without auth, leave this blank.
 function showApiKeyPrompt() {
-  const key = prompt('Enter your Cyntr API key (from .env file, CYNTR_API_KEY):');
-  if (key && key.trim()) {
+  const current = localStorage.getItem('cyntr_api_key') || '';
+  const key = prompt('Cyntr API key (CYNTR_API_KEY from your .env). Leave blank and OK to clear it if the server runs without auth.', current);
+  if (key === null) return; // cancelled
+  if (key.trim()) {
     localStorage.setItem('cyntr_api_key', key.trim());
-    location.reload();
+  } else {
+    localStorage.removeItem('cyntr_api_key');
   }
+  _authPromptShown = false;
+  location.reload();
 }
 
 function fmtTime(ts) {
@@ -4143,6 +5069,885 @@ loadDashboard();
 setInterval(loadDashboard, 15000);
 startLogStream();
 loadCurrentUser();
+
+
+/* ---- Usage page ---- */
+async function loadUsageRecords() {
+  const tenant = document.getElementById('usage-tenant')?.value?.trim() || '';
+  const agent = document.getElementById('usage-agent')?.value?.trim() || '';
+  const since = document.getElementById('usage-since')?.value || '';
+  const until = document.getElementById('usage-until')?.value || '';
+
+  const params = new URLSearchParams();
+  if (tenant) params.set('tenant', tenant);
+  if (agent) params.set('agent', agent);
+  if (since) params.set('since', new Date(since).toISOString());
+  if (until) params.set('until', new Date(until).toISOString());
+
+  const tbody = document.getElementById('usage-tbody');
+  if (!tbody) return;
+
+  try {
+    const res = await apiFetch('/api/v1/usage?' + params.toString());
+    const records = Array.isArray(res.data) ? res.data : [];
+
+    const countEl = document.getElementById('usage-record-count');
+    if (countEl) countEl.textContent = records.length + ' record' + (records.length !== 1 ? 's' : '');
+
+    if (!records.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No usage records match your filters. Try broadening your search criteria.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = records.map(r => `
+      <tr>
+        <td class="mono">${fmtTime(r.timestamp)}</td>
+        <td>${esc(r.tenant || '-')}</td>
+        <td>${esc(r.agent || '-')}</td>
+        <td>${esc(r.provider || '-')}</td>
+        <td>${r.input_tokens || 0}</td>
+        <td>${r.output_tokens || 0}</td>
+        <td>${r.total_tokens || 0}</td>
+        <td>${r.duration_ms || 0}</td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Error: ' + esc(e.message) + '</td></tr>';
+  }
+}
+
+async function loadUsageSummary() {
+  const tenant = document.getElementById('usage-summary-tenant')?.value?.trim() || '';
+
+  const params = new URLSearchParams();
+  if (tenant) params.set('tenant', tenant);
+
+  const tbody = document.getElementById('usage-summary-tbody');
+  if (!tbody) return;
+
+  try {
+    const res = await apiFetch('/api/v1/usage/summary?' + params.toString());
+    const summaries = Array.isArray(res.data) ? res.data : [];
+
+    const countEl = document.getElementById('usage-summary-count');
+    if (countEl) countEl.textContent = summaries.length + ' row' + (summaries.length !== 1 ? 's' : '');
+
+    if (!summaries.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No summary data available. Records may not exist for the selected filters.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = summaries.map(s => `
+      <tr>
+        <td>${esc(s.tenant || '-')}</td>
+        <td>${esc(s.agent || '-')}</td>
+        <td>${esc(s.provider || '-')}</td>
+        <td>${s.total_calls || 0}</td>
+        <td>${s.total_tokens || 0}</td>
+        <td>${s.input_tokens || 0}</td>
+        <td>${s.output_tokens || 0}</td>
+        <td>${s.avg_duration_ms ? s.avg_duration_ms.toFixed(2) : 0}</td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Error: ' + esc(e.message) + '</td></tr>';
+  }
+}
+
+/* ---- SLA Monitoring page ---- */
+async function loadSLARules() {
+  const tbody = document.getElementById('sla-rules-tbody');
+  try {
+    const res = await apiFetch('/api/v1/sla/rules');
+    const rules = Array.isArray(res.data) ? res.data : [];
+    if (!rules.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No SLA rules configured. Create one above.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rules.map(r => {
+      const id = r.id || r.ID || '-';
+      const agent = r.agent || r.Agent || '*';
+      const tenant = r.tenant || r.Tenant || '*';
+      const maxResp = r.max_response_ms || r.MaxResponseMs || '-';
+      const maxErr = r.max_error_rate !== undefined ? (r.max_error_rate || r.MaxErrorRate).toFixed(1) : '-';
+      const window = r.window_minutes || r.WindowMinutes || '-';
+      const channels = r.notify_channels || r.NotifyChannels || [];
+      const enabled = r.enabled !== false && r.Enabled !== false;
+      const status = enabled ? '<span class="badge badge-ok">active</span>' : '<span class="badge badge-grey">inactive</span>';
+      const channelStr = Array.isArray(channels) ? channels.join(', ') : String(channels || '-');
+      return `<tr>
+        <td class="mono">${esc(id)}</td>
+        <td>${esc(agent)}</td>
+        <td>${esc(tenant)}</td>
+        <td>${esc(String(maxResp))} ms</td>
+        <td>${esc(String(maxErr))} %</td>
+        <td>${esc(String(window))} min</td>
+        <td class="mono" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(channelStr)}">${esc(channelStr)}</td>
+        <td>${status}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="deleteSLARule('${esc(id)}')">Delete</button></td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Failed to load SLA rules.</td></tr>';
+  }
+}
+
+async function createSLARule() {
+  const agent = document.getElementById('sla-agent').value.trim() || '*';
+  const tenant = document.getElementById('sla-tenant').value.trim() || '*';
+  const maxResponse = parseInt(document.getElementById('sla-max-response').value, 10);
+  const maxError = parseFloat(document.getElementById('sla-max-error').value);
+  const window = parseInt(document.getElementById('sla-window').value, 10) || 5;
+  const channels = document.getElementById('sla-channels').value.trim().split(',').map(c => c.trim()).filter(Boolean);
+  const enabled = document.getElementById('sla-enabled').checked;
+
+  if (!maxResponse || isNaN(maxResponse)) { setMsg('sla-create-msg', 'Max response time is required.', 'var(--warn)'); return; }
+  if (!maxError && maxError !== 0 || isNaN(maxError)) { setMsg('sla-create-msg', 'Max error rate is required.', 'var(--warn)'); return; }
+
+  setMsg('sla-create-msg', 'Creating...', 'var(--muted)');
+
+  try {
+    const body = {
+      agent, tenant, max_response_ms: maxResponse, max_error_rate: maxError,
+      window_minutes: window, notify_channels: channels, enabled
+    };
+    const res = await apiFetch('/api/v1/sla/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (res.ok) {
+      setMsg('sla-create-msg', 'Rule created successfully.', 'var(--ok)');
+      document.getElementById('sla-agent').value = '';
+      document.getElementById('sla-tenant').value = '';
+      document.getElementById('sla-max-response').value = '';
+      document.getElementById('sla-max-error').value = '';
+      document.getElementById('sla-window').value = '5';
+      document.getElementById('sla-channels').value = '';
+      document.getElementById('sla-enabled').checked = true;
+      loadSLARules();
+    } else {
+      const msg = res.raw?.error?.message || res.raw?.message || 'Create failed';
+      setMsg('sla-create-msg', msg, 'var(--err)');
+    }
+  } catch(e) {
+    setMsg('sla-create-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+async function deleteSLARule(id) {
+  if (!confirm('Delete SLA rule "' + id + '"? This cannot be undone.')) return;
+  try {
+    await apiFetch(`/api/v1/sla/rules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    loadSLARules();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function loadSLAViolations() {
+  const tbody = document.getElementById('sla-violations-tbody');
+  try {
+    const res = await apiFetch('/api/v1/sla/violations');
+    const violations = Array.isArray(res.data) ? res.data : [];
+    if (!violations.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No SLA violations detected.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = violations.map(v => {
+      const id = v.id || v.ID || '-';
+      const ruleID = v.rule_id || v.RuleID || '-';
+      const agent = v.agent || v.Agent || '-';
+      const tenant = v.tenant || v.Tenant || '-';
+      const type = v.type || v.Type || '-';
+      const value = typeof v.value === 'number' ? v.value.toFixed(2) : (v.Value || '-');
+      const threshold = typeof v.threshold === 'number' ? v.threshold.toFixed(2) : (v.Threshold || '-');
+      const ts = fmtTime(v.timestamp || v.Timestamp);
+      const resolved = v.resolved === true || v.Resolved === true;
+      const status = resolved ? '<span class="badge badge-ok">resolved</span>' : '<span class="badge badge-err">active</span>';
+      return `<tr>
+        <td class="mono">${esc(id)}</td>
+        <td class="mono">${esc(ruleID)}</td>
+        <td>${esc(agent)}</td>
+        <td>${esc(tenant)}</td>
+        <td><span class="badge badge-warn">${esc(type)}</span></td>
+        <td>${esc(String(value))}</td>
+        <td>${esc(String(threshold))}</td>
+        <td class="mono">${esc(ts)}</td>
+        <td>${status}</td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Failed to load violations.</td></tr>';
+  }
+}
+
+function onSLAPageEnter() {
+  loadSLARules();
+  loadSLAViolations();
+}
+
+/* ---- Evals page ---- */
+/* ─────────────── Evals ─────────────── */
+
+async function loadEvalRuns() {
+  const tbody = document.getElementById('eval-runs-tbody');
+  try {
+    const res = await apiFetch('/api/v1/eval/runs');
+    const runs = Array.isArray(res.data) ? res.data : [];
+    if (!runs.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No eval runs yet. Trigger a run above.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = runs.map(r => {
+      const runID = r.id || r.ID || '-';
+      const status = r.status || r.Status || 'unknown';
+      const casesCount = (r.cases || []).length;
+      const passRate = r.pass_rate !== undefined ? (r.pass_rate * 100).toFixed(1) : r.PassRate !== undefined ? (r.PassRate * 100).toFixed(1) : '0.0';
+      const score = r.total_score !== undefined ? r.total_score.toFixed(2) : r.TotalScore !== undefined ? r.TotalScore.toFixed(2) : '0.00';
+      const started = r.started_at || r.StartedAt || '';
+      return `<tr>
+        <td class="mono">${esc(runID)}</td>
+        <td>${statusBadge(status)}</td>
+        <td>${casesCount}</td>
+        <td><strong style="color:${parseFloat(passRate) >= 70 ? 'var(--ok)' : parseFloat(passRate) >= 50 ? 'var(--warn)' : 'var(--err)'}">${passRate}%</strong></td>
+        <td><strong>${score}</strong></td>
+        <td class="mono">${fmtTime(started)}</td>
+        <td><button class="btn btn-sm btn-secondary" onclick="loadEvalDetails('${esc(runID)}')">View</button></td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load eval runs.</td></tr>';
+  }
+}
+
+async function loadEvalDetails(runID) {
+  const detailsTbody = document.getElementById('eval-details-tbody');
+  const runTitle = document.getElementById('eval-run-title');
+  runTitle.textContent = 'Run: ' + runID;
+  try {
+    const res = await apiFetch('/api/v1/eval/runs/' + encodeURIComponent(runID));
+    const run = res.data || {};
+    const results = Array.isArray(run.results) ? run.results : [];
+    if (!results.length) {
+      detailsTbody.innerHTML = '<tr><td colspan="7" class="empty-state">No results for this run.</td></tr>';
+      return;
+    }
+    detailsTbody.innerHTML = results.map(r => {
+      const caseID = r.case_id || r.CaseID || '-';
+      const caseName = r.case_name || r.CaseName || '-';
+      const passed = r.passed || r.Passed;
+      const score = r.score !== undefined ? r.score.toFixed(2) : r.Score !== undefined ? r.Score.toFixed(2) : '0.00';
+      const toolsUsed = Array.isArray(r.tools_used) ? r.tools_used.join(', ') : (Array.isArray(r.ToolsUsed) ? r.ToolsUsed.join(', ') : '-');
+      const matchDetails = r.match_details || r.MatchDetails || '';
+      const duration = r.duration || r.Duration || 0;
+      const durationStr = typeof duration === 'number' && duration > 1000000 ? 
+        (duration / 1e9).toFixed(2) + 's' : duration;
+      return `<tr>
+        <td class="mono">${esc(caseID)}</td>
+        <td>${esc(caseName)}</td>
+        <td>${passed ? '<span class="badge badge-ok">pass</span>' : '<span class="badge badge-err">fail</span>'}</td>
+        <td><strong style="color:${score >= 0.7 ? 'var(--ok)' : score >= 0.5 ? 'var(--warn)' : 'var(--err)'}">${score}</strong></td>
+        <td class="mono" style="font-size:12px;">${esc(toolsUsed)}</td>
+        <td style="font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(matchDetails)}">${esc(matchDetails)}</td>
+        <td>${esc(durationStr)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    detailsTbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load details: ' + esc(e.message) + '</td></tr>';
+  }
+}
+
+async function triggerEvalRun() {
+  const tenant = document.getElementById('eval-tenant').value.trim();
+  const agent = document.getElementById('eval-agent').value.trim();
+  const casesRaw = document.getElementById('eval-cases').value.trim();
+
+  if (!tenant || !agent) {
+    setMsg('eval-run-msg', 'Tenant and agent are required.', 'var(--warn)');
+    return;
+  }
+  if (!casesRaw) {
+    setMsg('eval-run-msg', 'At least one test case is required.', 'var(--warn)');
+    return;
+  }
+
+  let cases = [];
+  try {
+    cases = JSON.parse(casesRaw);
+    if (!Array.isArray(cases)) cases = [cases];
+  } catch (e) {
+    setMsg('eval-run-msg', 'Invalid JSON in test cases: ' + e.message, 'var(--err)');
+    return;
+  }
+
+  setMsg('eval-run-msg', 'Triggering run...', 'var(--muted)');
+
+  try {
+    const res = await apiFetch('/api/v1/eval/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant, agent, cases }),
+    });
+
+    if (res.ok) {
+      const runID = res.data?.id || res.data?.ID || 'unknown';
+      setMsg('eval-run-msg', 'Run triggered: ' + runID, 'var(--ok)');
+      document.getElementById('eval-agent').value = '';
+      document.getElementById('eval-cases').value = '';
+      await new Promise(r => setTimeout(r, 500));
+      loadEvalRuns();
+    } else {
+      setMsg('eval-run-msg', res.raw?.error?.message || res.raw?.message || 'Trigger failed', 'var(--err)');
+    }
+  } catch (e) {
+    setMsg('eval-run-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+function populateEvalTenants() {
+  loadTenants().then(tenants => {
+    const sel = document.getElementById('eval-tenant');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Select tenant...</option>' + 
+      (Array.isArray(tenants) ? tenants : []).map(t => {
+        const name = typeof t === 'string' ? t : (t.name || t.id || '');
+        return `<option value="${esc(name)}">${esc(name)}</option>`;
+      }).join('');
+    if (current) sel.value = current;
+  }).catch(() => {});
+}
+
+async function loadTenants() {
+  const res = await apiFetch('/api/v1/tenants');
+  return Array.isArray(res.data) ? res.data : [];
+}
+
+/* ---- Skill Curator page ---- */
+async function loadCuratorScores() {
+  const tbody = document.getElementById('curator-scores-tbody');
+  try {
+    const res = await apiFetch('/api/v1/curator/scores');
+    const scores = Array.isArray(res.data) ? res.data : [];
+    if (!scores.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No skill scores available yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = scores.map(s => {
+      const healthClass = s.health === 'healthy' ? 'badge-ok' : 
+                          s.health === 'shaky' ? 'badge-warn' : 
+                          s.health === 'failing' ? 'badge-err' : 'badge-grey';
+      const successColor = s.success_rate >= 0.8 ? 'color:var(--ok)' : 
+                           s.success_rate >= 0.5 ? 'color:var(--warn)' : 'color:var(--err)';
+      const last7d = s.last_7d_count > 0 ? `${(s.last_7d_rate * 100).toFixed(1)}% (${s.last_7d_count})` : '-';
+      const prior7d = s.prior_7d_count > 0 ? `${(s.prior_7d_rate * 100).toFixed(1)}% (${s.prior_7d_count})` : '-';
+      return `<tr>
+        <td><strong>${esc(s.skill_name)}</strong></td>
+        <td>${s.invocations}</td>
+        <td><span style="${successColor}">${(s.success_rate * 100).toFixed(1)}%</span></td>
+        <td>${s.avg_duration_ms.toFixed(0)}ms</td>
+        <td><span class="badge ${healthClass}">${esc(s.health)}</span></td>
+        <td>${esc(last7d)}</td>
+        <td>${esc(prior7d)}</td>
+        <td>${fmtTime(s.last_invoked_at)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Failed to load skill scores.</td></tr>';
+  }
+}
+
+async function runCuratorJudge() {
+  const skill = document.getElementById('judge-skill').value.trim();
+  if (!skill) {
+    setMsg('judge-msg', 'Skill name is required.', 'var(--warn)');
+    return;
+  }
+
+  const userMsg = document.getElementById('judge-user-msg').value.trim();
+  const agentResp = document.getElementById('judge-agent-resp').value.trim();
+  const toolsStr = document.getElementById('judge-tools').value.trim();
+  const successStr = document.getElementById('judge-success').value;
+  const error = document.getElementById('judge-error').value.trim();
+
+  if (!userMsg || !agentResp) {
+    setMsg('judge-msg', 'User message and agent response are required.', 'var(--warn)');
+    return;
+  }
+
+  const payload = {
+    skill_name: skill,
+    user_message: userMsg,
+    agent_response: agentResp,
+    tools_used: toolsStr ? toolsStr.split(',').map(t => t.trim()) : [],
+    success: successStr === 'true',
+    error: error || undefined,
+  };
+
+  setMsg('judge-msg', 'Judging...', 'var(--muted)');
+  try {
+    const res = await apiFetch('/api/v1/curator/judge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const result = res.data;
+      const verdict = result.verdict || '?';
+      const score = ((result.score || 0) * 100).toFixed(1);
+      const resultDiv = document.getElementById('judge-result');
+      resultDiv.className = verdict === 'good' ? 'policy-result allow' : 
+                            verdict === 'acceptable' ? 'policy-result info' : 'policy-result deny';
+      resultDiv.innerHTML = `<strong>${esc(verdict).toUpperCase()}</strong> (Score: ${score}%)\n\nReason:\n${esc(result.reason || 'No feedback provided.')}`;
+      setMsg('judge-msg', 'Judgment complete.', 'var(--ok)');
+    } else {
+      setMsg('judge-msg', res.raw?.error?.message || 'Judge failed', 'var(--err)');
+    }
+  } catch (e) {
+    setMsg('judge-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+async function runCuratorPrune() {
+  setMsg('prune-msg', 'Running prune...', 'var(--muted)');
+  try {
+    const res = await apiFetch('/api/v1/curator/prune', { method: 'POST' });
+    if (res.ok) {
+      const report = res.data;
+      const entries = Array.isArray(report.entries) ? report.entries : [];
+      const tbody = document.getElementById('prune-tbody');
+      tbody.innerHTML = entries.map(e => {
+        const samples = Array.isArray(e.samples) ? e.samples : [];
+        const sampleText = samples.length > 0 ? samples.slice(0, 2).map(s => esc(s)).join('; ') + (samples.length > 2 ? '...' : '') : '-';
+        return `<tr>
+          <td><strong>${esc(e.skill)}</strong></td>
+          <td><span class="badge ${e.disabled ? 'badge-err' : 'badge-ok'}">${e.disabled ? 'Yes' : 'No'}</span></td>
+          <td>${esc(e.reason)}</td>
+          <td style="font-size:12px;color:var(--faint);">${sampleText}</td>
+        </tr>`;
+      }).join('');
+      document.getElementById('prune-result-section').style.display = 'block';
+      document.getElementById('prune-time').textContent = 'Ran at ' + fmtTime(report.ran_at);
+      setMsg('prune-msg', 'Prune complete. ' + entries.length + ' entries reviewed.', 'var(--ok)');
+    } else {
+      setMsg('prune-msg', res.raw?.error?.message || 'Prune failed', 'var(--err)');
+    }
+  } catch (e) {
+    setMsg('prune-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+async function loadCuratorConsolidate() {
+  const tbody = document.getElementById('curator-consolidate-tbody');
+  try {
+    const res = await apiFetch('/api/v1/curator/consolidate');
+    const suggestions = Array.isArray(res.data?.suggestions) ? res.data.suggestions : [];
+    if (!suggestions.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No consolidation suggestions at this time.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = suggestions.map(s => {
+      const tools = Array.isArray(s.shared_tools) ? s.shared_tools.join(', ') : '-';
+      const jaccard = ((s.jaccard || 0) * 100).toFixed(1);
+      return `<tr>
+        <td><strong>${esc(s.skill_a)}</strong></td>
+        <td><strong>${esc(s.skill_b)}</strong></td>
+        <td><span style="font-size:12px;color:var(--muted);">${esc(tools)}</span></td>
+        <td>${jaccard}%</td>
+        <td>${s.invocations_a} / ${s.invocations_b}</td>
+        <td style="font-size:12px;color:var(--faint);">${esc(s.note)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load consolidation suggestions.</td></tr>';
+  }
+}
+
+/* ---- Observability page ---- */
+async function loadObservabilityPage() {
+  const tenants = await loadTenants();
+  const tenantSelect = document.getElementById('obs-tenant');
+  if (tenantSelect) {
+    const current = tenantSelect.value;
+    tenantSelect.innerHTML = '<option value="">All tenants</option>';
+    tenants.forEach(t => {
+      const name = typeof t === 'string' ? t : (t.name || t.id || JSON.stringify(t));
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name === current) opt.selected = true;
+      tenantSelect.appendChild(opt);
+    });
+  }
+  await loadObservability();
+}
+
+async function loadObservability() {
+  const tenant = document.getElementById('obs-tenant')?.value?.trim() || '';
+  
+  const params = new URLSearchParams();
+  if (tenant) params.set('tenant', tenant);
+
+  try {
+    // Load metrics (requests, errors, latency, uptime)
+    const metricsRes = await apiFetch('/api/v1/metrics');
+    if (metricsRes.ok && metricsRes.data) {
+      document.getElementById('obs-requests').textContent = metricsRes.data.requests_total || '-';
+      const errors = metricsRes.data.errors_total || 0;
+      const errEl = document.getElementById('obs-errors');
+      errEl.textContent = errors;
+      errEl.className = errors > 0 ? 'card-value v-err' : 'card-value v-ok';
+      document.getElementById('obs-avg-latency').textContent = (metricsRes.data.avg_latency_ms || 0) + '';
+      const uptime = metricsRes.data.uptime_seconds || 0;
+      const hours = Math.floor(uptime / 3600);
+      const mins = Math.floor((uptime % 3600) / 60);
+      document.getElementById('obs-uptime').textContent = hours + 'h ' + mins + 'm';
+    }
+
+    // Load latency percentiles
+    const latencyRes = await apiFetch('/api/v1/observability/latency?' + params.toString());
+    const latencyData = Array.isArray(latencyRes.data) ? latencyRes.data : [];
+    const latencyTbody = document.getElementById('obs-latency-tbody');
+    if (!latencyData.length) {
+      latencyTbody.innerHTML = '<tr><td colspan="5" class="empty-state">No latency data available for the selected tenant.</td></tr>';
+    } else {
+      latencyTbody.innerHTML = latencyData.map(row => `
+        <tr>
+          <td class="mono">${esc(row.agent || '-')}</td>
+          <td>${row.p50_ms || '-'}</td>
+          <td>${row.p95_ms || '-'}</td>
+          <td>${row.p99_ms || '-'}</td>
+          <td>${row.sample_count || '0'}</td>
+        </tr>`).join('');
+    }
+
+    // Load token usage
+    const tokensRes = await apiFetch('/api/v1/observability/tokens?' + params.toString());
+    const tokensData = Array.isArray(tokensRes.data) ? tokensRes.data : [];
+    const tokensTbody = document.getElementById('obs-tokens-tbody');
+    if (!tokensData.length) {
+      tokensTbody.innerHTML = '<tr><td colspan="4" class="empty-state">No token usage data available for the selected tenant.</td></tr>';
+    } else {
+      tokensTbody.innerHTML = tokensData.map(row => `
+        <tr>
+          <td class="mono">${fmtTime(row.hour || '-')}</td>
+          <td>${row.input_tokens || '0'}</td>
+          <td>${row.output_tokens || '0'}</td>
+          <td>${row.total_tokens || '0'}</td>
+        </tr>`).join('');
+    }
+
+    // Load tool statistics
+    const toolsRes = await apiFetch('/api/v1/observability/tools?' + params.toString());
+    const toolsData = Array.isArray(toolsRes.data) ? toolsRes.data : [];
+    const toolsTbody = document.getElementById('obs-tools-tbody');
+    if (!toolsData.length) {
+      toolsTbody.innerHTML = '<tr><td colspan="4" class="empty-state">No tool execution data available for the selected tenant.</td></tr>';
+    } else {
+      toolsTbody.innerHTML = toolsData.map(row => {
+        const successRate = row.total_executions > 0 
+          ? Math.round((row.successful_executions / row.total_executions) * 100) 
+          : 0;
+        const rateColor = successRate >= 95 ? 'v-ok' : (successRate >= 80 ? 'v-acc' : 'v-err');
+        return `
+        <tr>
+          <td class="mono">${esc(row.tool || '-')}</td>
+          <td>${row.total_executions || '0'}</td>
+          <td><span class="${rateColor}">${successRate}%</span></td>
+          <td>${row.avg_duration_ms || '0'}</td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    document.getElementById('obs-latency-tbody').innerHTML = '<tr><td colspan="5" class="empty-state">Error loading observability data.</td></tr>';
+    document.getElementById('obs-tokens-tbody').innerHTML = '<tr><td colspan="4" class="empty-state">Error loading token usage.</td></tr>';
+    document.getElementById('obs-tools-tbody').innerHTML = '<tr><td colspan="4" class="empty-state">Error loading tool statistics.</td></tr>';
+  }
+}
+
+/* ---- Webhooks page ---- */
+async function loadWebhooks() {
+  // Check if webhooks are enabled by attempting to access the endpoints
+  // Webhooks don't have a status endpoint, so we just display the help information
+  const statusEl = document.getElementById('webhook-enabled-status');
+  const noteEl = document.getElementById('webhook-note');
+  
+  // Since there's no GET endpoint, we can't truly verify status
+  // Just display the configuration instructions
+  statusEl.textContent = 'Webhooks: Configuration Required';
+  statusEl.style.color = 'var(--warn)';
+  noteEl.textContent = 'Webhooks require CYNTR_WEBHOOK_SECRET to be set. Without it, all webhook requests return 503 WEBHOOKS_DISABLED.';
+}
+
+async function testWebhook() {
+  const type = document.getElementById('webhook-type').value;
+  const secret = document.getElementById('webhook-secret').value.trim();
+  const payload = document.getElementById('webhook-payload').value.trim();
+  
+  if (!secret) {
+    setMsg('webhook-test-msg', 'Please enter the webhook secret.', 'var(--warn)');
+    return;
+  }
+  
+  let url, body;
+  
+  if (type === 'trigger') {
+    const workflowId = document.getElementById('webhook-workflow-id').value.trim();
+    if (!workflowId) {
+      setMsg('webhook-test-msg', 'Please enter a workflow ID.', 'var(--warn)');
+      return;
+    }
+    url = `/api/v1/webhooks/trigger/${encodeURIComponent(workflowId)}`;
+    body = payload || '{}';
+  } else {
+    const tenant = document.getElementById('webhook-tenant').value.trim() || 'default';
+    const agent = document.getElementById('webhook-agent').value.trim();
+    if (!agent) {
+      setMsg('webhook-test-msg', 'Please enter an agent name.', 'var(--warn)');
+      return;
+    }
+    url = `/api/v1/webhooks/agent/${encodeURIComponent(tenant)}/${encodeURIComponent(agent)}`;
+    body = payload || '{"message":""}';
+  }
+  
+  // Compute HMAC-SHA256 signature
+  setMsg('webhook-test-msg', 'Computing signature...', 'var(--muted)');
+  
+  try {
+    // Use SubtleCrypto to compute HMAC-SHA256
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const bodyData = encoder.encode(body);
+    
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    
+    const signature = await crypto.subtle.sign('HMAC', key, bodyData);
+    const sigHex = Array.from(new Uint8Array(signature))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    
+    setMsg('webhook-test-msg', 'Sending...', 'var(--muted)');
+    
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Cyntr-Signature': sigHex,
+      },
+      body: body,
+    });
+    
+    const data = await res.json().catch(() => ({}));
+    const resultEl = document.getElementById('webhook-test-result');
+    
+    if (res.ok) {
+      setMsg('webhook-test-msg', 'Request succeeded.', 'var(--ok)');
+      resultEl.innerHTML = `
+        <div class="policy-result allow" style="margin-top:12px;">
+          <strong>Response (${res.status}):</strong><br/>
+          ${renderMarkdown('```json\n' + JSON.stringify(data, null, 2) + '\n```')}
+        </div>
+      `;
+    } else {
+      setMsg('webhook-test-msg', `Request failed (${res.status}).`, 'var(--err)');
+      resultEl.innerHTML = `
+        <div class="policy-result deny" style="margin-top:12px;">
+          <strong>Error (${res.status}):</strong><br/>
+          ${renderMarkdown('```json\n' + JSON.stringify(data, null, 2) + '\n```')}
+        </div>
+      `;
+    }
+  } catch(e) {
+    setMsg('webhook-test-msg', 'Error: ' + e.message, 'var(--err)');
+    document.getElementById('webhook-test-result').innerHTML = `
+      <div class="policy-result deny" style="margin-top:12px;">
+        <strong>Error:</strong><br/>
+        ${esc(e.message)}
+      </div>
+    `;
+  }
+}
+
+function updateWebhookForm() {
+  const type = document.getElementById('webhook-type').value;
+  document.getElementById('webhook-trigger-form').style.display = type === 'trigger' ? 'block' : 'none';
+  document.getElementById('webhook-agent-form').style.display = type === 'agent' ? 'block' : 'none';
+  document.getElementById('webhook-test-result').innerHTML = '';
+  document.getElementById('webhook-test-msg').textContent = '';
+}
+
+/* ---- Companion Nodes & Canvas page ---- */
+async function loadNodesPage() {
+  const tenants = await loadTenants();
+  populateNodeTenantSelect(tenants);
+}
+
+function populateNodeTenantSelect(tenants) {
+  const el = document.getElementById('node-tenant');
+  if (!el) return;
+  el.innerHTML = '<option value="">Select tenant...</option>';
+  tenants.forEach(t => {
+    const name = typeof t === 'string' ? t : (t.name || t.id || JSON.stringify(t));
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    el.appendChild(opt);
+  });
+}
+
+async function issueNodePairingCode() {
+  const tenant = document.getElementById('node-tenant').value.trim();
+  const nodeName = document.getElementById('node-name').value.trim();
+  const capabilities = Array.from(
+    document.querySelectorAll('#page-nodes input[type="checkbox"]:checked')
+  ).map(cb => cb.value);
+
+  const msgEl = document.getElementById('node-msg');
+  const resultEl = document.getElementById('node-code-result');
+
+  if (!tenant) { setMsg('node-msg', 'Please select a tenant.', 'var(--warn)'); return; }
+  if (!nodeName) { setMsg('node-msg', 'Node name is required.', 'var(--warn)'); return; }
+  if (!capabilities.length) { setMsg('node-msg', 'Select at least one capability.', 'var(--warn)'); return; }
+
+  setMsg('node-msg', 'Issuing pairing code...', 'var(--muted)');
+
+  try {
+    const res = await apiFetch('/api/v1/node/pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenant: tenant,
+        node: nodeName,
+        capabilities: capabilities
+      }),
+    });
+
+    if (res.ok && res.data && res.data.code) {
+      const code = res.data.code;
+      setMsg('node-msg', 'Pairing code issued.', 'var(--ok)');
+      resultEl.innerHTML = `
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Your pairing code (valid for one connection):</div>
+          <div style="font-family:monospace;font-size:16px;font-weight:600;color:var(--accent-h);letter-spacing:2px;padding:12px;background:var(--surface2);border-radius:6px;user-select:all;">
+            ${esc(code)}
+          </div>
+          <div style="margin-top:12px;font-size:12px;color:var(--faint);">
+            Node: <span class="mono">${esc(nodeName)}</span> | Tenant: <span class="mono">${esc(tenant)}</span> | Caps: <span class="mono">${esc(capabilities.join(', '))}</span>
+          </div>
+          <p style="color:var(--muted);font-size:13px;margin-top:12px;">
+            Use this code to pair a device in the <a href="/node.html" target="_blank" style="color:var(--accent-h);">reference node client</a>.
+          </p>
+        </div>
+      `;
+    } else {
+      const msg = res.raw?.error?.message || res.raw?.message || 'Failed to issue code';
+      setMsg('node-msg', msg, 'var(--err)');
+      resultEl.innerHTML = '<div class="empty-state">Error issuing pairing code.</div>';
+    }
+  } catch(e) {
+    setMsg('node-msg', 'Network error: ' + e.message, 'var(--err)');
+    resultEl.innerHTML = '<div class="empty-state">Network error.</div>';
+  }
+}
+
+// Add to onPageEnter function:
+// if (page === 'nodes') loadNodesPage();
+
+// Add to showPage dispatch (in the switch/if chain at line ~1968):
+
+/* ---- Settings page ---- */
+async function loadSettings() {
+  loadBranding();
+  loadNotificationChannels();
+}
+
+async function loadBranding() {
+  try {
+    const res = await apiFetch('/api/v1/branding');
+    if (!res.ok) {
+      console.error('Failed to load branding');
+      return;
+    }
+    const b = res.data || {};
+    document.getElementById('branding-name').value = b.name || 'Cyntr';
+    document.getElementById('branding-tagline').value = b.tagline || 'Agent OS';
+    document.getElementById('branding-accent').value = b.accent || '#6366f1';
+    document.getElementById('branding-logo').value = b.logo || '';
+  } catch(e) {
+    console.error('Error loading branding:', e);
+  }
+}
+
+async function loadNotificationChannels() {
+  const tbody = document.getElementById('notif-channels-tbody');
+  try {
+    const res = await apiFetch('/api/v1/notifications/channels');
+    if (!res.ok) {
+      tbody.innerHTML = '<tr><td colspan="2" class="empty-state">Could not load notification channels.</td></tr>';
+      return;
+    }
+    const channels = Array.isArray(res.data) ? res.data : [];
+    if (!channels.length) {
+      tbody.innerHTML = '<tr><td colspan="2" class="empty-state">No notification channels configured. Configure notification channels via environment variables (SLACK_BOT_TOKEN, TEAMS_APP_ID, etc.)</td></tr>';
+      return;
+    }
+    tbody.innerHTML = channels.map(ch => {
+      const name = typeof ch === 'string' ? ch : (ch.name || ch || '-');
+      return `<tr>
+        <td>${esc(name)}</td>
+        <td><button class="btn btn-sm btn-primary" onclick="testChannelQuick('${esc(name)}')">Test</button></td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="2" class="empty-state">Error: ' + esc(e.message) + '</td></tr>';
+  }
+}
+
+async function sendTestNotification() {
+  const title = document.getElementById('notif-title').value.trim();
+  const message = document.getElementById('notif-message').value.trim();
+  const severity = document.getElementById('notif-severity').value;
+
+  if (!title || !message) {
+    setMsg('notif-msg', 'Title and message are required.', 'var(--warn)');
+    return;
+  }
+
+  setMsg('notif-msg', 'Sending...', 'var(--muted)');
+
+  try {
+    const res = await apiFetch('/api/v1/notifications/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, message, severity }),
+    });
+
+    if (res.ok) {
+      setMsg('notif-msg', 'Notification sent.', 'var(--ok)');
+      document.getElementById('notif-title').value = '';
+      document.getElementById('notif-message').value = '';
+    } else {
+      const msg = res.raw?.error?.message || res.raw?.message || 'Send failed';
+      setMsg('notif-msg', msg, 'var(--err)');
+    }
+  } catch(e) {
+    setMsg('notif-msg', 'Network error: ' + e.message, 'var(--err)');
+  }
+}
+
+function testChannelQuick(channel) {
+  document.getElementById('notif-title').value = 'Channel Test: ' + channel;
+  document.getElementById('notif-message').value = 'This is a test notification from the Cyntr dashboard to verify ' + channel + ' is working.';
+  document.getElementById('notif-severity').value = 'info';
+  document.querySelector('[onclick="sendTestNotification()"]').scrollIntoView({ behavior: 'smooth' });
+}
+
 </script>
 </body>
 </html>
