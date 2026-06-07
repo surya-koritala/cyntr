@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/cyntr-dev/cyntr/kernel/config"
 	"github.com/cyntr-dev/cyntr/tenant"
 )
 
@@ -61,17 +62,35 @@ func (s *Server) handleTenantCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if body.Name == "" {
+		RespondError(w, 400, "INVALID_REQUEST", "name is required")
+		return
+	}
+
 	var mode tenant.IsolationMode
 	switch body.Isolation {
 	case "process":
 		mode = tenant.IsolationProcess
 	default:
 		mode = tenant.IsolationNamespace
+		body.Isolation = "namespace"
 	}
 
+	// Update the live manager so the tenant is usable immediately.
 	if err := s.tenantMgr.Create(body.Name, mode, body.Policy); err != nil {
 		RespondError(w, 409, "CREATE_FAILED", err.Error())
 		return
+	}
+	// Persist to cyntr.yaml so it survives a restart and shows in the tenant
+	// list (which reads the config, not the in-memory manager).
+	if s.kernel != nil {
+		if err := s.kernel.Config().SetTenant(body.Name, config.TenantConfig{
+			Isolation: body.Isolation,
+			Policy:    body.Policy,
+		}); err != nil {
+			RespondError(w, 500, "PERSIST_FAILED", "tenant created in memory but not persisted: "+err.Error())
+			return
+		}
 	}
 
 	Respond(w, 201, map[string]string{"status": "created", "name": body.Name})
@@ -87,6 +106,13 @@ func (s *Server) handleTenantDelete(w http.ResponseWriter, r *http.Request) {
 	if err := s.tenantMgr.Delete(tid); err != nil {
 		RespondError(w, 404, "DELETE_FAILED", err.Error())
 		return
+	}
+	// Remove from cyntr.yaml too so the deletion persists and the list agrees.
+	if s.kernel != nil {
+		if err := s.kernel.Config().RemoveTenant(tid); err != nil {
+			RespondError(w, 500, "PERSIST_FAILED", "tenant removed from memory but not persisted: "+err.Error())
+			return
+		}
 	}
 
 	Respond(w, 200, map[string]string{"status": "deleted", "name": tid})
