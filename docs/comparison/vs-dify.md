@@ -93,6 +93,7 @@ Concepts that don't map:
 ## Related
 
 - [Cyntr vs Hermes](vs-hermes.md)
+- [Cyntr vs OpenClaw](vs-openclaw.md)
 - [Cyntr vs LangChain](vs-langchain.md)
 - [Concepts: Multi-tenant](../concepts/multi-tenant.md)
 - [Concepts: Policy](../concepts/policy.md)
