@@ -42,7 +42,7 @@ func (p NebiusPlanner) Propose(ctx context.Context, incident Incident) (Proposal
     systemPrompt := "You are Cyntr Guardian incident planner, not an executor. Output ONLY a JSON object with keys action, desired_replicas, explanation. Allowed action is restore_replicas when the deployment has 0 desired replicas AND 0 ready replicas and symptoms indicate a service outage; otherwise action must be none with desired_replicas 0. If restoring, choose only 1, 2 or 3 replicas. Do not output shell commands, YAML, markdown, or secrets. Mention uncertain evidence in explanation."
     incidentJSON, _ := json.Marshal(incident)
     body, err := json.Marshal(map[string]any{
-        "model":model, "temperature":0,
+        "model":model, "temperature":0, "max_tokens":1024,
         "messages":[]map[string]string{
             {"role":"system","content":systemPrompt},
             {"role":"user","content":string(incidentJSON)},
