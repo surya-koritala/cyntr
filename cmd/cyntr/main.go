@@ -101,6 +101,11 @@ func main() {
 		os.Exit(cyntrtrajectory.Run(os.Args[2:]))
 	case "tui":
 		os.Exit(cyntrtui.Run(os.Args[2:]))
+	case "guardian":
+		if err := runGuardian(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "docs":
 		runDocs(os.Args[2:])
 	case "backup":
