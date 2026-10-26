@@ -36,6 +36,10 @@ type Proposal struct {
     Action string `json:"action"`
     DesiredReplicas int32 `json:"desired_replicas"`
     Explanation string `json:"explanation"`
+    Provider string `json:"provider,omitempty"`
+    Model string `json:"model,omitempty"`
+    InputTokens int `json:"input_tokens,omitempty"`
+    OutputTokens int `json:"output_tokens,omitempty"`
 }
 
 type Planner interface {
@@ -50,6 +54,7 @@ type Event struct {
 
 type Result struct {
     Status string `json:"status"`
+    DurationMs int64 `json:"duration_ms"`
     Before Deployment `json:"before"`
     After Deployment `json:"after"`
     Proposal Proposal `json:"proposal"`
@@ -91,6 +96,8 @@ func (r *Runner) Run(ctx context.Context) (res Result, err error) {
     }
     now := r.Now
     if now == nil { now = time.Now }
+    startedAt:=now()
+    defer func(){res.DurationMs=now().Sub(startedAt).Milliseconds()}()
     note := func(phase, detail string) {
         res.Events = append(res.Events, Event{Time: now().UTC(), Phase: phase, Detail: detail})
     }
