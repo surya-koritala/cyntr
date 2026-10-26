@@ -29,7 +29,8 @@ Guardian adds an opt-in, closed-loop recovery capability:
    UID/replica-guarded JSON Patch. If state drifted, fail closed and ask
    for human review instead of overwriting a concurrent operator change.
 7. Emit structured JSON showing the observed state, proposal, decisions,
-   outcome and event timeline.
+   outcome and event timeline. Optionally write a safe self-contained HTML
+   evidence report with `--report guardian-recovery.html`.
 
 **Deliberate scope:** This release handles only a Deployment with both
 desired replicas and ready replicas equal to zero. It never applies model-
@@ -86,7 +87,8 @@ export NEBIUS_API_KEY="YOUR_TOKEN_FACTORY_KEY" # do not paste into recordings
 # Real Nemotron call; safe dry-run. Review JSON proposal and chosen count.
 go run ./cmd/cyntr guardian \
   --context kind-guardian --namespace guardian-demo --deployment web \
-  --symptom 'web service returns 503; zero endpoints'
+  --symptom 'web service returns 503; zero endpoints' \\
+  --report guardian-plan.html
 
 # Example only: if the model proposed TWO replicas, copy the exact `approval_required`\nvalue from the dry-run JSON (includes the real Deployment UID) and use it:
 go run ./cmd/cyntr guardian \
@@ -134,6 +136,7 @@ runtime API trace (redacted), and demonstration recordings.
 - [x] Real Token Factory inference implementation in source
 - [x] Constrained Kubernetes executor, verification, rollback
 - [x] Unit tests authored for key paths
+- [x] Optional standalone judge-friendly HTML evidence report
 - [ ] CI confirmed passing with Go 1.26
 - [ ] Verified actual Nebius Token Factory inference with your key
 - [ ] Verified success and rollback on a disposable Kubernetes cluster
