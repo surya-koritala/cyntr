@@ -21,7 +21,7 @@ Guardian adds an opt-in, closed-loop recovery capability:
 3. Parse a strict JSON repair proposal and reject any action outside a
    bounded, hardcoded `restore_replicas` allowlist.
 4. Default to a **no-write dry run**. For a mutation, require `--execute`
-   and an **exact action-bound approval string** from the operator.
+   and an **exact workload UID-bound approval string** from the operator.
 5. Execute a Kubernetes JSON Patch that atomically tests Deployment UID
    and its current replica count before replacing `spec.replicas`.
 6. Poll Kubernetes for ready replicas. If readiness is not reached in the
@@ -88,7 +88,7 @@ go run ./cmd/cyntr guardian \
   --context kind-guardian --namespace guardian-demo --deployment web \
   --symptom 'web service returns 503; zero endpoints'
 
-# Example only: if the model proposed TWO replicas, approve that EXACT action:
+# Example only: if the model proposed TWO replicas, copy the exact `approval_required`\nvalue from the dry-run JSON (includes the real Deployment UID) and use it:
 go run ./cmd/cyntr guardian \
   --context kind-guardian --namespace guardian-demo --deployment web \
   --symptom 'web service returns 503; zero endpoints' \
