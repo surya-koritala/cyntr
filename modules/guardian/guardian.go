@@ -53,6 +53,7 @@ type Result struct {
     Before Deployment `json:"before"`
     After Deployment `json:"after"`
     Proposal Proposal `json:"proposal"`
+    ApprovalRequired string `json:"approval_required,omitempty"`
     Events []Event `json:"events"`
     Error string `json:"error,omitempty"`
 }
@@ -117,7 +118,8 @@ func (r *Runner) Run(ctx context.Context) (res Result, err error) {
     }
     res.Status = "planned"
     // Human approval is explicit and bound to the exact workload/action.
-    expectedApproval := fmt.Sprintf("scale:%s/%s:%d", r.Namespace, r.Deployment, proposal.DesiredReplicas)
+    expectedApproval := fmt.Sprintf("scale:%s/%s:%d:%s", r.Namespace, r.Deployment, proposal.DesiredReplicas, before.UID)
+    res.ApprovalRequired = expectedApproval
     if !r.Execute {
         note("dry_run", "no cluster mutation; use --execute and the exact approval string")
         return res, nil
