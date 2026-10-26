@@ -1,0 +1,90 @@
+name: Guardian - Real Cluster Validation
+
+on:
+  push:
+    branches: [feat/nebius-guardian-2026]
+    paths:
+      - 'modules/guardian/**'
+      - 'cmd/cyntr/guardian.go'
+      - '.github/workflows/guardian-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardian-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Repository tests, Guardian race tests and CLI build
+        run: |
+          mkdir -p artifacts
+          go test -count=1 ./... 2>&1 | tee artifacts/repository-tests.log
+          go test -race -count=1 ./modules/guardian 2>&1 | tee artifacts/guardian-race-tests.log
+          go build -o "$RUNNER_TEMP/cyntr" ./cmd/cyntr
+          "$RUNNER_TEMP/cyntr" guardian --help
+      - name: Create disposable cluster
+        run: |
+          go install sigs.k8s.io/kind@v0.33.0
+          command -v kubectl
+          kind create cluster --name guardian-validation --wait 120s
+          docker pull nginx:1.27.5-alpine
+          docker image inspect nginx:1.27.5-alpine --format='{{index .RepoDigests 0}}' > artifacts/fixture-image-digest.txt
+          kind load docker-image nginx:1.27.5-alpine --name guardian-validation
+          kubectl --context kind-guardian-validation version -o json > artifacts/kubernetes-version.json
+      - name: Real Kubernetes with MOCK model (not live inference evidence)
+        env:
+          GUARDIAN_KIND_VALIDATION: '1'
+          GUARDIAN_TEST_CONTEXT: kind-guardian-validation
+          GUARDIAN_MODEL_MODE: mock
+          GUARDIAN_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/real-kubernetes-mock-model
+        run: |
+          go test -v -count=1 -timeout=8m ./modules/guardian -run '^TestGuardianKindValidation$' 2>&1 | tee artifacts/real-kubernetes-mock-model.log
+      - name: Live Nebius gate (requires NEBIUS_API_KEY repository secret)
+        id: live
+        env:
+          NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
+          GUARDIAN_KIND_VALIDATION: '1'
+          GUARDIAN_TEST_CONTEXT: kind-guardian-validation
+          GUARDIAN_MODEL_MODE: live
+          GUARDIAN_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/live-nebius
+        run: |
+          if [ -z "${NEBIUS_API_KEY:-}" ]; then
+            mkdir -p artifacts/live-nebius
+            printf '%s\n' '{"status":"blocked","reason":"NEBIUS_API_KEY repository secret is not configured","live_inference_verified":false}' > artifacts/live-nebius/validation-summary.json
+            echo '### Live Nebius: BLOCKED — configure the NEBIUS_API_KEY Actions secret, then re-run this workflow.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Mock-model cluster tests are not proof of live NVIDIA inference.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'status=blocked' >> "$GITHUB_OUTPUT"
+          else
+            go test -v -count=1 -timeout=8m ./modules/guardian -run '^TestGuardianKindValidation$' 2>&1 | tee artifacts/live-nebius.log
+            echo 'status=passed' >> "$GITHUB_OUTPUT"
+            echo '### Live Nebius + real Kubernetes: PASSED' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-validation-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 60
+      - name: Delete disposable cluster
+        if: always()
+        run: |
+          if command -v kind >/dev/null 2>&1; then
+            kind delete cluster --name guardian-validation
+          fi
