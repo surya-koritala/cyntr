@@ -52,7 +52,7 @@ func TestGuardianDryRunNeverWrites(t *testing.T) {
 func TestGuardianApprovedRecovery(t *testing.T) {
     r,c,_:=fixture()
     r.Execute=true
-    r.Approval="scale:demo/api:2"
+    r.Approval="scale:demo/api:2:uid-1234"
     res,err:=r.Run(context.Background())
     if err!=nil || res.Status!="recovered" || c.writes!=1 || c.d.Ready!=2 {
         t.Fatalf("recovery failed: res=%+v err=%v writes=%d",res,err,c.writes)
@@ -61,7 +61,7 @@ func TestGuardianApprovedRecovery(t *testing.T) {
 }
 
 func TestGuardianRequiresActionBoundApproval(t *testing.T) {
-    for _,approval:=range []string{"","scale:demo/api:1","scale:prod/api:2"} {
+    for _,approval:=range []string{"","scale:demo/api:1:uid-1234","scale:prod/api:2:uid-1234"} {
         t.Run(fmt.Sprintf("%q",approval),func(t *testing.T) {
             r,c,_:=fixture();r.Execute=true;r.Approval=approval
             res,err:=r.Run(context.Background())
@@ -79,7 +79,7 @@ func TestGuardianRefusesInvalidProposals(t *testing.T) {
         {Action:"restore_replicas",DesiredReplicas:0,Explanation:"bad target"},
     }
     for _,p:=range cases {
-        r,c,planner:=fixture();r.Execute=true;r.Approval="scale:demo/api:2";planner.proposal=p
+        r,c,planner:=fixture();r.Execute=true;r.Approval="scale:demo/api:2:uid-1234";planner.proposal=p
         res,err:=r.Run(context.Background())
         if err==nil || res.Status!="rejected" || c.writes!=0 { t.Fatalf("proposal bypass: %+v err=%v",res,err) }
     }
@@ -88,7 +88,7 @@ func TestGuardianRefusesInvalidProposals(t *testing.T) {
 func TestGuardianRollbackAfterVerificationFailure(t *testing.T) {
     r,c,_:=fixture()
     c.readyImmediately=false
-    r.Execute=true;r.Approval="scale:demo/api:2"
+    r.Execute=true;r.Approval="scale:demo/api:2:uid-1234"
     res,err:=r.Run(context.Background())
     if err==nil || res.Status!="rolled_back" || c.writes!=2 || c.d.Replicas!=0 {
         t.Fatalf("rollback mismatch: res=%+v err=%v writes=%d",res,err,c.writes)
@@ -96,7 +96,7 @@ func TestGuardianRollbackAfterVerificationFailure(t *testing.T) {
 }
 
 func TestGuardianRefusesRollbackOnConcurrentIdentityDrift(t *testing.T) {
-    r,c,_:=fixture();r.Execute=true;r.Approval="scale:demo/api:2";c.drift=true
+    r,c,_:=fixture();r.Execute=true;r.Approval="scale:demo/api:2:uid-1234";c.drift=true
     res,err:=r.Run(context.Background())
     if err==nil || res.Status!="manual_review" || c.writes!=1 { t.Fatalf("unsafe concurrent modification: res=%+v err=%v",res,err) }
 }
@@ -109,7 +109,7 @@ func TestGuardianFailsClosedBeforePlanning(t *testing.T) {
 }
 
 func TestGuardianModelErrorNeverWrites(t *testing.T) {
-    r,c,p:=fixture();p.err=errors.New("no Token Factory access");r.Execute=true;r.Approval="scale:demo/api:2"
+    r,c,p:=fixture();p.err=errors.New("no Token Factory access");r.Execute=true;r.Approval="scale:demo/api:2:uid-1234"
     _,err:=r.Run(context.Background())
     if err==nil || c.writes!=0 { t.Fatal("planner failure must be safe") }
 }
