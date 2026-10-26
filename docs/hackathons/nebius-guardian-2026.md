@@ -29,7 +29,7 @@ Guardian adds an opt-in, closed-loop recovery capability:
    UID/replica-guarded JSON Patch. If state drifted, fail closed and ask
    for human review instead of overwriting a concurrent operator change.
 7. Emit structured JSON showing the observed state, proposal, decisions,
-   outcome and event timeline. Optionally write a safe self-contained HTML
+   outcome, model ID, provider token usage, duration and event timeline. Optionally write a safe self-contained HTML
    evidence report with `--report guardian-recovery.html`.
 
 **Deliberate scope:** This release handles only a Deployment with both
@@ -137,7 +137,7 @@ runtime API trace (redacted), and demonstration recordings.
 - [x] Constrained Kubernetes executor, verification, rollback
 - [x] Unit tests authored for key paths
 - [x] Optional standalone judge-friendly HTML evidence report
-- [ ] CI confirmed passing with Go 1.26
+- [x] GitHub Actions Go race tests and CLI build passed on the feature branch (re-check the latest commit before submission)
 - [ ] Verified actual Nebius Token Factory inference with your key
 - [ ] Verified success and rollback on a disposable Kubernetes cluster
 - [ ] Free public judge-accessible hosted app or runnable test build
