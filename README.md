@@ -11,6 +11,22 @@
 
 ---
 
+## Nebius × NVIDIA Hackathon 2026 — Guardian (experimental)
+
+**Cyntr Guardian** closes the existing Cloud Ops read-only gap with a bounded
+Kubernetes recovery workflow: **NVIDIA Nemotron on Nebius Token Factory →
+strictly validated repair plan → explicit UID-bound operator approval →
+atomic Kubernetes patch → readiness verification → conditional rollback**.
+
+- See **[the Guardian installation, reproducible demo and compliance guide](docs/hackathons/nebius-guardian-2026.md)**.
+- Run the feature-branch CLI with `go run ./cmd/cyntr guardian --help`.
+- The command is **dry-run by default**, requires an explicit Kubernetes context,
+  and never permits unrestricted model-generated shell commands.
+- The live model call, real cluster demonstration and Devpost submission
+  must be validated independently. Do not use this hackathon workflow in production.
+
+---
+
 ## Why Cyntr
 
 Most agent frameworks are libraries — you build around them. Cyntr is a **platform** — you deploy it and it runs your agents.
