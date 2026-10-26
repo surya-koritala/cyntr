@@ -1,0 +1,31 @@
+name: Guardian - Nebius Hackathon
+
+on:
+  push:
+    branches: [feat/nebius-guardian-2026]
+  pull_request:
+    paths:
+      - 'modules/guardian/**'
+      - 'cmd/cyntr/guardian.go'
+      - 'cmd/cyntr/main.go'
+      - '.github/workflows/guardian.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  guardian:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Guardian tests
+        run: go test -race -count=1 ./modules/guardian
+      - name: Build Cyntr CLI with Guardian
+        run: go build ./cmd/cyntr
+      - name: Verify CLI integration compiles
+        run: go test ./cmd/cyntr
