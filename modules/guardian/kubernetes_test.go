@@ -5,7 +5,6 @@ import (
     "encoding/json"
     "errors"
     "reflect"
-    "strings"
     "testing"
 )
 
@@ -27,14 +26,12 @@ func TestKubernetesPatchHasAtomicPreconditions(t *testing.T) {
     rec:=&recorder{}
     k:=Kubernetes{Context:"kind-guardian",Runner:rec}
     if err:=k.Scale(context.Background(),"demo","api","uid-1",0,2);err!=nil { t.Fatal(err) }
-    if len(rec.args)!=10 || rec.args[6]!="deployment" || rec.args[7]!="api" || rec.args[8]!="--type=json" {
+    if len(rec.args)!=11 || rec.args[6]!="deployment" || rec.args[7]!="api" || rec.args[8]!="--type=json" || rec.args[9]!="-p" {
         t.Fatalf("unrecognized kubectl args: %#v",rec.args)
     }
     var patch []struct { Op string `json:"op"`; Path string `json:"path"`; Value any `json:"value"` }
-    if !strings.HasPrefix(rec.args[9],"-p") { t.Fatal("missing patch") }
-    if err:=json.Unmarshal([]byte(rec.args[9]),&patch); err==nil {
-        t.Fatal("patch should be passed as two distinct arguments")
-    }
+    if err:=json.Unmarshal([]byte(rec.args[10]),&patch);err!=nil {t.Fatalf("malformed JSON Patch: %v",err)}
+    if len(patch)!=3 || patch[0].Op!="test" || patch[0].Path!="/metadata/uid" || patch[0].Value!="uid-1" || patch[1].Op!="test" || patch[1].Path!="/spec/replicas" || patch[2].Op!="replace" || patch[2].Path!="/spec/replicas" {t.Fatalf("unsafe JSON patch: %+v",patch)}
 }
 func TestKubernetesRejectsUnsafeInput(t *testing.T) {
     rec:=&recorder{}
