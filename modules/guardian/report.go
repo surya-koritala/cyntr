@@ -50,9 +50,10 @@ footer{margin-top:25px;padding:16px 0;border-top:1px solid #28364c}
 </style>
 </head>
 <body><main>
-<header><div><small>CY N T R / GUARDIAN · NEBIUS × NVIDIA</small>
+<header><div><small>CYNTR / GUARDIAN · NEBIUS × NVIDIA</small>
 <h1>Incident evidence</h1><div class="sub">Report generated {{.Generated}}</div></div>
 <div class="tag">{{.Result.Status}}</div></header>
+<p class="sub">Execution time: <b>{{.Result.DurationMs}} ms</b> (including inference and verification)</p>
 <div class="cards">
 <section class="card"><h2>Deployment</h2>
 <div><code>{{.Result.Before.Namespace}} / {{.Result.Before.Name}}</code></div>
@@ -66,6 +67,9 @@ footer{margin-top:25px;padding:16px 0;border-top:1px solid #28364c}
 <p><b>Action:</b> <code>{{.Result.Proposal.Action}}</code></p>
 <p><b>Target replicas:</b> {{.Result.Proposal.DesiredReplicas}}</p>
 <p><b>Rationale:</b> {{.Result.Proposal.Explanation}}</p>
+{{if .Result.Proposal.Provider}}<p><b>Provider:</b> {{.Result.Proposal.Provider}}</p>{{end}}
+{{if .Result.Proposal.Model}}<p><b>Model:</b> <code>{{.Result.Proposal.Model}}</code></p>{{end}}
+{{if .Result.Proposal.Provider}}<p><b>Token usage:</b> {{.Result.Proposal.InputTokens}} input / {{.Result.Proposal.OutputTokens}} output</p>{{end}}
 {{if .Result.ApprovalRequired}}<p><b>Required approval:</b> <code>{{.Result.ApprovalRequired}}</code></p>{{end}}
 {{if .Result.Error}}<p><b>Execution error:</b> {{.Result.Error}}</p>{{end}}
 </section>
