@@ -27,7 +27,10 @@ func runGuardian(args []string) error {
     reportPath := f.String("report", "", "optional path for a self-contained HTML evidence report")
     model := f.String("model", guardian.DefaultNebiusModel, "NVIDIA model ID served by Nebius")
     base := f.String("nebius-base-url", guardian.DefaultNebiusBaseURL, "Token Factory API base ending in /v1")
-    if err := f.Parse(args); err != nil { return err }
+    if err := f.Parse(args); err != nil {
+        if errors.Is(err, flag.ErrHelp) { return nil }
+        return err
+    }
     if len(f.Args()) != 0 { return errors.New("unexpected positional arguments") }
     if !guardian.ValidName(*namespace) || !guardian.ValidName(*deployment) || *kubeContext=="" {
         return errors.New("--namespace, --deployment, and --context are required")
