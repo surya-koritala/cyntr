@@ -24,6 +24,7 @@ func runGuardian(args []string) error {
     execute := f.Bool("execute", false, "perform approved mutation; default is dry-run")
     approval := f.String("approve", "", "explicit action-bound approval, e.g. scale:demo/api:2:DEPLOYMENT_UID")
     verify := f.Duration("verify-timeout", 60*time.Second, "health verification deadline")
+    reportPath := f.String("report", "", "optional path for a self-contained HTML evidence report")
     model := f.String("model", guardian.DefaultNebiusModel, "NVIDIA model ID served by Nebius")
     base := f.String("nebius-base-url", guardian.DefaultNebiusBaseURL, "Token Factory API base ending in /v1")
     if err := f.Parse(args); err != nil { return err }
@@ -43,6 +44,12 @@ func runGuardian(args []string) error {
         VerifyTimeout:*verify,
     }
     result, err := runner.Run(ctx)
+    if err != nil { result.Error = err.Error() }
+    if *reportPath != "" {
+        page, renderErr := guardian.HTMLReport(result)
+        if renderErr != nil { return fmt.Errorf("render report: %w",renderErr) }
+        if writeErr := os.WriteFile(*reportPath, page, 0600); writeErr != nil { return fmt.Errorf("write report: %w",writeErr) }
+    }
     output, marshalErr := json.MarshalIndent(result,"","  ")
     if marshalErr==nil { fmt.Println(string(output)) }
     if err != nil { return fmt.Errorf("guardian ended with status %q: %w",result.Status,err) }
