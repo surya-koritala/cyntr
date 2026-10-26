@@ -22,7 +22,7 @@ func runGuardian(args []string) error {
     symptom := f.String("symptom", "HTTP service unavailable following accidental scale-down", "observed incident symptom")
     maxReplicas := f.Int("max-replicas", 3, "upper bound on proposed replicas (1..10)")
     execute := f.Bool("execute", false, "perform approved mutation; default is dry-run")
-    approval := f.String("approve", "", "explicit action-bound approval, e.g. scale:demo/api:2")
+    approval := f.String("approve", "", "explicit action-bound approval, e.g. scale:demo/api:2:DEPLOYMENT_UID")
     verify := f.Duration("verify-timeout", 60*time.Second, "health verification deadline")
     model := f.String("model", guardian.DefaultNebiusModel, "NVIDIA model ID served by Nebius")
     base := f.String("nebius-base-url", guardian.DefaultNebiusBaseURL, "Token Factory API base ending in /v1")
