@@ -85,13 +85,19 @@ func (p NebiusPlanner) Propose(ctx context.Context, incident Incident) (Proposal
         }
         raw = strings.TrimSpace(strings.TrimSuffix(raw[firstNewline+1:], "```"))
     }
-    var proposal Proposal
+    var parsed struct {
+        Action string `json:"action"`
+        DesiredReplicas int32 `json:"desired_replicas"`
+        Explanation string `json:"explanation"`
+    }
     d:=json.NewDecoder(strings.NewReader(raw))
     d.DisallowUnknownFields()
-    if err:=d.Decode(&proposal);err!=nil { return Proposal{}, fmt.Errorf("unparseable model plan: %w",err) }
+    if err:=d.Decode(&parsed);err!=nil { return Proposal{}, fmt.Errorf("unparseable model plan: %w",err) }
     if err:=d.Decode(new(any));err!=io.EOF { return Proposal{}, errors.New("model returned trailing data") }
-    if proposal.Explanation=="" || len(proposal.Explanation)>3000 {
+    if parsed.Explanation=="" || len(parsed.Explanation)>3000 {
         return Proposal{}, errors.New("model explanation missing or too long")
     }
-    return proposal,nil
+    return Proposal{Action:parsed.Action,DesiredReplicas:parsed.DesiredReplicas,
+        Explanation:parsed.Explanation,Provider:"nebius-token-factory",Model:model,
+        InputTokens:response.Usage.Prompt,OutputTokens:response.Usage.Completion},nil
 }
